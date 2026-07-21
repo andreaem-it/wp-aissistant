@@ -179,13 +179,15 @@ def list_tickets(api_key: str, status: str = "open", session: Session = Depends(
 
 
 @app.post("/tickets/{ticket_id}/reply")
-def reply_ticket(ticket_id: int, reply: str, session: Session = Depends(get_session)):
+def reply_ticket(ticket_id: int, api_key: str, reply: str, session: Session = Depends(get_session)):
+    client = get_client(api_key, session)
     ticket = session.get(Ticket, ticket_id)
-    if not ticket:
+    conv = session.get(Conversation, ticket.conversation_id) if ticket else None
+    # verify the ticket belongs to this client before letting anyone reply as the operator
+    if not ticket or not conv or conv.client_id != client.id:
         raise HTTPException(404, "ticket not found")
     session.add(Message(conversation_id=ticket.conversation_id, role="operator", content=reply))
     ticket.status = "answered"
-    conv = session.get(Conversation, ticket.conversation_id)
     conv.status = "open"
     session.add(ticket)
     session.add(conv)
