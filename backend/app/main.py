@@ -1,8 +1,7 @@
 import os
 import secrets
 
-from fastapi import Body, Depends, FastAPI, Header, HTTPException, Request, UploadFile
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import Body, Depends, FastAPI, Header, HTTPException, Request, Response, UploadFile
 from sqlmodel import Session, select
 
 from .db import (
@@ -13,6 +12,7 @@ from .db import (
     Operator,
     OperatorSession,
     Ticket,
+    engine,
     get_session,
     init_db,
 )
@@ -38,19 +38,59 @@ ALWAYS_ESCALATE_KEYWORDS = [
     "cambio password account", "eliminare il mio account", "delete my account",
 ]
 
-# ponytail: wide open for now (the chat widget runs on arbitrary client sites);
-# tighten to a per-client allowed origin if abused — next security item on the roadmap
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# ---- Dynamic CORS ----
+# CORS preflight (OPTIONS) doesn't carry the api_key, so it can't be scoped per-client at the
+# CORS layer. Instead we reflect an Origin only if it's in a dynamic allowlist (panel origins +
+# every client's configured widget origins). The enforceable per-client key<->site binding lives
+# in rate_limit_chat, which can see the api_key. CORS_ALLOW_ALL keeps the permissive default
+# until origins are configured; set it false to enforce the allowlist strictly.
+CORS_ALLOW_ALL = os.getenv("CORS_ALLOW_ALL", "true").lower() == "true"
+PANEL_ORIGINS = [o.strip() for o in os.getenv("PANEL_ORIGINS", "http://localhost:5173").split(",") if o.strip()]
+_ALLOWED_ORIGINS: set[str] = set(PANEL_ORIGINS)
+
+
+def _split_origins(raw: str) -> list[str]:
+    return [o.strip() for o in (raw or "").split(",") if o.strip()]
+
+
+def rebuild_allowed_origins(session: Session) -> None:
+    """Recompute the browser-layer allowlist: panel origins + every client's widget origins."""
+    origins = set(PANEL_ORIGINS)
+    for c in session.exec(select(Client)).all():
+        origins.update(_split_origins(c.allowed_origins))
+    global _ALLOWED_ORIGINS
+    _ALLOWED_ORIGINS = origins
+
+
+def _cors_headers(origin: str) -> dict:
+    return {
+        "Access-Control-Allow-Origin": origin,
+        "Access-Control-Allow-Credentials": "true",
+        "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+        "Access-Control-Allow-Headers": "Authorization, Content-Type, ngrok-skip-browser-warning",
+        "Access-Control-Max-Age": "600",
+        "Vary": "Origin",
+    }
+
+
+@app.middleware("http")
+async def dynamic_cors(request: Request, call_next):
+    origin = request.headers.get("origin")
+    allowed = bool(origin) and (CORS_ALLOW_ALL or origin in _ALLOWED_ORIGINS)
+    # answer preflight before routing (routes don't declare OPTIONS handlers)
+    if request.method == "OPTIONS" and origin and request.headers.get("access-control-request-method"):
+        return Response(status_code=204 if allowed else 403, headers=_cors_headers(origin) if allowed else {})
+    response = await call_next(request)
+    if allowed:
+        response.headers.update(_cors_headers(origin))
+    return response
 
 
 @app.on_event("startup")
 def on_startup():
     init_db()
+    with Session(engine) as session:
+        rebuild_allowed_origins(session)
 
 
 def get_client(api_key: str, session: Session) -> Client:
@@ -84,6 +124,12 @@ def require_admin(authorization: str = Header(None)) -> None:
 
 
 def rate_limit_chat(request: Request, client: Client = Depends(require_client)) -> Client:
+    # enforceable per-client binding: a browser call with this client's key must come from
+    # one of its configured origins (skipped when unconfigured or for server-side calls)
+    allowed = _split_origins(client.allowed_origins)
+    origin = request.headers.get("origin")
+    if allowed and origin and origin not in allowed:
+        raise HTTPException(403, "origin not allowed for this client")
     ip = request.client.host if request.client else "unknown"
     chat_limiter.check(f"chat:{client.id}:{ip}")
     return client
@@ -293,20 +339,35 @@ def stats(operator: Operator = Depends(require_operator), session: Session = Dep
 
 
 @app.post("/admin/clients", dependencies=[Depends(require_admin)])
-def create_client(name: str = Body(..., embed=True), session: Session = Depends(get_session)):
+def create_client(name: str = Body(...), allowed_origins: str = Body(""), session: Session = Depends(get_session)):
     """Provision a new client and return its generated api_key. The key is shown only here —
-    it's not stored in a recoverable form for listing, so capture it now."""
-    client = Client(name=name, api_key=secrets.token_urlsafe(32))
+    it's not stored in a recoverable form for listing, so capture it now. allowed_origins is a
+    comma-separated list of widget origins (empty = no per-client origin enforcement)."""
+    client = Client(name=name, api_key=secrets.token_urlsafe(32), allowed_origins=allowed_origins)
     session.add(client)
     session.commit()
     session.refresh(client)
-    return {"id": client.id, "name": client.name, "api_key": client.api_key}
+    rebuild_allowed_origins(session)
+    return {"id": client.id, "name": client.name, "api_key": client.api_key, "allowed_origins": client.allowed_origins}
 
 
 @app.get("/admin/clients", dependencies=[Depends(require_admin)])
 def list_clients(session: Session = Depends(get_session)):
     # deliberately omit api_key so a leaked admin listing doesn't hand out client keys
-    return [{"id": c.id, "name": c.name} for c in session.exec(select(Client)).all()]
+    return [{"id": c.id, "name": c.name, "allowed_origins": c.allowed_origins} for c in session.exec(select(Client)).all()]
+
+
+@app.post("/admin/clients/{client_id}/origins", dependencies=[Depends(require_admin)])
+def set_client_origins(client_id: int, allowed_origins: str = Body(..., embed=True), session: Session = Depends(get_session)):
+    """Set the comma-separated widget origins allowed to use this client's key from a browser."""
+    client = session.get(Client, client_id)
+    if not client:
+        raise HTTPException(404, "client not found")
+    client.allowed_origins = allowed_origins
+    session.add(client)
+    session.commit()
+    rebuild_allowed_origins(session)
+    return {"id": client.id, "name": client.name, "allowed_origins": client.allowed_origins}
 
 
 @app.post("/admin/clients/{client_id}/rotate-key", dependencies=[Depends(require_admin)])

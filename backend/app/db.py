@@ -15,6 +15,9 @@ class Client(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str
     api_key: str = Field(index=True, unique=True)
+    # comma-separated widget origins allowed to use this client's key from a browser;
+    # empty = not configured (no per-client origin enforcement for this client)
+    allowed_origins: str = ""
 
 
 class Chunk(SQLModel, table=True):

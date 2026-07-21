@@ -129,6 +129,8 @@ per il primo caricamento della knowledge base.
 | `ADMIN_API_KEY` | *(non impostato)* | Token per gli endpoint `/admin/clients`; se assente l'admin API è disabilitata |
 | `CHAT_RATE_LIMIT` | `30` | Richieste `/chat` per 60s, per client+IP |
 | `INGEST_RATE_LIMIT` | `60` | Richieste di ingest per 60s, per client |
+| `PANEL_ORIGINS` | `http://localhost:5173` | Origin del panel ammessi dal CORS (comma-separated) |
+| `CORS_ALLOW_ALL` | `true` | `true` riflette qualsiasi Origin; `false` applica l'allowlist |
 
 LiteLLM permette di passare a OpenAI / Claude / altri provider cambiando `CHAT_MODEL`,
 `EMBED_MODEL` e le relative API key, senza modifiche al codice.
@@ -154,6 +156,7 @@ Auth via header `Authorization: Bearer <token>`. La colonna *Auth* indica quale 
 | `/admin/clients` | POST/GET | 🛡️ | Crea/elenca client |
 | `/admin/clients/{id}/rotate-key` | POST | 🛡️ | Rigenera l'api_key di un client |
 | `/admin/clients/{id}/operators` | POST | 🛡️ | Crea un operatore per un client |
+| `/admin/clients/{id}/origins` | POST | 🛡️ | Imposta gli origin widget ammessi per un client |
 
 ## Struttura del progetto
 
@@ -185,7 +188,10 @@ Lo stato attuale è un MVP dimostrativo. Prima della produzione:
       panel, widget e plugin WP) così da non finire nei log di server/proxy.
 - [x] Autenticazione operatore nel panel: login email+password (hash PBKDF2), token di
       sessione revocabile, operatori legati a un client. (Prima bastava l'`api_key` del client.)
-- [ ] CORS `allow_origins=["*"]`: restringere a origin per-client.
+- [x] CORS dinamico (allowlist: origin del panel + origin per-client via
+      `/admin/clients/{id}/origins`) al posto di `*`, commutabile con `CORS_ALLOW_ALL`. Il
+      binding chiave→sito imponibile è applicato su `/chat` (403 se l'`Origin` browser non è tra
+      quelli configurati per il client).
 - [x] Rate limiting su `/chat` (per client+IP) e sugli endpoint di ingest (per client),
       via limiter in-memory a finestra fissa. ⚠️ per-processo: per deploy multi-worker
       va spostato su uno store condiviso (Redis).
