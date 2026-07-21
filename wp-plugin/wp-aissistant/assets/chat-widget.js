@@ -67,9 +67,13 @@
     setTyping(messages, true);
     let res;
     try {
-      res = await fetch(`${WPAI.backendUrl}/chat?api_key=${encodeURIComponent(WPAI.apiKey)}`, {
+      res = await fetch(`${WPAI.backendUrl}/chat`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "ngrok-skip-browser-warning": "true" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${WPAI.apiKey}`,
+          "ngrok-skip-browser-warning": "true",
+        },
         body: JSON.stringify({
           visitor_id: visitorId(),
           message,
@@ -100,8 +104,8 @@
     pollTimer = setInterval(async () => {
       try {
         const res = await fetch(
-          `${WPAI.backendUrl}/conversations/${conversationId}/messages?api_key=${encodeURIComponent(WPAI.apiKey)}&after_id=${lastMessageId}`,
-          { headers: { "ngrok-skip-browser-warning": "true" } }
+          `${WPAI.backendUrl}/conversations/${conversationId}/messages?after_id=${lastMessageId}`,
+          { headers: { Authorization: `Bearer ${WPAI.apiKey}`, "ngrok-skip-browser-warning": "true" } }
         );
         const data = await res.json();
         for (const m of data.messages) {

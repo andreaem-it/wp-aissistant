@@ -109,7 +109,7 @@ LiteLLM permette di passare a OpenAI / Claude / altri provider cambiando `CHAT_M
 
 ## API principali (backend)
 
-Tutte autenticate via query param `api_key` (tranne dove indicato).
+Tutte autenticate via header `Authorization: Bearer <api_key>`.
 
 | Endpoint | Metodo | Descrizione |
 |----------|--------|-------------|
@@ -120,7 +120,7 @@ Tutte autenticate via query param `api_key` (tranne dove indicato).
 | `/conversations` | GET | Lista conversazioni del client |
 | `/conversations/{id}/messages` | GET | Messaggi (polling widget) |
 | `/tickets` | GET | Ticket per stato |
-| `/tickets/{id}/reply` | POST | Risposta operatore ⚠️ *non verifica api_key* |
+| `/tickets/{id}/reply` | POST | Risposta operatore |
 | `/stats` | GET | Contatori conversazioni |
 
 ## Struttura del progetto
@@ -149,7 +149,8 @@ Lo stato attuale è un MVP dimostrativo. Prima della produzione:
 ### Sicurezza & auth
 - [x] `POST /tickets/{id}/reply` ora **richiede e verifica l'`api_key`** e la proprietà del
       ticket. (Prima chiunque con l'ID poteva rispondere impersonando l'operatore.)
-- [ ] `api_key` passata come query param (finisce nei log): valutare header `Authorization`.
+- [x] `api_key` spostata dal query param all'header `Authorization: Bearer <key>` (backend,
+      panel, widget e plugin WP) così da non finire nei log di server/proxy.
 - [ ] Nessuna autenticazione operatore nel panel (basta conoscere l'`api_key` del client).
 - [ ] CORS `allow_origins=["*"]`: restringere a origin per-client.
 - [ ] Rate limiting su `/chat` e sugli endpoint di ingest.

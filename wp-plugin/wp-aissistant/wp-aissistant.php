@@ -171,11 +171,13 @@ function wpai_build_site_info_content() {
 
 function wpai_push_content($url, $text) {
     if (!wpai_opt('backend_url') || !wpai_opt('api_key') || !trim($text)) return;
-    $endpoint = add_query_arg('api_key', wpai_opt('api_key'), wpai_opt('backend_url') . '/ingest/site-page');
-    return wp_remote_post($endpoint, [
+    return wp_remote_post(wpai_opt('backend_url') . '/ingest/site-page', [
         'timeout' => 15,
         'blocking' => false,
-        'headers' => ['Content-Type' => 'application/json'],
+        'headers' => [
+            'Content-Type' => 'application/json',
+            'Authorization' => 'Bearer ' . wpai_opt('api_key'),
+        ],
         'body' => wp_json_encode(['url' => $url, 'text' => $text]),
     ]);
 }
@@ -185,11 +187,13 @@ function wpai_push_product($post) {
     $product = wc_get_product($post->ID);
     if (!$product) return;
 
-    $endpoint = add_query_arg('api_key', wpai_opt('api_key'), wpai_opt('backend_url') . '/ingest/product');
-    wp_remote_post($endpoint, [
+    wp_remote_post(wpai_opt('backend_url') . '/ingest/product', [
         'timeout' => 15,
         'blocking' => false,
-        'headers' => ['Content-Type' => 'application/json'],
+        'headers' => [
+            'Content-Type' => 'application/json',
+            'Authorization' => 'Bearer ' . wpai_opt('api_key'),
+        ],
         'body' => wp_json_encode([
             'url' => get_permalink($post->ID),
             'title' => $post->post_title,

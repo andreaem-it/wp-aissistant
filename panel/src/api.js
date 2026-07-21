@@ -9,10 +9,12 @@ export function setApiKey(key) {
 }
 
 async function call(path, { method = "GET", params = {}, body } = {}) {
-  const qs = new URLSearchParams({ api_key: getApiKey(), ...params }).toString();
-  const res = await fetch(`${BASE}${path}?${qs}`, {
+  const qs = new URLSearchParams(params).toString();
+  const headers = { Authorization: `Bearer ${getApiKey()}` };
+  if (!(body instanceof FormData)) headers["Content-Type"] = "application/json";
+  const res = await fetch(`${BASE}${path}${qs ? `?${qs}` : ""}`, {
     method,
-    headers: body instanceof FormData ? {} : { "Content-Type": "application/json" },
+    headers,
     body: body instanceof FormData ? body : body ? JSON.stringify(body) : undefined,
   });
   if (!res.ok) throw new Error(`${method} ${path} -> ${res.status}`);

@@ -1,4 +1,4 @@
-from fastapi import Body, Depends, FastAPI, HTTPException, UploadFile
+from fastapi import Body, Depends, FastAPI, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from sqlmodel import Session, select
 
@@ -37,9 +37,20 @@ def get_client(api_key: str, session: Session) -> Client:
     return client
 
 
+def require_client(
+    authorization: str = Header(None),
+    session: Session = Depends(get_session),
+) -> Client:
+    """Auth dependency: reads the client api_key from the `Authorization: Bearer <key>`
+    header instead of a query param, so keys don't leak into server/proxy access logs.
+    FastAPI caches get_session within a request, so the endpoint shares this session."""
+    if not authorization or not authorization.lower().startswith("bearer "):
+        raise HTTPException(401, "missing bearer token")
+    return get_client(authorization[7:].strip(), session)
+
+
 @app.post("/ingest/document")
-async def ingest_document(api_key: str, file: UploadFile, session: Session = Depends(get_session)):
-    client = get_client(api_key, session)
+async def ingest_document(file: UploadFile, client: Client = Depends(require_client), session: Session = Depends(get_session)):
     data = await file.read()
     text = extract_text(file.filename, data)
     ingest(session, client.id, "document", file.filename, text)
@@ -47,9 +58,8 @@ async def ingest_document(api_key: str, file: UploadFile, session: Session = Dep
 
 
 @app.post("/ingest/site-page")
-def ingest_site_page(api_key: str, url: str = Body(...), text: str = Body(...), session: Session = Depends(get_session)):
+def ingest_site_page(url: str = Body(...), text: str = Body(...), client: Client = Depends(require_client), session: Session = Depends(get_session)):
     """Called by the WP plugin on publish/update to push page/product content."""
-    client = get_client(api_key, session)
     # replace previous chunks for this URL so edits don't duplicate
     old = session.exec(select(Chunk).where(Chunk.client_id == client.id, Chunk.source_ref == url)).all()
     for c in old:
@@ -61,16 +71,15 @@ def ingest_site_page(api_key: str, url: str = Body(...), text: str = Body(...), 
 
 @app.post("/ingest/product")
 def ingest_product_endpoint(
-    api_key: str,
     url: str = Body(...),
     title: str = Body(...),
     price: str = Body(""),
     image_url: str = Body(""),
     description: str = Body(""),
+    client: Client = Depends(require_client),
     session: Session = Depends(get_session),
 ):
     """Called by the WP plugin for WooCommerce products, in addition to /ingest/site-page."""
-    client = get_client(api_key, session)
     text = f"{title}\n{description}\nPrezzo: {price}" if price else f"{title}\n{description}"
     ingest_product(session, client.id, url, title, price, image_url, text)
     return {"ok": True}
@@ -78,14 +87,12 @@ def ingest_product_endpoint(
 
 @app.post("/chat")
 def chat_endpoint(
-    api_key: str,
     visitor_id: str = Body(...),
     message: str = Body(...),
     conversation_id: int | None = Body(None),
+    client: Client = Depends(require_client),
     session: Session = Depends(get_session),
 ):
-    client = get_client(api_key, session)
-
     if conversation_id:
         conv = session.get(Conversation, conversation_id)
         if not conv or conv.client_id != client.id:
@@ -140,9 +147,8 @@ def chat_endpoint(
 
 
 @app.get("/conversations/{conversation_id}/messages")
-def conversation_messages(conversation_id: int, api_key: str, after_id: int = 0, session: Session = Depends(get_session)):
+def conversation_messages(conversation_id: int, after_id: int = 0, client: Client = Depends(require_client), session: Session = Depends(get_session)):
     """Polled by the chat widget to pick up operator replies while a conversation is escalated."""
-    client = get_client(api_key, session)
     conv = session.get(Conversation, conversation_id)
     if not conv or conv.client_id != client.id:
         raise HTTPException(404, "conversation not found")
@@ -153,8 +159,7 @@ def conversation_messages(conversation_id: int, api_key: str, after_id: int = 0,
 
 
 @app.get("/conversations")
-def list_conversations(api_key: str, session: Session = Depends(get_session)):
-    client = get_client(api_key, session)
+def list_conversations(client: Client = Depends(require_client), session: Session = Depends(get_session)):
     convs = session.exec(
         select(Conversation).where(Conversation.client_id == client.id).order_by(Conversation.created_at.desc())
     ).all()
@@ -168,8 +173,7 @@ def list_conversations(api_key: str, session: Session = Depends(get_session)):
 
 
 @app.get("/tickets")
-def list_tickets(api_key: str, status: str = "open", session: Session = Depends(get_session)):
-    client = get_client(api_key, session)
+def list_tickets(status: str = "open", client: Client = Depends(require_client), session: Session = Depends(get_session)):
     tickets = session.exec(
         select(Ticket, Conversation)
         .join(Conversation, Ticket.conversation_id == Conversation.id)
@@ -179,8 +183,7 @@ def list_tickets(api_key: str, status: str = "open", session: Session = Depends(
 
 
 @app.post("/tickets/{ticket_id}/reply")
-def reply_ticket(ticket_id: int, api_key: str, reply: str, session: Session = Depends(get_session)):
-    client = get_client(api_key, session)
+def reply_ticket(ticket_id: int, reply: str, client: Client = Depends(require_client), session: Session = Depends(get_session)):
     ticket = session.get(Ticket, ticket_id)
     conv = session.get(Conversation, ticket.conversation_id) if ticket else None
     # verify the ticket belongs to this client before letting anyone reply as the operator
@@ -196,8 +199,7 @@ def reply_ticket(ticket_id: int, api_key: str, reply: str, session: Session = De
 
 
 @app.get("/stats")
-def stats(api_key: str, session: Session = Depends(get_session)):
-    client = get_client(api_key, session)
+def stats(client: Client = Depends(require_client), session: Session = Depends(get_session)):
     convs = session.exec(select(Conversation).where(Conversation.client_id == client.id)).all()
     return {
         "total_conversations": len(convs),
