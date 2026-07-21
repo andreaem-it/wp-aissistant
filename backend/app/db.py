@@ -85,10 +85,14 @@ class OperatorSession(SQLModel, table=True):
 
 
 def init_db():
+    """Ensure the pgvector extension exists. Schema is managed by Alembic
+    (`alembic upgrade head`); set DB_AUTO_CREATE=true only for a quick dev spin-up
+    to create tables directly from the models instead of running migrations."""
     with engine.connect() as conn:
         conn.exec_driver_sql("CREATE EXTENSION IF NOT EXISTS vector")
         conn.commit()
-    SQLModel.metadata.create_all(engine)
+    if os.getenv("DB_AUTO_CREATE", "false").lower() == "true":
+        SQLModel.metadata.create_all(engine)
 
 
 def get_session():

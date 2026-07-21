@@ -82,6 +82,7 @@ docker compose exec ollama ollama pull nomic-embed-text
 
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
+alembic upgrade head             # crea/aggiorna lo schema del DB
 uvicorn app.main:app --reload   # http://localhost:8000
 ```
 
@@ -123,6 +124,7 @@ per il primo caricamento della knowledge base.
 |-----------|---------|-------------|
 | `DATABASE_URL` | `postgresql+psycopg://rag:rag@localhost:5432/rag` | Connessione Postgres |
 | `EMBED_DIM` | `768` | Dimensione embedding (default di `nomic-embed-text`) |
+| `DB_AUTO_CREATE` | `false` | `true` crea le tabelle dai modelli allo startup (solo dev; in prod usa Alembic) |
 | `CHAT_MODEL` | `ollama/llama3.1` | Modello chat (formato LiteLLM) |
 | `EMBED_MODEL` | `ollama/nomic-embed-text` | Modello embedding |
 | `LLM_API_BASE` | `http://localhost:11434` | Endpoint LLM (Ollama locale) |
@@ -201,7 +203,9 @@ Lo stato attuale è un MVP dimostrativo. Prima della produzione:
 ### Affidabilità & scalabilità
 - [ ] Ingest sincrono e bloccante: spostare l'embedding su una coda/worker in background.
 - [ ] Indice vettoriale (IVFFlat/HNSW) su pgvector per scalare la ricerca.
-- [ ] Migrazioni DB (Alembic) invece di `create_all`.
+- [x] Migrazioni DB con Alembic (`alembic upgrade head`) al posto di `create_all`; migrazione
+      iniziale `0001_initial` che riproduce lo schema. `create_all` resta come scorciatoia dev
+      dietro `DB_AUTO_CREATE=true`.
 - [ ] `@app.on_event("startup")` deprecato in FastAPI → usare lifespan.
 - [ ] Gestione errori LLM/embedding (timeout, retry, fallback).
 
