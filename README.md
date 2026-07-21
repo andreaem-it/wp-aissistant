@@ -75,8 +75,14 @@ pip install -r requirements.txt
 uvicorn app.main:app --reload   # http://localhost:8000
 ```
 
-> **Nota:** non esiste ancora un endpoint di registrazione client. Per creare il primo
-> client, inserisci a mano una riga in tabella `client` con `name` e `api_key`.
+> **Creare un client:** imposta `ADMIN_API_KEY` in `.env`, poi chiama l'endpoint admin:
+> ```bash
+> curl -X POST http://localhost:8000/admin/clients \
+>   -H "Authorization: Bearer $ADMIN_API_KEY" \
+>   -H "Content-Type: application/json" \
+>   -d '{"name": "Acme Srl"}'
+> # -> {"id": 1, "name": "Acme Srl", "api_key": "…"}  ← salva l'api_key, è mostrata solo qui
+> ```
 
 ### Panel
 
@@ -103,6 +109,7 @@ per il primo caricamento della knowledge base.
 | `CHAT_MODEL` | `ollama/llama3.1` | Modello chat (formato LiteLLM) |
 | `EMBED_MODEL` | `ollama/nomic-embed-text` | Modello embedding |
 | `LLM_API_BASE` | `http://localhost:11434` | Endpoint LLM (Ollama locale) |
+| `ADMIN_API_KEY` | *(non impostato)* | Token per gli endpoint `/admin/clients`; se assente l'admin API è disabilitata |
 
 LiteLLM permette di passare a OpenAI / Claude / altri provider cambiando `CHAT_MODEL`,
 `EMBED_MODEL` e le relative API key, senza modifiche al codice.
@@ -122,6 +129,8 @@ Tutte autenticate via header `Authorization: Bearer <api_key>`.
 | `/tickets` | GET | Ticket per stato |
 | `/tickets/{id}/reply` | POST | Risposta operatore |
 | `/stats` | GET | Contatori conversazioni |
+| `/admin/clients` | POST/GET | Crea/elenca client *(auth: `ADMIN_API_KEY`)* |
+| `/admin/clients/{id}/rotate-key` | POST | Rigenera l'api_key di un client *(auth: `ADMIN_API_KEY`)* |
 
 ## Struttura del progetto
 
@@ -154,7 +163,8 @@ Lo stato attuale è un MVP dimostrativo. Prima della produzione:
 - [ ] Nessuna autenticazione operatore nel panel (basta conoscere l'`api_key` del client).
 - [ ] CORS `allow_origins=["*"]`: restringere a origin per-client.
 - [ ] Rate limiting su `/chat` e sugli endpoint di ingest.
-- [ ] Endpoint di registrazione/gestione client (oggi inserimento manuale nel DB).
+- [x] Endpoint di registrazione/gestione client (`/admin/clients` + rotate-key), protetti da
+      `ADMIN_API_KEY`. (Prima l'inserimento era manuale nel DB.)
 
 ### Affidabilità & scalabilità
 - [ ] Ingest sincrono e bloccante: spostare l'embedding su una coda/worker in background.

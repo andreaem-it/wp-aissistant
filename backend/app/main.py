@@ -1,3 +1,6 @@
+import os
+import secrets
+
 from fastapi import Body, Depends, FastAPI, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from sqlmodel import Session, select
@@ -7,6 +10,9 @@ from .llm import chat as llm_chat
 from .rag import extract_text, ingest, ingest_product, retrieve, retrieve_products
 
 app = FastAPI(title="wp-aissistant backend")
+
+# admin token for client onboarding endpoints; unset => the /admin surface is disabled (fail closed)
+ADMIN_API_KEY = os.getenv("ADMIN_API_KEY")
 
 # ponytail: deterministic safety net for categories that must always reach a human —
 # small local LLMs don't reliably follow "always escalate refunds" instructions
@@ -47,6 +53,17 @@ def require_client(
     if not authorization or not authorization.lower().startswith("bearer "):
         raise HTTPException(401, "missing bearer token")
     return get_client(authorization[7:].strip(), session)
+
+
+def require_admin(authorization: str = Header(None)) -> None:
+    """Gates the client-onboarding endpoints behind the ADMIN_API_KEY env var.
+    Fails closed: if no admin key is configured the whole /admin surface is disabled."""
+    if not ADMIN_API_KEY:
+        raise HTTPException(503, "admin api not configured")
+    if not authorization or not authorization.lower().startswith("bearer "):
+        raise HTTPException(401, "missing bearer token")
+    if not secrets.compare_digest(authorization[7:].strip(), ADMIN_API_KEY):
+        raise HTTPException(401, "invalid admin key")
 
 
 @app.post("/ingest/document")
@@ -206,3 +223,34 @@ def stats(client: Client = Depends(require_client), session: Session = Depends(g
         "escalated": sum(1 for c in convs if c.status == "escalated"),
         "closed": sum(1 for c in convs if c.status == "closed"),
     }
+
+
+# ---- Admin: client onboarding (guarded by ADMIN_API_KEY) ----
+
+
+@app.post("/admin/clients", dependencies=[Depends(require_admin)])
+def create_client(name: str = Body(..., embed=True), session: Session = Depends(get_session)):
+    """Provision a new client and return its generated api_key. The key is shown only here —
+    it's not stored in a recoverable form for listing, so capture it now."""
+    client = Client(name=name, api_key=secrets.token_urlsafe(32))
+    session.add(client)
+    session.commit()
+    session.refresh(client)
+    return {"id": client.id, "name": client.name, "api_key": client.api_key}
+
+
+@app.get("/admin/clients", dependencies=[Depends(require_admin)])
+def list_clients(session: Session = Depends(get_session)):
+    # deliberately omit api_key so a leaked admin listing doesn't hand out client keys
+    return [{"id": c.id, "name": c.name} for c in session.exec(select(Client)).all()]
+
+
+@app.post("/admin/clients/{client_id}/rotate-key", dependencies=[Depends(require_admin)])
+def rotate_client_key(client_id: int, session: Session = Depends(get_session)):
+    client = session.get(Client, client_id)
+    if not client:
+        raise HTTPException(404, "client not found")
+    client.api_key = secrets.token_urlsafe(32)
+    session.add(client)
+    session.commit()
+    return {"id": client.id, "name": client.name, "api_key": client.api_key}
