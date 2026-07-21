@@ -32,6 +32,7 @@ Tre componenti indipendenti:
 | **Backend** | `backend/` | FastAPI, SQLModel, Postgres + pgvector, LiteLLM | API RAG, chat, ticketing, ingest |
 | **Panel** | `panel/` | React 18, Vite | Dashboard operatori (conversazioni, ticket, upload KB, stats) |
 | **Plugin WP** | `wp-plugin/` | PHP (WordPress), JS/CSS vanilla | Widget di chat + sincronizzazione automatica dei contenuti |
+| **Sito marketing** | `website/` | HTML/CSS statico (zero build) | Landing promozionale: feature, prezzi, login/registrazione |
 
 ## Come funziona
 
@@ -175,9 +176,19 @@ wp-aissistant/
 │   └── test_chunking.py
 ├── panel/                 # dashboard React/Vite
 │   └── src/               # App, Conversations, Tickets, Upload, Stats, api
-└── wp-plugin/
-    └── wp-aissistant/     # plugin PHP + assets widget (js/css)
+├── wp-plugin/
+│   └── wp-aissistant/     # plugin PHP + assets widget (js/css)
+└── website/               # landing marketing statica (index.html + styles.css)
 ```
+
+### Sito marketing (`website/`)
+
+Landing page promozionale statica, senza build: apri `website/index.html` nel browser (o
+servila con qualsiasi web server statico). Presenta funzionalità, prezzi **a pacchetto**
+(Starter/Pro/Business, con toggle mensile/annuale) e **a consumo** (pay-as-you-go), più i link
+di **login** e **registrazione**. Le destinazioni di quei link si configurano nell'oggetto
+`LINKS` in fondo a `index.html` (di default puntano al panel su `http://localhost:5173`).
+I prezzi mostrati sono di listino promozionale d'esempio, da allineare all'offerta reale.
 
 ## Roadmap MVP → Produzione
 
