@@ -1,27 +1,40 @@
 const BASE = import.meta.env.VITE_API_BASE || "http://localhost:8000";
 
-export function getApiKey() {
-  return localStorage.getItem("api_key") || "";
+export function getToken() {
+  return localStorage.getItem("operator_token") || "";
 }
 
-export function setApiKey(key) {
-  localStorage.setItem("api_key", key);
+export function setToken(token) {
+  localStorage.setItem("operator_token", token);
 }
 
-async function call(path, { method = "GET", params = {}, body } = {}) {
+export function clearToken() {
+  localStorage.removeItem("operator_token");
+}
+
+async function call(path, { method = "GET", params = {}, body, auth = true } = {}) {
   const qs = new URLSearchParams(params).toString();
-  const headers = { Authorization: `Bearer ${getApiKey()}` };
+  const headers = {};
+  if (auth) headers.Authorization = `Bearer ${getToken()}`;
   if (!(body instanceof FormData)) headers["Content-Type"] = "application/json";
   const res = await fetch(`${BASE}${path}${qs ? `?${qs}` : ""}`, {
     method,
     headers,
     body: body instanceof FormData ? body : body ? JSON.stringify(body) : undefined,
   });
+  // an expired/invalid session drops us back to the login screen
+  if (res.status === 401 && auth) {
+    clearToken();
+    window.location.reload();
+  }
   if (!res.ok) throw new Error(`${method} ${path} -> ${res.status}`);
   return res.json();
 }
 
 export const api = {
+  login: (email, password) =>
+    call("/operator/login", { method: "POST", body: { email, password }, auth: false }),
+  logout: () => call("/operator/logout", { method: "POST" }),
   conversations: () => call("/conversations"),
   messages: (id) => call(`/conversations/${id}/messages`),
   tickets: (status = "open") => call("/tickets", { params: { status } }),

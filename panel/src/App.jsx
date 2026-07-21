@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { getApiKey, setApiKey } from "./api.js";
+import { getToken, setToken, clearToken, api } from "./api.js";
 import Conversations from "./Conversations.jsx";
 import Tickets from "./Tickets.jsx";
 import Upload from "./Upload.jsx";
@@ -13,27 +13,46 @@ const TABS = [
 ];
 
 export default function App() {
-  const [apiKey, setApiKeyState] = useState(getApiKey());
+  const [token, setTokenState] = useState(getToken());
   const [tab, setTab] = useState("conversations");
+  const [error, setError] = useState("");
 
-  if (!apiKey) {
+  if (!token) {
     return (
       <div className="wpai-login">
         <form
-          onSubmit={(e) => {
+          onSubmit={async (e) => {
             e.preventDefault();
-            const key = new FormData(e.target).get("key");
-            setApiKey(key);
-            setApiKeyState(key);
+            const data = new FormData(e.target);
+            try {
+              const { token } = await api.login(data.get("email"), data.get("password"));
+              setToken(token);
+              setTokenState(token);
+              setError("");
+            } catch {
+              setError("Credenziali non valide");
+            }
           }}
         >
           <h2>WP AIssistant</h2>
-          <input name="key" placeholder="API key cliente" autoFocus />
+          <input name="email" type="email" placeholder="Email operatore" autoFocus />
+          <input name="password" type="password" placeholder="Password" />
           <button className="wpai-btn" type="submit">Entra</button>
+          {error && <p style={{ color: "#c0392b", margin: "8px 0 0" }}>{error}</p>}
         </form>
       </div>
     );
   }
+
+  const logout = async () => {
+    try {
+      await api.logout();
+    } catch {
+      // ignore: we clear the local token regardless
+    }
+    clearToken();
+    setTokenState("");
+  };
 
   const Active = TABS.find((t) => t.key === tab).Component;
   return (
@@ -49,6 +68,9 @@ export default function App() {
             <span>{t.icon}</span> {t.label}
           </button>
         ))}
+        <button className="wpai-nav-item" style={{ marginTop: "auto" }} onClick={logout}>
+          <span>🚪</span> Esci
+        </button>
       </nav>
       <main className="wpai-main">
         <Active />

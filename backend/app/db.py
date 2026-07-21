@@ -62,6 +62,25 @@ class Ticket(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
+class Operator(SQLModel, table=True):
+    """A human agent who logs into the panel. Belongs to one client (tenant)."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    client_id: int = Field(index=True, foreign_key="client.id")
+    email: str = Field(index=True, unique=True)
+    password_hash: str
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class OperatorSession(SQLModel, table=True):
+    """Opaque bearer token issued at login; deleted on logout. client_id is denormalized
+    here so request scoping doesn't need an extra Operator lookup."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    operator_id: int = Field(index=True, foreign_key="operator.id")
+    client_id: int = Field(index=True, foreign_key="client.id")
+    token: str = Field(index=True, unique=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 def init_db():
     with engine.connect() as conn:
         conn.exec_driver_sql("CREATE EXTENSION IF NOT EXISTS vector")

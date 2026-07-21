@@ -57,6 +57,16 @@ Tre componenti indipendenti:
 - **Conversation** — `open | escalated | closed`.
 - **Message** — `user | assistant | operator`.
 - **Ticket** — `open | answered | closed`, collegato a una conversazione.
+- **Operator** — agente umano che accede al panel; appartiene a un client (password hashed).
+- **OperatorSession** — token di sessione opaco emesso al login, eliminato al logout.
+
+### Due tipi di credenziale
+
+- **api_key del client** — machine-to-machine: usata da widget e plugin WP per `/chat` e ingest.
+- **Token operatore** — sessione umana: ottenuto via login email+password, usato dal panel.
+
+L'endpoint `/conversations/{id}/messages` accetta entrambi (il widget lo interroga in polling,
+il panel lo legge).
 
 ## Quick start (sviluppo)
 
@@ -83,6 +93,13 @@ uvicorn app.main:app --reload   # http://localhost:8000
 >   -d '{"name": "Acme Srl"}'
 > # -> {"id": 1, "name": "Acme Srl", "api_key": "…"}  ← salva l'api_key, è mostrata solo qui
 > ```
+> **Creare un operatore** (per accedere al panel):
+> ```bash
+> curl -X POST http://localhost:8000/admin/clients/1/operators \
+>   -H "Authorization: Bearer $ADMIN_API_KEY" \
+>   -H "Content-Type: application/json" \
+>   -d '{"email": "op@acme.it", "password": "…"}'
+> ```
 
 ### Panel
 
@@ -92,7 +109,7 @@ npm install
 npm run dev                     # http://localhost:5173
 ```
 Configura il backend con `VITE_API_BASE` (default `http://localhost:8000`). All'avvio
-inserisci l'`api_key` del client.
+accedi con **email e password dell'operatore** (crealo prima via endpoint admin, vedi sopra).
 
 ### Plugin WP
 
@@ -118,21 +135,25 @@ LiteLLM permette di passare a OpenAI / Claude / altri provider cambiando `CHAT_M
 
 ## API principali (backend)
 
-Tutte autenticate via header `Authorization: Bearer <api_key>`.
+Auth via header `Authorization: Bearer <token>`. La colonna *Auth* indica quale credenziale:
+🔑 api_key client · 👤 token operatore · 🔀 entrambi · 🛡️ `ADMIN_API_KEY`.
 
-| Endpoint | Metodo | Descrizione |
-|----------|--------|-------------|
-| `/ingest/document` | POST | Upload documento (PDF/immagine/testo) nella KB |
-| `/ingest/site-page` | POST | Push contenuto pagina/articolo (dal plugin) |
-| `/ingest/product` | POST | Push prodotto WooCommerce (dal plugin) |
-| `/chat` | POST | Messaggio visitatore → risposta o escalation |
-| `/conversations` | GET | Lista conversazioni del client |
-| `/conversations/{id}/messages` | GET | Messaggi (polling widget) |
-| `/tickets` | GET | Ticket per stato |
-| `/tickets/{id}/reply` | POST | Risposta operatore |
-| `/stats` | GET | Contatori conversazioni |
-| `/admin/clients` | POST/GET | Crea/elenca client *(auth: `ADMIN_API_KEY`)* |
-| `/admin/clients/{id}/rotate-key` | POST | Rigenera l'api_key di un client *(auth: `ADMIN_API_KEY`)* |
+| Endpoint | Metodo | Auth | Descrizione |
+|----------|--------|------|-------------|
+| `/chat` | POST | 🔑 | Messaggio visitatore → risposta o escalation |
+| `/ingest/site-page` | POST | 🔑 | Push contenuto pagina/articolo (dal plugin) |
+| `/ingest/product` | POST | 🔑 | Push prodotto WooCommerce (dal plugin) |
+| `/ingest/document` | POST | 👤 | Upload documento (PDF/immagine/testo) dal panel |
+| `/conversations` | GET | 👤 | Lista conversazioni del client |
+| `/conversations/{id}/messages` | GET | 🔀 | Messaggi (polling widget + lettura panel) |
+| `/tickets` | GET | 👤 | Ticket per stato |
+| `/tickets/{id}/reply` | POST | 👤 | Risposta operatore |
+| `/stats` | GET | 👤 | Contatori conversazioni |
+| `/operator/login` | POST | — | Login operatore (email+password) → token |
+| `/operator/logout` | POST | 👤 | Invalida la sessione operatore |
+| `/admin/clients` | POST/GET | 🛡️ | Crea/elenca client |
+| `/admin/clients/{id}/rotate-key` | POST | 🛡️ | Rigenera l'api_key di un client |
+| `/admin/clients/{id}/operators` | POST | 🛡️ | Crea un operatore per un client |
 
 ## Struttura del progetto
 
@@ -162,7 +183,8 @@ Lo stato attuale è un MVP dimostrativo. Prima della produzione:
       ticket. (Prima chiunque con l'ID poteva rispondere impersonando l'operatore.)
 - [x] `api_key` spostata dal query param all'header `Authorization: Bearer <key>` (backend,
       panel, widget e plugin WP) così da non finire nei log di server/proxy.
-- [ ] Nessuna autenticazione operatore nel panel (basta conoscere l'`api_key` del client).
+- [x] Autenticazione operatore nel panel: login email+password (hash PBKDF2), token di
+      sessione revocabile, operatori legati a un client. (Prima bastava l'`api_key` del client.)
 - [ ] CORS `allow_origins=["*"]`: restringere a origin per-client.
 - [x] Rate limiting su `/chat` (per client+IP) e sugli endpoint di ingest (per client),
       via limiter in-memory a finestra fissa. ⚠️ per-processo: per deploy multi-worker

@@ -5,10 +5,21 @@ from fastapi import Body, Depends, FastAPI, Header, HTTPException, Request, Uplo
 from fastapi.middleware.cors import CORSMiddleware
 from sqlmodel import Session, select
 
-from .db import Chunk, Client, Conversation, Message, Ticket, get_session, init_db
+from .db import (
+    Chunk,
+    Client,
+    Conversation,
+    Message,
+    Operator,
+    OperatorSession,
+    Ticket,
+    get_session,
+    init_db,
+)
 from .llm import chat as llm_chat
 from .rag import extract_text, ingest, ingest_product, retrieve, retrieve_products
 from .ratelimit import FixedWindowLimiter
+from .security import hash_password, verify_password
 
 app = FastAPI(title="wp-aissistant backend")
 
@@ -27,8 +38,8 @@ ALWAYS_ESCALATE_KEYWORDS = [
     "cambio password account", "eliminare il mio account", "delete my account",
 ]
 
-# ponytail: wide open for now (the chat widget runs on arbitrary client sites and
-# the api_key is the real auth boundary); tighten to a per-client allowed origin if abused
+# ponytail: wide open for now (the chat widget runs on arbitrary client sites);
+# tighten to a per-client allowed origin if abused — next security item on the roadmap
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -83,11 +94,47 @@ def rate_limit_ingest(client: Client = Depends(require_client)) -> Client:
     return client
 
 
+def _bearer_token(authorization: str | None) -> str:
+    if not authorization or not authorization.lower().startswith("bearer "):
+        raise HTTPException(401, "missing bearer token")
+    return authorization[7:].strip()
+
+
+def require_operator(
+    authorization: str = Header(None), session: Session = Depends(get_session)
+) -> Operator:
+    """Auth for the human panel: resolves an operator session token to its Operator."""
+    op_session = session.exec(
+        select(OperatorSession).where(OperatorSession.token == _bearer_token(authorization))
+    ).first()
+    operator = session.get(Operator, op_session.operator_id) if op_session else None
+    if not operator:
+        raise HTTPException(401, "invalid or expired session")
+    return operator
+
+
+def resolve_client_id(
+    authorization: str = Header(None), session: Session = Depends(get_session)
+) -> int:
+    """Dual auth for endpoints shared by the widget (client api_key) and the panel
+    (operator session token). Returns the owning client_id from whichever matches."""
+    token = _bearer_token(authorization)
+    op_session = session.exec(
+        select(OperatorSession).where(OperatorSession.token == token)
+    ).first()
+    if op_session:
+        return op_session.client_id
+    client = session.exec(select(Client).where(Client.api_key == token)).first()
+    if client:
+        return client.id
+    raise HTTPException(401, "invalid credentials")
+
+
 @app.post("/ingest/document")
-async def ingest_document(file: UploadFile, client: Client = Depends(rate_limit_ingest), session: Session = Depends(get_session)):
+async def ingest_document(file: UploadFile, operator: Operator = Depends(require_operator), session: Session = Depends(get_session)):
     data = await file.read()
     text = extract_text(file.filename, data)
-    ingest(session, client.id, "document", file.filename, text)
+    ingest(session, operator.client_id, "document", file.filename, text)
     return {"ok": True, "chars": len(text)}
 
 
@@ -181,10 +228,10 @@ def chat_endpoint(
 
 
 @app.get("/conversations/{conversation_id}/messages")
-def conversation_messages(conversation_id: int, after_id: int = 0, client: Client = Depends(require_client), session: Session = Depends(get_session)):
-    """Polled by the chat widget to pick up operator replies while a conversation is escalated."""
+def conversation_messages(conversation_id: int, after_id: int = 0, client_id: int = Depends(resolve_client_id), session: Session = Depends(get_session)):
+    """Polled by the chat widget (client api_key) and read by the panel (operator token)."""
     conv = session.get(Conversation, conversation_id)
-    if not conv or conv.client_id != client.id:
+    if not conv or conv.client_id != client_id:
         raise HTTPException(404, "conversation not found")
     messages = session.exec(
         select(Message).where(Message.conversation_id == conversation_id, Message.id > after_id).order_by(Message.id)
@@ -193,9 +240,9 @@ def conversation_messages(conversation_id: int, after_id: int = 0, client: Clien
 
 
 @app.get("/conversations")
-def list_conversations(client: Client = Depends(require_client), session: Session = Depends(get_session)):
+def list_conversations(operator: Operator = Depends(require_operator), session: Session = Depends(get_session)):
     convs = session.exec(
-        select(Conversation).where(Conversation.client_id == client.id).order_by(Conversation.created_at.desc())
+        select(Conversation).where(Conversation.client_id == operator.client_id).order_by(Conversation.created_at.desc())
     ).all()
     result = []
     for c in convs:
@@ -207,21 +254,21 @@ def list_conversations(client: Client = Depends(require_client), session: Sessio
 
 
 @app.get("/tickets")
-def list_tickets(status: str = "open", client: Client = Depends(require_client), session: Session = Depends(get_session)):
+def list_tickets(status: str = "open", operator: Operator = Depends(require_operator), session: Session = Depends(get_session)):
     tickets = session.exec(
         select(Ticket, Conversation)
         .join(Conversation, Ticket.conversation_id == Conversation.id)
-        .where(Conversation.client_id == client.id, Ticket.status == status)
+        .where(Conversation.client_id == operator.client_id, Ticket.status == status)
     ).all()
     return [{"ticket": t, "conversation": c} for t, c in tickets]
 
 
 @app.post("/tickets/{ticket_id}/reply")
-def reply_ticket(ticket_id: int, reply: str, client: Client = Depends(require_client), session: Session = Depends(get_session)):
+def reply_ticket(ticket_id: int, reply: str, operator: Operator = Depends(require_operator), session: Session = Depends(get_session)):
     ticket = session.get(Ticket, ticket_id)
     conv = session.get(Conversation, ticket.conversation_id) if ticket else None
-    # verify the ticket belongs to this client before letting anyone reply as the operator
-    if not ticket or not conv or conv.client_id != client.id:
+    # verify the ticket belongs to this operator's client before replying as the operator
+    if not ticket or not conv or conv.client_id != operator.client_id:
         raise HTTPException(404, "ticket not found")
     session.add(Message(conversation_id=ticket.conversation_id, role="operator", content=reply))
     ticket.status = "answered"
@@ -233,8 +280,8 @@ def reply_ticket(ticket_id: int, reply: str, client: Client = Depends(require_cl
 
 
 @app.get("/stats")
-def stats(client: Client = Depends(require_client), session: Session = Depends(get_session)):
-    convs = session.exec(select(Conversation).where(Conversation.client_id == client.id)).all()
+def stats(operator: Operator = Depends(require_operator), session: Session = Depends(get_session)):
+    convs = session.exec(select(Conversation).where(Conversation.client_id == operator.client_id)).all()
     return {
         "total_conversations": len(convs),
         "escalated": sum(1 for c in convs if c.status == "escalated"),
@@ -271,3 +318,42 @@ def rotate_client_key(client_id: int, session: Session = Depends(get_session)):
     session.add(client)
     session.commit()
     return {"id": client.id, "name": client.name, "api_key": client.api_key}
+
+
+@app.post("/admin/clients/{client_id}/operators", dependencies=[Depends(require_admin)])
+def create_operator(client_id: int, email: str = Body(...), password: str = Body(...), session: Session = Depends(get_session)):
+    """Provision a panel operator for a client. Password is stored hashed (PBKDF2)."""
+    if not session.get(Client, client_id):
+        raise HTTPException(404, "client not found")
+    if session.exec(select(Operator).where(Operator.email == email)).first():
+        raise HTTPException(409, "email already registered")
+    operator = Operator(client_id=client_id, email=email, password_hash=hash_password(password))
+    session.add(operator)
+    session.commit()
+    session.refresh(operator)
+    return {"id": operator.id, "client_id": client_id, "email": email}
+
+
+# ---- Operator auth (panel login) ----
+
+
+@app.post("/operator/login")
+def operator_login(email: str = Body(...), password: str = Body(...), session: Session = Depends(get_session)):
+    operator = session.exec(select(Operator).where(Operator.email == email)).first()
+    if not operator or not verify_password(password, operator.password_hash):
+        raise HTTPException(401, "invalid credentials")
+    token = secrets.token_urlsafe(32)
+    session.add(OperatorSession(operator_id=operator.id, client_id=operator.client_id, token=token))
+    session.commit()
+    return {"token": token, "client_id": operator.client_id, "email": operator.email}
+
+
+@app.post("/operator/logout")
+def operator_logout(authorization: str = Header(None), operator: Operator = Depends(require_operator), session: Session = Depends(get_session)):
+    op_session = session.exec(
+        select(OperatorSession).where(OperatorSession.token == _bearer_token(authorization))
+    ).first()
+    if op_session:
+        session.delete(op_session)
+        session.commit()
+    return {"ok": True}
