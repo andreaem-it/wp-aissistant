@@ -1,0 +1,10 @@
+fastapi
+uvicorn[standard]
+sqlmodel
+psycopg[binary]
+pgvector
+litellm
+pypdf
+pytesseract
+pillow
+python-multipart

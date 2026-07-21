@@ -1,0 +1,95 @@
+#wpai-toggle {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: #2271b1;
+  color: #fff;
+  border: none;
+  font-size: 24px;
+  cursor: pointer;
+  z-index: 99999;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+#wpai-window {
+  position: fixed;
+  bottom: 88px;
+  right: 20px;
+  width: 340px;
+  max-height: 480px;
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+  display: none;
+  flex-direction: column;
+  z-index: 99999;
+  font-family: system-ui, sans-serif;
+  font-size: 14px;
+}
+
+#wpai-window.open { display: flex; }
+
+#wpai-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  border-bottom: 1px solid #eee;
+  font-weight: 600;
+}
+
+#wpai-header img {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+#wpai-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+  max-height: 328px;
+}
+
+.wpai-msg { margin-bottom: 8px; padding: 8px 10px; border-radius: 6px; max-width: 85%; }
+.wpai-msg.user { background: #2271b1; color: #fff; margin-left: auto; }
+.wpai-msg.assistant { background: #f0f0f1; }
+.wpai-msg.system { background: #fff3cd; font-style: italic; }
+.wpai-typing { opacity: 0.6; font-style: italic; }
+
+.wpai-products { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+
+.wpai-product-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid #eee;
+  border-radius: 6px;
+  padding: 6px;
+  text-decoration: none;
+  color: inherit;
+  max-width: 85%;
+  background: #fff;
+}
+
+.wpai-product-card:hover { border-color: #2271b1; }
+
+.wpai-product-card img {
+  width: 44px;
+  height: 44px;
+  object-fit: cover;
+  border-radius: 4px;
+  flex-shrink: 0;
+  background: #f0f0f1;
+}
+
+.wpai-product-title { font-size: 13px; line-height: 1.3; }
+.wpai-product-price { font-size: 13px; font-weight: 600; color: #2271b1; margin-top: 2px; }
+
+#wpai-form { display: flex; border-top: 1px solid #ddd; }
+#wpai-input { flex: 1; border: none; padding: 10px; font-size: 14px; }
+#wpai-form button { border: none; background: #2271b1; color: #fff; padding: 0 16px; cursor: pointer; }
