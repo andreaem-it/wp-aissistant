@@ -110,6 +110,8 @@ per il primo caricamento della knowledge base.
 | `EMBED_MODEL` | `ollama/nomic-embed-text` | Modello embedding |
 | `LLM_API_BASE` | `http://localhost:11434` | Endpoint LLM (Ollama locale) |
 | `ADMIN_API_KEY` | *(non impostato)* | Token per gli endpoint `/admin/clients`; se assente l'admin API è disabilitata |
+| `CHAT_RATE_LIMIT` | `30` | Richieste `/chat` per 60s, per client+IP |
+| `INGEST_RATE_LIMIT` | `60` | Richieste di ingest per 60s, per client |
 
 LiteLLM permette di passare a OpenAI / Claude / altri provider cambiando `CHAT_MODEL`,
 `EMBED_MODEL` e le relative API key, senza modifiche al codice.
@@ -162,7 +164,9 @@ Lo stato attuale è un MVP dimostrativo. Prima della produzione:
       panel, widget e plugin WP) così da non finire nei log di server/proxy.
 - [ ] Nessuna autenticazione operatore nel panel (basta conoscere l'`api_key` del client).
 - [ ] CORS `allow_origins=["*"]`: restringere a origin per-client.
-- [ ] Rate limiting su `/chat` e sugli endpoint di ingest.
+- [x] Rate limiting su `/chat` (per client+IP) e sugli endpoint di ingest (per client),
+      via limiter in-memory a finestra fissa. ⚠️ per-processo: per deploy multi-worker
+      va spostato su uno store condiviso (Redis).
 - [x] Endpoint di registrazione/gestione client (`/admin/clients` + rotate-key), protetti da
       `ADMIN_API_KEY`. (Prima l'inserimento era manuale nel DB.)
 

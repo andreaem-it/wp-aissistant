@@ -1,18 +1,24 @@
 import os
 import secrets
 
-from fastapi import Body, Depends, FastAPI, Header, HTTPException, UploadFile
+from fastapi import Body, Depends, FastAPI, Header, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from sqlmodel import Session, select
 
 from .db import Chunk, Client, Conversation, Message, Ticket, get_session, init_db
 from .llm import chat as llm_chat
 from .rag import extract_text, ingest, ingest_product, retrieve, retrieve_products
+from .ratelimit import FixedWindowLimiter
 
 app = FastAPI(title="wp-aissistant backend")
 
 # admin token for client onboarding endpoints; unset => the /admin surface is disabled (fail closed)
 ADMIN_API_KEY = os.getenv("ADMIN_API_KEY")
+
+# /chat hits the LLM on every call, so it's the main abuse/cost surface — limit per client+IP.
+# Ingest is limited per client. Windows are 60s; override the counts via env.
+chat_limiter = FixedWindowLimiter(int(os.getenv("CHAT_RATE_LIMIT", "30")), 60)
+ingest_limiter = FixedWindowLimiter(int(os.getenv("INGEST_RATE_LIMIT", "60")), 60)
 
 # ponytail: deterministic safety net for categories that must always reach a human —
 # small local LLMs don't reliably follow "always escalate refunds" instructions
@@ -66,8 +72,19 @@ def require_admin(authorization: str = Header(None)) -> None:
         raise HTTPException(401, "invalid admin key")
 
 
+def rate_limit_chat(request: Request, client: Client = Depends(require_client)) -> Client:
+    ip = request.client.host if request.client else "unknown"
+    chat_limiter.check(f"chat:{client.id}:{ip}")
+    return client
+
+
+def rate_limit_ingest(client: Client = Depends(require_client)) -> Client:
+    ingest_limiter.check(f"ingest:{client.id}")
+    return client
+
+
 @app.post("/ingest/document")
-async def ingest_document(file: UploadFile, client: Client = Depends(require_client), session: Session = Depends(get_session)):
+async def ingest_document(file: UploadFile, client: Client = Depends(rate_limit_ingest), session: Session = Depends(get_session)):
     data = await file.read()
     text = extract_text(file.filename, data)
     ingest(session, client.id, "document", file.filename, text)
@@ -75,7 +92,7 @@ async def ingest_document(file: UploadFile, client: Client = Depends(require_cli
 
 
 @app.post("/ingest/site-page")
-def ingest_site_page(url: str = Body(...), text: str = Body(...), client: Client = Depends(require_client), session: Session = Depends(get_session)):
+def ingest_site_page(url: str = Body(...), text: str = Body(...), client: Client = Depends(rate_limit_ingest), session: Session = Depends(get_session)):
     """Called by the WP plugin on publish/update to push page/product content."""
     # replace previous chunks for this URL so edits don't duplicate
     old = session.exec(select(Chunk).where(Chunk.client_id == client.id, Chunk.source_ref == url)).all()
@@ -93,7 +110,7 @@ def ingest_product_endpoint(
     price: str = Body(""),
     image_url: str = Body(""),
     description: str = Body(""),
-    client: Client = Depends(require_client),
+    client: Client = Depends(rate_limit_ingest),
     session: Session = Depends(get_session),
 ):
     """Called by the WP plugin for WooCommerce products, in addition to /ingest/site-page."""
@@ -107,7 +124,7 @@ def chat_endpoint(
     visitor_id: str = Body(...),
     message: str = Body(...),
     conversation_id: int | None = Body(None),
-    client: Client = Depends(require_client),
+    client: Client = Depends(rate_limit_chat),
     session: Session = Depends(get_session),
 ):
     if conversation_id:
