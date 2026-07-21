@@ -147,8 +147,8 @@ wp-aissistant/
 Lo stato attuale è un MVP dimostrativo. Prima della produzione:
 
 ### Sicurezza & auth
-- [ ] `POST /tickets/{id}/reply` **non verifica l'`api_key`**: chiunque con l'ID del ticket
-      può rispondere impersonando l'operatore. Aggiungere autenticazione.
+- [x] `POST /tickets/{id}/reply` ora **richiede e verifica l'`api_key`** e la proprietà del
+      ticket. (Prima chiunque con l'ID poteva rispondere impersonando l'operatore.)
 - [ ] `api_key` passata come query param (finisce nei log): valutare header `Authorization`.
 - [ ] Nessuna autenticazione operatore nel panel (basta conoscere l'`api_key` del client).
 - [ ] CORS `allow_origins=["*"]`: restringere a origin per-client.
