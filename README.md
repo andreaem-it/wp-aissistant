@@ -104,6 +104,19 @@ uvicorn app.main:app --reload   # http://localhost:8000
 >   -d '{"email": "op@acme.it", "password": "…"}'
 > ```
 
+### Test (backend)
+
+```bash
+cd backend
+pip install -r requirements-dev.txt
+pytest                              # test unitari (security, rate limit, LLM, chunking)
+
+# test d'integrazione degli endpoint (richiedono un DB Postgres+pgvector di test):
+TEST_DATABASE_URL=postgresql+psycopg://rag:rag@localhost:5432/rag_test pytest
+```
+Senza `TEST_DATABASE_URL` i test d'integrazione vengono saltati; l'LLM è mockato, quindi non
+serve Ollama.
+
 ### Panel
 
 ```bash
@@ -239,6 +252,8 @@ Lo stato attuale è un MVP dimostrativo. Prima della produzione:
 - [ ] CI/CD, linting, ambiente di staging.
 
 ### Test & documentazione
-- [ ] Copertura test oltre `test_chunking.py` (endpoint, RAG, escalation).
+- [x] Suite `pytest`: unitari (security/hashing, rate limit, escalation LLM, chunking) +
+      integrazione endpoint via `TestClient` con LLM mockato (auth, escalation, ownership
+      ticket, ingest asincrono, rate limit), gated su `TEST_DATABASE_URL`.
 - [ ] Documentazione deploy (Dockerfile backend, reverse proxy, TLS).
 - [ ] Distribuzione plugin (build `.zip`, versioning, changelog).
