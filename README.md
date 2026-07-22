@@ -1,5 +1,7 @@
 # WP AIssistant
 
+![CI](https://github.com/andreaem-it/wp-aissistant/actions/workflows/ci.yml/badge.svg)
+
 Assistente AI di supporto clienti per siti WordPress / WooCommerce, basato su RAG.
 Un widget di chat flottante risponde ai visitatori usando i contenuti del sito come
 knowledge base, ed effettua l'escalation a un operatore umano quando la richiesta
@@ -249,7 +251,9 @@ Lo stato attuale è un MVP dimostrativo. Prima della produzione:
 ### Osservabilità & operatività
 - [ ] Logging strutturato, metriche, health check.
 - [ ] Notifiche agli operatori sui nuovi ticket (email/webhook).
-- [ ] CI/CD, linting, ambiente di staging.
+- [x] CI (GitHub Actions): test backend (pytest + Postgres/pgvector), migrazioni Alembic
+      (`upgrade head` + `downgrade base`) e build del panel, su ogni push/PR.
+- [ ] CD e ambiente di staging.
 
 ### Test & documentazione
 - [x] Suite `pytest`: unitari (security/hashing, rate limit, escalation LLM, chunking) +
