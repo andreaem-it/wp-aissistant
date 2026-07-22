@@ -213,7 +213,9 @@ Lo stato attuale è un MVP dimostrativo. Prima della produzione:
 
 ### Affidabilità & scalabilità
 - [ ] Ingest sincrono e bloccante: spostare l'embedding su una coda/worker in background.
-- [ ] Indice vettoriale (IVFFlat/HNSW) su pgvector per scalare la ricerca.
+- [x] Indice vettoriale HNSW (opclass cosine) su `chunk.embedding` e `product.embedding` via
+      migrazione `0002_vector_indexes`, per scalare il retrieval. (Presente solo via Alembic,
+      non con `DB_AUTO_CREATE`.)
 - [x] Migrazioni DB con Alembic (`alembic upgrade head`) al posto di `create_all`; migrazione
       iniziale `0001_initial` che riproduce lo schema. `create_all` resta come scorciatoia dev
       dietro `DB_AUTO_CREATE=true`.
