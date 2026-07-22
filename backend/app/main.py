@@ -1,13 +1,16 @@
+import json
 import os
 import secrets
+import threading
+from contextlib import asynccontextmanager
 
 from fastapi import Body, Depends, FastAPI, Header, HTTPException, Request, Response, UploadFile
 from sqlmodel import Session, select
 
 from .db import (
-    Chunk,
     Client,
     Conversation,
+    IngestJob,
     Message,
     Operator,
     OperatorSession,
@@ -17,11 +20,32 @@ from .db import (
     init_db,
 )
 from .llm import chat as llm_chat
-from .rag import extract_text, ingest, ingest_product, retrieve, retrieve_products
+from .rag import extract_text, retrieve, retrieve_products
 from .ratelimit import FixedWindowLimiter
 from .security import hash_password, verify_password
+from .worker import requeue_stale, run_worker
 
-app = FastAPI(title="wp-aissistant backend")
+_worker_stop = threading.Event()
+_worker_thread: threading.Thread | None = None
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_db()
+    with Session(engine) as session:
+        rebuild_allowed_origins(session)
+        requeue_stale(session)  # recover jobs left 'processing' by a previous crash
+    global _worker_thread
+    if os.getenv("INGEST_WORKER_ENABLED", "true").lower() == "true":
+        _worker_thread = threading.Thread(target=run_worker, args=(_worker_stop,), daemon=True)
+        _worker_thread.start()
+    yield
+    _worker_stop.set()
+    if _worker_thread:
+        _worker_thread.join(timeout=5)
+
+
+app = FastAPI(title="wp-aissistant backend", lifespan=lifespan)
 
 # admin token for client onboarding endpoints; unset => the /admin surface is disabled (fail closed)
 ADMIN_API_KEY = os.getenv("ADMIN_API_KEY")
@@ -86,11 +110,12 @@ async def dynamic_cors(request: Request, call_next):
     return response
 
 
-@app.on_event("startup")
-def on_startup():
-    init_db()
-    with Session(engine) as session:
-        rebuild_allowed_origins(session)
+def _enqueue(session: Session, client_id: int, kind: str, payload: dict) -> IngestJob:
+    job = IngestJob(client_id=client_id, kind=kind, payload=json.dumps(payload))
+    session.add(job)
+    session.commit()
+    session.refresh(job)
+    return job
 
 
 def get_client(api_key: str, session: Session) -> Client:
@@ -180,20 +205,16 @@ def resolve_client_id(
 async def ingest_document(file: UploadFile, operator: Operator = Depends(require_operator), session: Session = Depends(get_session)):
     data = await file.read()
     text = extract_text(file.filename, data)
-    ingest(session, operator.client_id, "document", file.filename, text)
-    return {"ok": True, "chars": len(text)}
+    job = _enqueue(session, operator.client_id, "document", {"source_ref": file.filename, "text": text})
+    return {"ok": True, "job_id": job.id, "status": job.status, "chars": len(text)}
 
 
 @app.post("/ingest/site-page")
 def ingest_site_page(url: str = Body(...), text: str = Body(...), client: Client = Depends(rate_limit_ingest), session: Session = Depends(get_session)):
-    """Called by the WP plugin on publish/update to push page/product content."""
-    # replace previous chunks for this URL so edits don't duplicate
-    old = session.exec(select(Chunk).where(Chunk.client_id == client.id, Chunk.source_ref == url)).all()
-    for c in old:
-        session.delete(c)
-    session.commit()
-    ingest(session, client.id, "site", url, text)
-    return {"ok": True}
+    """Called by the WP plugin on publish/update to push page/product content. The worker
+    replaces previous chunks for this URL when it processes the job (so edits don't duplicate)."""
+    job = _enqueue(session, client.id, "site-page", {"url": url, "text": text})
+    return {"ok": True, "job_id": job.id, "status": job.status}
 
 
 @app.post("/ingest/product")
@@ -208,8 +229,19 @@ def ingest_product_endpoint(
 ):
     """Called by the WP plugin for WooCommerce products, in addition to /ingest/site-page."""
     text = f"{title}\n{description}\nPrezzo: {price}" if price else f"{title}\n{description}"
-    ingest_product(session, client.id, url, title, price, image_url, text)
-    return {"ok": True}
+    job = _enqueue(session, client.id, "product", {
+        "url": url, "title": title, "price": price, "image_url": image_url, "text": text,
+    })
+    return {"ok": True, "job_id": job.id, "status": job.status}
+
+
+@app.get("/ingest/jobs/{job_id}")
+def ingest_job_status(job_id: int, client_id: int = Depends(resolve_client_id), session: Session = Depends(get_session)):
+    """Poll the status of an enqueued ingest job (queued | processing | done | error)."""
+    job = session.get(IngestJob, job_id)
+    if not job or job.client_id != client_id:
+        raise HTTPException(404, "job not found")
+    return {"id": job.id, "kind": job.kind, "status": job.status, "error": job.error}
 
 
 @app.post("/chat")

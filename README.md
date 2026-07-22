@@ -37,9 +37,10 @@ Tre componenti indipendenti:
 ## Come funziona
 
 1. **Ingest** — Il plugin WP invia al backend i contenuti pubblicati (pagine, articoli,
-   prodotti WooCommerce) e le info generali del sito. Il backend li divide in chunk, li
-   converte in embedding e li salva in pgvector. Documenti (PDF, immagini con OCR, testo)
-   possono essere caricati anche dal panel.
+   prodotti WooCommerce) e le info generali del sito. Documenti (PDF, immagini con OCR, testo)
+   possono essere caricati anche dal panel. L'ingest è **asincrono**: l'endpoint accoda un job
+   (`IngestJob`) e risponde subito; un worker in background divide in chunk, calcola gli
+   embedding e li salva in pgvector. Lo stato si verifica su `/ingest/jobs/{id}`.
 2. **Chat** — Il widget invia il messaggio del visitatore a `/chat`. Il backend recupera i
    chunk più rilevanti (cosine distance), costruisce un prompt "rispondi solo dal contesto"
    e interroga l'LLM. I prodotti WooCommerce pertinenti vengono restituiti come card.
@@ -134,6 +135,7 @@ per il primo caricamento della knowledge base.
 | `INGEST_RATE_LIMIT` | `60` | Richieste di ingest per 60s, per client |
 | `PANEL_ORIGINS` | `http://localhost:5173` | Origin del panel ammessi dal CORS (comma-separated) |
 | `CORS_ALLOW_ALL` | `true` | `true` riflette qualsiasi Origin; `false` applica l'allowlist |
+| `INGEST_WORKER_ENABLED` | `true` | Avvia il worker di ingest nel processo dell'app (coda condivisa via Postgres) |
 
 LiteLLM permette di passare a OpenAI / Claude / altri provider cambiando `CHAT_MODEL`,
 `EMBED_MODEL` e le relative API key, senza modifiche al codice.
@@ -149,6 +151,7 @@ Auth via header `Authorization: Bearer <token>`. La colonna *Auth* indica quale 
 | `/ingest/site-page` | POST | 🔑 | Push contenuto pagina/articolo (dal plugin) |
 | `/ingest/product` | POST | 🔑 | Push prodotto WooCommerce (dal plugin) |
 | `/ingest/document` | POST | 👤 | Upload documento (PDF/immagine/testo) dal panel |
+| `/ingest/jobs/{id}` | GET | 🔀 | Stato di un job di ingest (`queued`/`processing`/`done`/`error`) |
 | `/conversations` | GET | 👤 | Lista conversazioni del client |
 | `/conversations/{id}/messages` | GET | 🔀 | Messaggi (polling widget + lettura panel) |
 | `/tickets` | GET | 👤 | Ticket per stato |
@@ -212,14 +215,17 @@ Lo stato attuale è un MVP dimostrativo. Prima della produzione:
       `ADMIN_API_KEY`. (Prima l'inserimento era manuale nel DB.)
 
 ### Affidabilità & scalabilità
-- [ ] Ingest sincrono e bloccante: spostare l'embedding su una coda/worker in background.
+- [x] Ingest asincrono: gli endpoint accodano un `IngestJob` e un worker in background (thread
+      avviato dal lifespan, claim con `FOR UPDATE SKIP LOCKED`) fa l'embedding. Stato su
+      `/ingest/jobs/{id}`; job orfani rimessi in coda allo startup.
 - [x] Indice vettoriale HNSW (opclass cosine) su `chunk.embedding` e `product.embedding` via
       migrazione `0002_vector_indexes`, per scalare il retrieval. (Presente solo via Alembic,
       non con `DB_AUTO_CREATE`.)
 - [x] Migrazioni DB con Alembic (`alembic upgrade head`) al posto di `create_all`; migrazione
       iniziale `0001_initial` che riproduce lo schema. `create_all` resta come scorciatoia dev
       dietro `DB_AUTO_CREATE=true`.
-- [ ] `@app.on_event("startup")` deprecato in FastAPI → usare lifespan.
+- [x] Sostituito il deprecato `@app.on_event("startup")` con un lifespan handler (che avvia
+      anche il worker di ingest e ricostruisce l'allowlist CORS).
 - [ ] Gestione errori LLM/embedding (timeout, retry, fallback).
 
 ### Qualità RAG

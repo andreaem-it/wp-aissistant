@@ -84,6 +84,19 @@ class OperatorSession(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
+class IngestJob(SQLModel, table=True):
+    """Queued ingest work. Endpoints enqueue a job and return immediately; a background
+    worker does the slow chunking+embedding. payload is JSON, shape depends on kind."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    client_id: int = Field(index=True, foreign_key="client.id")
+    kind: str  # document | site-page | product
+    status: str = Field(default="queued", index=True)  # queued | processing | done | error
+    payload: str  # JSON
+    error: str = ""
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 def init_db():
     """Ensure the pgvector extension exists. Schema is managed by Alembic
     (`alembic upgrade head`); set DB_AUTO_CREATE=true only for a quick dev spin-up
