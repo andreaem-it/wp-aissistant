@@ -7,11 +7,36 @@ services:
       POSTGRES_DB: rag
     ports: ["5432:5432"]
     volumes: ["dbdata:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rag"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   ollama:
     image: ollama/ollama
     ports: ["11434:11434"]
     volumes: ["ollamadata:/root/.ollama"]
+
+  backend:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg://rag:rag@db:5432/rag
+      LLM_API_BASE: http://ollama:11434
+      CHAT_MODEL: ollama/llama3.1
+      EMBED_MODEL: ollama/nomic-embed-text
+      EMBED_DIM: "768"
+      ADMIN_API_KEY: ${ADMIN_API_KEY:-change-me}
+      CORS_ALLOW_ALL: "true"
+    ports: ["8000:8000"]
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
 
 volumes:
   dbdata:

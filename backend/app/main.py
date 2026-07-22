@@ -47,6 +47,12 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="wp-aissistant backend", lifespan=lifespan)
 
+
+@app.get("/health")
+def health():
+    """Liveness probe (no auth) for container/orchestrator health checks."""
+    return {"status": "ok"}
+
 # admin token for client onboarding endpoints; unset => the /admin surface is disabled (fail closed)
 ADMIN_API_KEY = os.getenv("ADMIN_API_KEY")
 

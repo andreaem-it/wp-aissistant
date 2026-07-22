@@ -135,6 +135,24 @@ Copia `wp-plugin/wp-aissistant/` in `wp-content/plugins/`, attiva il plugin, poi
 **Impostazioni → WP AIssistant** imposta Backend URL e API Key. Usa "Sincronizza ora"
 per il primo caricamento della knowledge base.
 
+## Deploy (Docker)
+
+Il backend è containerizzato. Il modo più rapido per avviare tutto lo stack (Postgres+pgvector,
+Ollama e backend) è `docker compose`:
+
+```bash
+cd backend
+ADMIN_API_KEY=<un-token-sicuro> docker compose up --build
+# il backend applica le migrazioni (alembic upgrade head) e parte su http://localhost:8000
+# poi scarica i modelli nel container ollama:
+docker compose exec ollama ollama pull llama3.1
+docker compose exec ollama ollama pull nomic-embed-text
+```
+
+Il servizio `backend` attende che il DB sia healthy, esegue le migrazioni e serve l'app; espone
+un `GET /health` per gli healthcheck del container/orchestratore. Panel e sito marketing sono
+asset statici: buildali (`npm run build` per il panel) e servili con qualsiasi web server / CDN.
+
 ## Configurazione (backend/.env)
 
 | Variabile | Default | Descrizione |
@@ -162,6 +180,7 @@ Auth via header `Authorization: Bearer <token>`. La colonna *Auth* indica quale 
 
 | Endpoint | Metodo | Auth | Descrizione |
 |----------|--------|------|-------------|
+| `/health` | GET | — | Liveness probe (nessuna auth) |
 | `/chat` | POST | 🔑 | Messaggio visitatore → risposta o escalation |
 | `/ingest/site-page` | POST | 🔑 | Push contenuto pagina/articolo (dal plugin) |
 | `/ingest/product` | POST | 🔑 | Push prodotto WooCommerce (dal plugin) |
@@ -259,5 +278,6 @@ Lo stato attuale è un MVP dimostrativo. Prima della produzione:
 - [x] Suite `pytest`: unitari (security/hashing, rate limit, escalation LLM, chunking) +
       integrazione endpoint via `TestClient` con LLM mockato (auth, escalation, ownership
       ticket, ingest asincrono, rate limit), gated su `TEST_DATABASE_URL`.
-- [ ] Documentazione deploy (Dockerfile backend, reverse proxy, TLS).
+- [x] Dockerfile del backend + `docker compose` (db healthy → migrazioni → app) con endpoint
+      `/health`; build dell'immagine validato in CI. (Restano da documentare reverse proxy/TLS.)
 - [ ] Distribuzione plugin (build `.zip`, versioning, changelog).

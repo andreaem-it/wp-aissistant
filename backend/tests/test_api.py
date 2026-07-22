@@ -2,6 +2,14 @@
 skipped otherwise. The LLM is faked in the `client` fixture."""
 
 
+# ---- health ----
+
+def test_health(client):
+    r = client.get("/health")
+    assert r.status_code == 200
+    assert r.json() == {"status": "ok"}
+
+
 # ---- admin / operator auth ----
 
 def test_admin_requires_key(client):

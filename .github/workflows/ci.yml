@@ -91,3 +91,11 @@ jobs:
       - name: Build
         working-directory: panel
         run: npm run build
+
+  docker-build:
+    name: Backend image build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build backend image
+        run: docker build -t wp-aissistant-backend backend
