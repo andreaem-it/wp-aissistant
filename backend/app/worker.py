@@ -14,6 +14,7 @@ from datetime import datetime
 
 from sqlmodel import Session, select
 
+from . import metrics
 from .db import Chunk, IngestJob, engine
 from .logging_config import log
 from .rag import ingest, ingest_product
@@ -71,6 +72,7 @@ def _mark(session: Session, job_id: int, status: str, error: str) -> None:
         job.updated_at = datetime.utcnow()
         session.add(job)
         session.commit()
+        metrics.ingest_jobs_total.labels(status=status).inc()
 
 
 def requeue_stale(session: Session) -> int:

@@ -2,12 +2,31 @@
 skipped otherwise. The LLM is faked in the `client` fixture."""
 
 
-# ---- health ----
+# ---- health / metrics ----
 
 def test_health(client):
     r = client.get("/health")
     assert r.status_code == 200
     assert r.json() == {"status": "ok"}
+
+
+def test_metrics_endpoint(client, tenant):
+    # generate some traffic so counters are present
+    client.post("/chat", headers=tenant["key"], json={"visitor_id": "v", "message": "ciao"})
+    r = client.get("/metrics")
+    assert r.status_code == 200
+    body = r.text
+    assert "wpai_http_requests_total" in body
+    assert "wpai_chat_messages_total" in body
+
+
+def test_metrics_counts_escalation(client, tenant):
+    before = client.get("/metrics").text
+    client.post("/chat", headers=tenant["key"], json={"visitor_id": "v", "message": "vorrei un rimborso"})
+    after = client.get("/metrics").text
+    # the keyword escalation counter must appear after an escalation
+    assert 'wpai_escalations_total{trigger="keyword"}' in after
+    assert before != after
 
 
 # ---- admin / operator auth ----

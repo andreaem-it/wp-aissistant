@@ -191,6 +191,7 @@ Auth via header `Authorization: Bearer <token>`. La colonna *Auth* indica quale 
 | Endpoint | Metodo | Auth | Descrizione |
 |----------|--------|------|-------------|
 | `/health` | GET | — | Liveness probe (nessuna auth) |
+| `/metrics` | GET | — | Metriche Prometheus (nessuna auth; restringi a livello di rete) |
 | `/chat` | POST | 🔑 | Messaggio visitatore → risposta o escalation |
 | `/ingest/site-page` | POST | 🔑 | Push contenuto pagina/articolo (dal plugin) |
 | `/ingest/product` | POST | 🔑 | Push prodotto WooCommerce (dal plugin) |
@@ -283,7 +284,9 @@ Lo stato attuale è un MVP dimostrativo. Prima della produzione:
 
 ### Osservabilità & operatività
 - [x] Logging strutturato JSON (stdlib) con `request_id` per richiesta propagato ai log e
-      all'header di risposta; health check `/health`. (Metriche ancora da aggiungere.)
+      all'header di risposta; health check `/health`.
+- [x] Metriche Prometheus su `/metrics`: latenza/conteggio richieste HTTP (per route
+      template), più contatori di business (chat, escalation per trigger, esiti job di ingest).
 - [x] Notifiche agli operatori sui nuovi ticket via webhook (`OPERATOR_WEBHOOK_URL`,
       payload JSON compatibile Slack/Zapier/n8n, best-effort non bloccante).
 - [x] CI (GitHub Actions): test backend (pytest + Postgres/pgvector), migrazioni Alembic

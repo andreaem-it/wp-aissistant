@@ -25,6 +25,7 @@ from .db import (
 from .llm import LLMUnavailableError
 from .llm import chat as llm_chat
 from .logging_config import log, request_id_var, setup_logging
+from . import metrics
 from .notify import notify_new_ticket
 from .rag import extract_text, retrieve, retrieve_products
 from .ratelimit import FixedWindowLimiter
@@ -72,16 +73,31 @@ async def request_logging(request: Request, call_next):
         except Exception:
             log(logger, logging.ERROR, "request.unhandled_error", method=request.method, path=request.url.path)
             raise
-        duration_ms = round((time.monotonic() - start) * 1000, 1)
+        elapsed = time.monotonic() - start
         log(
             logger, logging.INFO, "request.complete",
             method=request.method, path=request.url.path,
-            status_code=response.status_code, duration_ms=duration_ms,
+            status_code=response.status_code, duration_ms=round(elapsed * 1000, 1),
         )
+        # record Prometheus metrics keyed by the route *template* (not the raw path) to
+        # keep label cardinality bounded; skip the scrape endpoint itself
+        route = request.scope.get("route")
+        metric_path = route.path if route is not None else "__unmatched__"
+        if metric_path != "/metrics":
+            metrics.http_requests_total.labels(request.method, metric_path, response.status_code).inc()
+            metrics.http_request_duration_seconds.labels(request.method, metric_path).observe(elapsed)
         response.headers["X-Request-Id"] = request_id
         return response
     finally:
         request_id_var.reset(token)
+
+
+@app.get("/metrics")
+def metrics_endpoint():
+    """Prometheus scrape endpoint (no auth — restrict at the network layer in production)."""
+    from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
+
+    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
 @app.get("/health")
@@ -310,6 +326,7 @@ def chat_endpoint(
     ]
     session.add(Message(conversation_id=conv.id, role="user", content=message))
     session.commit()
+    metrics.chat_messages_total.inc()
 
     if conv.status == "escalated":
         return {"conversation_id": conv.id, "status": "escalated", "reply": None}
@@ -325,6 +342,7 @@ def chat_endpoint(
         session.commit()
         session.refresh(ticket)
         log(logger, logging.INFO, "chat.escalated", client_id=client.id, conversation_id=conv.id, trigger="keyword", keyword=keyword_hit)
+        metrics.escalations_total.labels(trigger="keyword").inc()
         notify_new_ticket(client.name, conv.id, ticket.id, reason)
         return {"conversation_id": conv.id, "status": "escalated", "reply": None}
 
@@ -349,6 +367,7 @@ def chat_endpoint(
         session.commit()
         session.refresh(ticket)
         log(logger, logging.ERROR, "chat.llm_unavailable", client_id=client.id, conversation_id=conv.id, error=str(exc))
+        metrics.escalations_total.labels(trigger="llm_down").inc()
         notify_new_ticket(client.name, conv.id, ticket.id, reason)
         return {"conversation_id": conv.id, "status": "escalated", "reply": None}
 
@@ -360,6 +379,7 @@ def chat_endpoint(
         session.commit()
         session.refresh(ticket)
         log(logger, logging.INFO, "chat.escalated", client_id=client.id, conversation_id=conv.id, trigger="model", reason=result["escalate"])
+        metrics.escalations_total.labels(trigger="model").inc()
         notify_new_ticket(client.name, conv.id, ticket.id, result["escalate"])
         return {"conversation_id": conv.id, "status": "escalated", "reply": None}
 
