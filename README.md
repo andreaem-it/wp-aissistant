@@ -177,6 +177,8 @@ asset statici: buildali (`npm run build` per il panel) e servili con qualsiasi w
 | `PANEL_ORIGINS` | `http://localhost:5173` | Origin del panel ammessi dal CORS (comma-separated) |
 | `CORS_ALLOW_ALL` | `true` | `true` riflette qualsiasi Origin; `false` applica l'allowlist |
 | `INGEST_WORKER_ENABLED` | `true` | Avvia il worker di ingest nel processo dell'app (coda condivisa via Postgres) |
+| `RETRIEVE_FETCH_K` | `20` | Pool di candidati recuperati prima del rerank MMR |
+| `MMR_LAMBDA` | `0.5` | Bilanciamento MMR: `1.0` = solo rilevanza, `0.0` = solo diversità |
 
 LiteLLM permette di passare a OpenAI / Claude / altri provider cambiando `CHAT_MODEL`,
 `EMBED_MODEL` e le relative API key, senza modifiche al codice.
@@ -275,7 +277,9 @@ Lo stato attuale è un MVP dimostrativo. Prima della produzione:
 - [x] Chunking sentence-aware con overlap (era a dimensione fissa) e soglia di distanza cosine
       anche sul retrieval dei chunk; parametri configurabili via env.
 - [~] Tuning delle soglie: cutoff introdotto; resta una valutazione sistematica del retrieval.
-- [ ] Reranking dei risultati.
+- [x] Reranking dei risultati con MMR (Maximal Marginal Relevance): pesca un pool più ampio
+      (`RETRIEVE_FETCH_K`) e riordina bilanciando rilevanza e diversità (`MMR_LAMBDA`), usando
+      gli embedding già calcolati — nessun modello/infra extra. Testato in unit.
 
 ### Osservabilità & operatività
 - [x] Logging strutturato JSON (stdlib) con `request_id` per richiesta propagato ai log e
