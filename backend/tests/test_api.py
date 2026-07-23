@@ -115,6 +115,26 @@ def test_ingest_job_scoped_to_client(client, tenant):
     assert r.status_code == 404
 
 
+# ---- re-embed ----
+
+def test_reembed_fills_null_embeddings(client, tenant):
+    from sqlmodel import Session
+    from app import db
+
+    with Session(db.engine) as session:
+        session.add(db.Chunk(
+            client_id=tenant["cid"], source="document", source_ref="x",
+            text="ciao mondo", embedding=None,
+        ))
+        session.commit()
+
+    r = client.post("/admin/reembed", headers={"Authorization": "Bearer test-admin"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["reembedded"]["chunks"] >= 1
+    assert body["remaining"]["chunks"] == 0
+
+
 # ---- rate limiting ----
 
 def test_chat_rate_limit_returns_429(client, tenant, monkeypatch):

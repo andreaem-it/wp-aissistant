@@ -8,15 +8,18 @@ import uuid
 from contextlib import asynccontextmanager
 
 from fastapi import Body, Depends, FastAPI, Header, HTTPException, Request, Response, UploadFile
+from sqlalchemy import func
 from sqlmodel import Session, select
 
 from .db import (
+    Chunk,
     Client,
     Conversation,
     IngestJob,
     Message,
     Operator,
     OperatorSession,
+    Product,
     Ticket,
     engine,
     get_session,
@@ -24,6 +27,7 @@ from .db import (
 )
 from .llm import LLMUnavailableError
 from .llm import chat as llm_chat
+from .llm import embed
 from .logging_config import log, request_id_var, setup_logging
 from . import metrics
 from .notify import notify_new_ticket
@@ -512,6 +516,29 @@ def create_operator(client_id: int, email: str = Body(...), password: str = Body
     session.commit()
     session.refresh(operator)
     return {"id": operator.id, "client_id": client_id, "email": email}
+
+
+@app.post("/admin/reembed", dependencies=[Depends(require_admin)])
+def reembed(limit: int = 200, session: Session = Depends(get_session)):
+    """Re-embed content whose embedding is NULL (e.g. after an embedding-model/dimension
+    change). Processes up to `limit` chunks and `limit` products per call so it never
+    times out on large datasets — call repeatedly until `remaining` is zero."""
+    chunks = session.exec(select(Chunk).where(Chunk.embedding.is_(None)).limit(limit)).all()
+    for chunk in chunks:
+        chunk.embedding = embed(chunk.text)
+        session.add(chunk)
+    products = session.exec(select(Product).where(Product.embedding.is_(None)).limit(limit)).all()
+    for product in products:
+        text = f"{product.title}\nPrezzo: {product.price}" if product.price else product.title
+        product.embedding = embed(text)
+        session.add(product)
+    session.commit()
+    remaining_chunks = session.exec(select(func.count()).select_from(Chunk).where(Chunk.embedding.is_(None))).one()
+    remaining_products = session.exec(select(func.count()).select_from(Product).where(Product.embedding.is_(None))).one()
+    return {
+        "reembedded": {"chunks": len(chunks), "products": len(products)},
+        "remaining": {"chunks": remaining_chunks, "products": remaining_products},
+    }
 
 
 # ---- Operator auth (panel login) ----

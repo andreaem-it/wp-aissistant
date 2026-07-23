@@ -4,7 +4,12 @@ import litellm
 # ponytail: single global model config for now, per-client override if multi-tenant pricing/models needed later
 CHAT_MODEL = os.getenv("CHAT_MODEL", "ollama/llama3.1")
 EMBED_MODEL = os.getenv("EMBED_MODEL", "ollama/nomic-embed-text")
-litellm.api_base = os.getenv("LLM_API_BASE", "http://localhost:11434")
+# Only pin a global api_base when explicitly set (e.g. Ollama). Leave it unset for providers
+# that litellm routes by model prefix + their own env creds (Cloudflare Workers AI, OpenAI, …),
+# otherwise every call would be forced at the Ollama URL.
+_api_base = os.getenv("LLM_API_BASE")
+if _api_base:
+    litellm.api_base = _api_base
 
 # litellm retries+times out its own HTTP calls to the model provider; these just set the
 # knobs so a slow/unreachable Ollama fails fast instead of hanging a request indefinitely.

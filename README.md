@@ -187,7 +187,7 @@ docker compose -f docker-compose.prod.yml up -d
 | Variabile | Default | Descrizione |
 |-----------|---------|-------------|
 | `DATABASE_URL` | `postgresql+psycopg://rag:rag@localhost:5432/rag` | Connessione Postgres |
-| `EMBED_DIM` | `768` | Dimensione embedding (default di `nomic-embed-text`) |
+| `EMBED_DIM` | `1024` | Dimensione embedding — deve combaciare con `EMBED_MODEL` (1024 = bge-m3, 768 = nomic) |
 | `DB_AUTO_CREATE` | `false` | `true` crea le tabelle dai modelli allo startup (solo dev; in prod usa Alembic) |
 | `CHAT_MODEL` | `ollama/llama3.1` | Modello chat (formato LiteLLM) |
 | `EMBED_MODEL` | `ollama/nomic-embed-text` | Modello embedding |
@@ -201,8 +201,14 @@ docker compose -f docker-compose.prod.yml up -d
 | `RETRIEVE_FETCH_K` | `20` | Pool di candidati recuperati prima del rerank MMR |
 | `MMR_LAMBDA` | `0.5` | Bilanciamento MMR: `1.0` = solo rilevanza, `0.0` = solo diversità |
 
-LiteLLM permette di passare a OpenAI / Claude / altri provider cambiando `CHAT_MODEL`,
-`EMBED_MODEL` e le relative API key, senza modifiche al codice.
+LiteLLM permette di passare a OpenAI / Claude / **Cloudflare Workers AI** / altri provider
+cambiando `CHAT_MODEL`, `EMBED_MODEL` e le relative credenziali, senza modifiche al codice.
+
+**Cloudflare Workers AI** (inferenza edge, senza GPU da ospitare) — esempio in `.env.example`:
+`CHAT_MODEL=cloudflare/@cf/meta/llama-3.1-8b-instruct`, `EMBED_MODEL=cloudflare/@cf/baai/bge-m3`
+(1024-dim → `EMBED_DIM=1024`) + `CLOUDFLARE_API_KEY`/`CLOUDFLARE_ACCOUNT_ID`. Cambiare modello di
+embedding richiede la migrazione `0004` e un re-embed dei contenuti via `POST /admin/reembed`
+(la ricerca ignora i chunk non ancora ri-embeddati nel frattempo).
 
 ## API principali (backend)
 
@@ -229,6 +235,7 @@ Auth via header `Authorization: Bearer <token>`. La colonna *Auth* indica quale 
 | `/admin/clients/{id}/rotate-key` | POST | 🛡️ | Rigenera l'api_key di un client |
 | `/admin/clients/{id}/operators` | POST | 🛡️ | Crea un operatore per un client |
 | `/admin/clients/{id}/origins` | POST | 🛡️ | Imposta gli origin widget ammessi per un client |
+| `/admin/reembed` | POST | 🛡️ | Ri-embedda i contenuti senza embedding (dopo un cambio modello/dim) |
 
 ## Struttura del progetto
 

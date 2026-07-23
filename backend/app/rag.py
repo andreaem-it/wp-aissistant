@@ -138,5 +138,5 @@ def retrieve_products(session: Session, client_id: int, query: str, k: int = 3) 
     return [
         {"title": p.title, "price": p.price, "image_url": p.image_url, "product_url": p.product_url}
         for p, dist in rows
-        if dist < PRODUCT_MAX_DISTANCE
+        if dist is not None and dist < PRODUCT_MAX_DISTANCE  # dist is NULL for not-yet-embedded rows
     ]

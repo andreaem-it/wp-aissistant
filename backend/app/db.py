@@ -6,7 +6,7 @@ from pgvector.sqlalchemy import Vector
 from sqlmodel import SQLModel, Field, create_engine, Session, Column
 
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+psycopg://rag:rag@localhost:5432/rag")
-EMBED_DIM = int(os.getenv("EMBED_DIM", "768"))  # nomic-embed-text default
+EMBED_DIM = int(os.getenv("EMBED_DIM", "1024"))  # 1024 = bge-m3 (Workers AI); 768 = nomic-embed-text
 
 engine = create_engine(DATABASE_URL)
 
