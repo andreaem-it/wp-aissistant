@@ -30,20 +30,18 @@ esempi equivalenti — scegline uno:
    `POST /admin/clients/{id}/origins` (vedi README principale). Aggiungi l'origin del panel a
    `PANEL_ORIGINS`.
 
-## Esempio: proxy nel docker-compose
+## Stack di produzione pronto
 
-Aggiungi un servizio proxy a fianco del `backend` (che a quel punto **non** pubblica la 8000):
+Alla root del repo c'è **[`docker-compose.prod.yml`](../docker-compose.prod.yml)**: backend
+dall'immagine GHCR, Caddy davanti (questo `Caddyfile`), porta 8000 **non** esposta, CORS
+ristretto e `FORWARDED_ALLOW_IPS` già impostato.
 
-```yaml
-  caddy:
-    image: caddy:2
-    depends_on: [backend]
-    ports: ["80:80", "443:443"]
-    volumes:
-      - ../deploy/Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddydata:/data
-# volumes: aggiungi `caddydata:`
+```bash
+export ADMIN_API_KEY=<token-robusto>
+export POSTGRES_PASSWORD=<password-robusta>
+# edita deploy/Caddyfile con il tuo dominio, poi:
+docker compose -f docker-compose.prod.yml up -d
 ```
 
-Con Nginx, monta `nginx.conf` in `/etc/nginx/conf.d/default.conf` e i certificati in
-`/etc/letsencrypt`.
+Con **Nginx** invece di Caddy: sostituisci il servizio `caddy` con un `nginx:alpine`, monta
+`nginx.conf` in `/etc/nginx/conf.d/default.conf` e i certificati in `/etc/letsencrypt`.

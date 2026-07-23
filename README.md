@@ -171,6 +171,15 @@ Immagine backend pubblicata su **GHCR** a ogni CI verde su `main`:
 docker pull ghcr.io/andreaem-it/wp-aissistant-backend:latest
 # oppure un commit specifico: ...:sha-<commit>
 ```
+
+Per la **produzione con un comando** c'è [`docker-compose.prod.yml`](docker-compose.prod.yml)
+(backend da GHCR, Caddy con HTTPS automatico davanti, backend non esposto, CORS ristretto):
+
+```bash
+export ADMIN_API_KEY=<token-robusto> POSTGRES_PASSWORD=<password>
+# edita deploy/Caddyfile con il tuo dominio, poi:
+docker compose -f docker-compose.prod.yml up -d
+```
 (Il pacchetto GHCR nasce privato: rendilo pubblico dalle *Package settings* se vuoi pull senza login.)
 
 ## Configurazione (backend/.env)
