@@ -165,6 +165,14 @@ In produzione metti un **reverse proxy con TLS** davanti al backend (non esporre
 pubblicamente): esempi pronti per Caddy (HTTPS automatico) e Nginx, più la guida completa
 (real client IP dietro proxy, `/metrics` non pubblico, CORS), in **[`deploy/`](deploy/)**.
 
+Immagine backend pubblicata su **GHCR** a ogni CI verde su `main`:
+
+```bash
+docker pull ghcr.io/andreaem-it/wp-aissistant-backend:latest
+# oppure un commit specifico: ...:sha-<commit>
+```
+(Il pacchetto GHCR nasce privato: rendilo pubblico dalle *Package settings* se vuoi pull senza login.)
+
 ## Configurazione (backend/.env)
 
 | Variabile | Default | Descrizione |
@@ -295,7 +303,9 @@ Lo stato attuale è un MVP dimostrativo. Prima della produzione:
       payload JSON compatibile Slack/Zapier/n8n, best-effort non bloccante).
 - [x] CI (GitHub Actions): test backend (pytest + Postgres/pgvector), migrazioni Alembic
       (`upgrade head` + `downgrade base`) e build del panel, su ogni push/PR.
-- [ ] CD e ambiente di staging.
+- [x] CD: dopo una CI verde su `main`, un workflow pubblica l'immagine del backend su GHCR
+      (`ghcr.io/andreaem-it/wp-aissistant-backend`, tag `latest` + `sha-<commit>`).
+- [ ] Ambiente di staging / deploy automatico sul target di hosting.
 
 ### Test & documentazione
 - [x] Suite `pytest`: unitari (security/hashing, rate limit, escalation LLM, chunking) +
