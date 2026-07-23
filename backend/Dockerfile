@@ -15,4 +15,7 @@ COPY . .
 EXPOSE 8000
 
 # Apply migrations, then serve. DATABASE_URL / LLM_* come from the environment.
-CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+# --proxy-headers makes uvicorn honour X-Forwarded-For/Proto when behind a reverse proxy, so
+# request.client.host is the real client IP (needed for per-IP rate limiting). Restrict which
+# upstreams are trusted with the FORWARDED_ALLOW_IPS env var when deploying behind a proxy.
+CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers"]

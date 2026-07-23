@@ -161,6 +161,10 @@ Il servizio `backend` attende che il DB sia healthy, esegue le migrazioni e serv
 un `GET /health` per gli healthcheck del container/orchestratore. Panel e sito marketing sono
 asset statici: buildali (`npm run build` per il panel) e servili con qualsiasi web server / CDN.
 
+In produzione metti un **reverse proxy con TLS** davanti al backend (non esporre la 8000
+pubblicamente): esempi pronti per Caddy (HTTPS automatico) e Nginx, più la guida completa
+(real client IP dietro proxy, `/metrics` non pubblico, CORS), in **[`deploy/`](deploy/)**.
+
 ## Configurazione (backend/.env)
 
 | Variabile | Default | Descrizione |
@@ -298,7 +302,9 @@ Lo stato attuale è un MVP dimostrativo. Prima della produzione:
       integrazione endpoint via `TestClient` con LLM mockato (auth, escalation, ownership
       ticket, ingest asincrono, rate limit), gated su `TEST_DATABASE_URL`.
 - [x] Dockerfile del backend + `docker compose` (db healthy → migrazioni → app) con endpoint
-      `/health`; build dell'immagine validato in CI. (Restano da documentare reverse proxy/TLS.)
+      `/health`; build dell'immagine validato in CI.
+- [x] Reverse proxy + TLS documentati in `deploy/` (esempi Caddy e Nginx, guida): terminazione
+      TLS, `/metrics` non pubblico, real client IP via `--proxy-headers`/`FORWARDED_ALLOW_IPS`.
 - [x] Distribuzione plugin: `wp-plugin/build.sh` produce uno zip versionato (versione letta
       dall'header), `readme.txt` in formato WordPress con changelog, e job CI che pubblica lo
       zip come artifact.
