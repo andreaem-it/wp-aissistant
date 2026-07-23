@@ -1,3 +1,5 @@
+import os
+import re
 from io import BytesIO
 
 from pypdf import PdfReader
@@ -9,8 +11,14 @@ from sqlalchemy import text as sql_text
 from .db import Chunk, Product
 from .llm import embed
 
-CHUNK_SIZE = 800  # chars; ponytail: naive fixed-size split, switch to sentence-aware chunking if quality suffers
-PRODUCT_MAX_DISTANCE = 0.6  # ponytail: cosine distance cutoff so unrelated queries don't surface random products
+CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", "800"))  # chars, soft cap per chunk
+CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", "150"))  # chars carried into the next chunk
+# cosine distance cutoffs so unrelated queries don't drag in random chunks/products;
+# tune per deployment — chunks are noisier text so their cutoff is looser than products'
+CHUNK_MAX_DISTANCE = float(os.getenv("CHUNK_MAX_DISTANCE", "0.8"))
+PRODUCT_MAX_DISTANCE = float(os.getenv("PRODUCT_MAX_DISTANCE", "0.6"))
+
+_SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
 
 
 def extract_text(filename: str, data: bytes) -> str:
@@ -22,8 +30,25 @@ def extract_text(filename: str, data: bytes) -> str:
     return data.decode("utf-8", errors="ignore")
 
 
-def chunk_text(text: str, size: int = CHUNK_SIZE) -> list[str]:
-    return [text[i : i + size] for i in range(0, len(text), size) if text[i : i + size].strip()]
+def chunk_text(text: str, size: int = CHUNK_SIZE, overlap: int = CHUNK_OVERLAP) -> list[str]:
+    """Pack whole sentences into ~size-char chunks instead of cutting mid-sentence, and
+    carry the trailing `overlap` chars of each chunk into the next one so a fact split
+    across the boundary still appears whole in at least one chunk."""
+    sentences = [s for s in _SENTENCE_SPLIT.split(text.strip()) if s.strip()]
+    if not sentences:
+        return []
+
+    chunks: list[str] = []
+    current = ""
+    for sentence in sentences:
+        # a single sentence longer than `size` becomes its own chunk rather than being cut
+        if current and len(current) + 1 + len(sentence) > size:
+            chunks.append(current)
+            current = current[-overlap:].lstrip() if overlap else ""
+        current = f"{current} {sentence}".strip() if current else sentence
+    if current:
+        chunks.append(current)
+    return chunks
 
 
 def ingest(session: Session, client_id: int, source: str, source_ref: str, text: str):
@@ -34,13 +59,14 @@ def ingest(session: Session, client_id: int, source: str, source_ref: str, text:
 
 def retrieve(session: Session, client_id: int, query: str, k: int = 5) -> list[str]:
     qvec = embed(query)
+    distance = Chunk.embedding.cosine_distance(qvec)
     rows = session.exec(
-        select(Chunk.text)
+        select(Chunk.text, distance.label("distance"))
         .where(Chunk.client_id == client_id)
-        .order_by(Chunk.embedding.cosine_distance(qvec))
+        .order_by(distance)
         .limit(k)
     ).all()
-    return list(rows)
+    return [text for text, dist in rows if dist < CHUNK_MAX_DISTANCE]
 
 
 def ingest_product(session: Session, client_id: int, product_url: str, title: str, price: str, image_url: str, text: str):

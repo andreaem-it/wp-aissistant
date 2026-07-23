@@ -1,7 +1,10 @@
 import json
+import logging
 import os
 import secrets
 import threading
+import time
+import uuid
 from contextlib import asynccontextmanager
 
 from fastapi import Body, Depends, FastAPI, Header, HTTPException, Request, Response, UploadFile
@@ -19,11 +22,17 @@ from .db import (
     get_session,
     init_db,
 )
+from .llm import LLMUnavailableError
 from .llm import chat as llm_chat
+from .logging_config import log, request_id_var, setup_logging
+from .notify import notify_new_ticket
 from .rag import extract_text, retrieve, retrieve_products
 from .ratelimit import FixedWindowLimiter
 from .security import hash_password, verify_password
 from .worker import requeue_stale, run_worker
+
+setup_logging()
+logger = logging.getLogger("wpai")
 
 _worker_stop = threading.Event()
 _worker_thread: threading.Thread | None = None
@@ -39,6 +48,7 @@ async def lifespan(app: FastAPI):
     if os.getenv("INGEST_WORKER_ENABLED", "true").lower() == "true":
         _worker_thread = threading.Thread(target=run_worker, args=(_worker_stop,), daemon=True)
         _worker_thread.start()
+    log(logger, logging.INFO, "startup.complete")
     yield
     _worker_stop.set()
     if _worker_thread:
@@ -46,6 +56,32 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="wp-aissistant backend", lifespan=lifespan)
+
+
+@app.middleware("http")
+async def request_logging(request: Request, call_next):
+    """Tags every request with a request_id (propagated to the response header and to
+    every log line emitted while handling it, via the contextvar), and logs one line
+    per completed request with method/path/status/duration."""
+    request_id = str(uuid.uuid4())
+    token = request_id_var.set(request_id)
+    start = time.monotonic()
+    try:
+        try:
+            response = await call_next(request)
+        except Exception:
+            log(logger, logging.ERROR, "request.unhandled_error", method=request.method, path=request.url.path)
+            raise
+        duration_ms = round((time.monotonic() - start) * 1000, 1)
+        log(
+            logger, logging.INFO, "request.complete",
+            method=request.method, path=request.url.path,
+            status_code=response.status_code, duration_ms=duration_ms,
+        )
+        response.headers["X-Request-Id"] = request_id
+        return response
+    finally:
+        request_id_var.reset(token)
 
 
 @app.get("/health")
@@ -281,33 +317,58 @@ def chat_endpoint(
     lowered = message.lower()
     keyword_hit = next((k for k in ALWAYS_ESCALATE_KEYWORDS if k in lowered), None)
     if keyword_hit:
+        reason = f"richiede intervento umano ({keyword_hit})"
         conv.status = "escalated"
         session.add(conv)
-        session.add(Ticket(conversation_id=conv.id, reason=f"richiede intervento umano ({keyword_hit})"))
+        ticket = Ticket(conversation_id=conv.id, reason=reason)
+        session.add(ticket)
         session.commit()
+        session.refresh(ticket)
+        log(logger, logging.INFO, "chat.escalated", client_id=client.id, conversation_id=conv.id, trigger="keyword", keyword=keyword_hit)
+        notify_new_ticket(client.name, conv.id, ticket.id, reason)
         return {"conversation_id": conv.id, "status": "escalated", "reply": None}
 
-    context = retrieve(session, client.id, message)
-    system = (
-        "You are a customer support assistant. Handle greetings and small talk yourself, "
-        "normally, without calling any tool. For substantive questions, answer only using "
-        "the context below. Call escalate_to_human ONLY when: the answer to a substantive "
-        "question isn't in the context, or the request needs human authority (refunds, "
-        "complaints, account changes). Do not escalate greetings or vague messages — ask "
-        "the user to clarify instead.\n\nContext:\n" + "\n---\n".join(context)
-    )
-    result = llm_chat(system, history, message)
+    try:
+        context = retrieve(session, client.id, message)
+        system = (
+            "You are a customer support assistant. Handle greetings and small talk yourself, "
+            "normally, without calling any tool. For substantive questions, answer only using "
+            "the context below. Call escalate_to_human ONLY when: the answer to a substantive "
+            "question isn't in the context, or the request needs human authority (refunds, "
+            "complaints, account changes). Do not escalate greetings or vague messages — ask "
+            "the user to clarify instead.\n\nContext:\n" + "\n---\n".join(context)
+        )
+        result = llm_chat(system, history, message)
+    except LLMUnavailableError as exc:
+        # model provider unreachable after retries — hand off instead of failing the request
+        reason = "assistente AI non disponibile al momento"
+        conv.status = "escalated"
+        session.add(conv)
+        ticket = Ticket(conversation_id=conv.id, reason=reason)
+        session.add(ticket)
+        session.commit()
+        session.refresh(ticket)
+        log(logger, logging.ERROR, "chat.llm_unavailable", client_id=client.id, conversation_id=conv.id, error=str(exc))
+        notify_new_ticket(client.name, conv.id, ticket.id, reason)
+        return {"conversation_id": conv.id, "status": "escalated", "reply": None}
 
     if "escalate" in result:
         conv.status = "escalated"
         session.add(conv)
-        session.add(Ticket(conversation_id=conv.id, reason=result["escalate"]))
+        ticket = Ticket(conversation_id=conv.id, reason=result["escalate"])
+        session.add(ticket)
         session.commit()
+        session.refresh(ticket)
+        log(logger, logging.INFO, "chat.escalated", client_id=client.id, conversation_id=conv.id, trigger="model", reason=result["escalate"])
+        notify_new_ticket(client.name, conv.id, ticket.id, result["escalate"])
         return {"conversation_id": conv.id, "status": "escalated", "reply": None}
 
     session.add(Message(conversation_id=conv.id, role="assistant", content=result["reply"]))
     session.commit()
-    products = retrieve_products(session, client.id, message)
+    try:
+        products = retrieve_products(session, client.id, message)
+    except LLMUnavailableError:
+        products = []  # reply already succeeded; don't lose it over a second embedding call
     return {"conversation_id": conv.id, "status": "open", "reply": result["reply"], "products": products}
 
 

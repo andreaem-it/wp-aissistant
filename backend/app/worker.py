@@ -8,13 +8,17 @@ processed exactly once. State lives in Postgres, so a crash mid-job is recoverab
 """
 
 import json
+import logging
 import threading
 from datetime import datetime
 
 from sqlmodel import Session, select
 
 from .db import Chunk, IngestJob, engine
+from .logging_config import log
 from .rag import ingest, ingest_product
+
+logger = logging.getLogger("wpai.worker")
 
 POLL_INTERVAL = 2.0  # seconds between polls when the queue is empty
 
@@ -95,5 +99,6 @@ def run_worker(stop: threading.Event) -> None:
                 except Exception as exc:  # noqa: BLE001 — record failure, keep the worker alive
                     session.rollback()
                     _mark(session, job_id, "error", str(exc)[:500])
+                    log(logger, logging.ERROR, "ingest.job_failed", job_id=job_id, kind=job.kind, client_id=job.client_id, error=str(exc)[:500])
         except Exception:  # noqa: BLE001 — DB hiccup etc.; back off and retry
             stop.wait(POLL_INTERVAL)

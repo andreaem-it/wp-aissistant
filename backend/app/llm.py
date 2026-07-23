@@ -6,11 +6,26 @@ CHAT_MODEL = os.getenv("CHAT_MODEL", "ollama/llama3.1")
 EMBED_MODEL = os.getenv("EMBED_MODEL", "ollama/nomic-embed-text")
 litellm.api_base = os.getenv("LLM_API_BASE", "http://localhost:11434")
 
+# litellm retries+times out its own HTTP calls to the model provider; these just set the
+# knobs so a slow/unreachable Ollama fails fast instead of hanging a request indefinitely.
+LLM_TIMEOUT = float(os.getenv("LLM_TIMEOUT_SECONDS", "30"))
+LLM_RETRIES = int(os.getenv("LLM_RETRIES", "2"))
+
 ESCALATE_PREFIX = "ESCALATE:"
 
 
+class LLMUnavailableError(Exception):
+    """Raised when the model provider can't be reached after retries. Callers should
+    degrade gracefully (e.g. escalate to a human) instead of letting this 500."""
+
+
 def embed(text: str) -> list[float]:
-    resp = litellm.embedding(model=EMBED_MODEL, input=[text])
+    try:
+        resp = litellm.embedding(
+            model=EMBED_MODEL, input=[text], timeout=LLM_TIMEOUT, num_retries=LLM_RETRIES
+        )
+    except Exception as exc:
+        raise LLMUnavailableError(str(exc)) from exc
     return resp.data[0]["embedding"]
 
 
@@ -30,7 +45,12 @@ def chat(system: str, history: list[dict], user_message: str) -> dict:
         f"apologize, just escalate immediately. Otherwise answer normally."
     )
     messages = [{"role": "system", "content": instructions}, *history, {"role": "user", "content": user_message}]
-    resp = litellm.completion(model=CHAT_MODEL, messages=messages)
+    try:
+        resp = litellm.completion(
+            model=CHAT_MODEL, messages=messages, timeout=LLM_TIMEOUT, num_retries=LLM_RETRIES
+        )
+    except Exception as exc:
+        raise LLMUnavailableError(str(exc)) from exc
     text = (resp.choices[0].message.content or "").strip()
     if text.startswith(ESCALATE_PREFIX):
         return {"escalate": text[len(ESCALATE_PREFIX):].strip() or "unspecified"}

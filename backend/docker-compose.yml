@@ -31,6 +31,7 @@ services:
       EMBED_DIM: "768"
       ADMIN_API_KEY: ${ADMIN_API_KEY:-change-me}
       CORS_ALLOW_ALL: "true"
+      OPERATOR_WEBHOOK_URL: ${OPERATOR_WEBHOOK_URL:-}
     ports: ["8000:8000"]
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
