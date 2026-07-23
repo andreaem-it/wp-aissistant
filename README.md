@@ -135,6 +135,14 @@ Copia `wp-plugin/wp-aissistant/` in `wp-content/plugins/`, attiva il plugin, poi
 **Impostazioni → WP AIssistant** imposta Backend URL e API Key. Usa "Sincronizza ora"
 per il primo caricamento della knowledge base.
 
+Per un pacchetto distribuibile (`.zip` installabile da *Plugin → Aggiungi nuovo → Carica*):
+
+```bash
+bash wp-plugin/build.sh          # -> wp-plugin/dist/wp-aissistant-<versione>.zip
+```
+La versione è letta dall'header del plugin; il changelog è in `wp-plugin/wp-aissistant/readme.txt`
+(formato WordPress). La CI produce lo zip come artifact a ogni push/PR.
+
 ## Deploy (Docker)
 
 Il backend è containerizzato. Il modo più rapido per avviare tutto lo stack (Postgres+pgvector,
@@ -260,16 +268,20 @@ Lo stato attuale è un MVP dimostrativo. Prima della produzione:
       dietro `DB_AUTO_CREATE=true`.
 - [x] Sostituito il deprecato `@app.on_event("startup")` con un lifespan handler (che avvia
       anche il worker di ingest e ricostruisce l'allowlist CORS).
-- [ ] Gestione errori LLM/embedding (timeout, retry, fallback).
+- [x] Gestione errori LLM/embedding: timeout+retry sulle chiamate Ollama e fallback con
+      escalation a operatore (`LLMUnavailableError`) invece di un 500 quando il modello è down.
 
 ### Qualità RAG
-- [ ] Chunking naïf a dimensione fissa (800 char) → chunking sentence-aware / con overlap.
-- [ ] Valutazione qualità retrieval e tuning delle soglie (`PRODUCT_MAX_DISTANCE`, `k`).
+- [x] Chunking sentence-aware con overlap (era a dimensione fissa) e soglia di distanza cosine
+      anche sul retrieval dei chunk; parametri configurabili via env.
+- [~] Tuning delle soglie: cutoff introdotto; resta una valutazione sistematica del retrieval.
 - [ ] Reranking dei risultati.
 
 ### Osservabilità & operatività
-- [ ] Logging strutturato, metriche, health check.
-- [ ] Notifiche agli operatori sui nuovi ticket (email/webhook).
+- [x] Logging strutturato JSON (stdlib) con `request_id` per richiesta propagato ai log e
+      all'header di risposta; health check `/health`. (Metriche ancora da aggiungere.)
+- [x] Notifiche agli operatori sui nuovi ticket via webhook (`OPERATOR_WEBHOOK_URL`,
+      payload JSON compatibile Slack/Zapier/n8n, best-effort non bloccante).
 - [x] CI (GitHub Actions): test backend (pytest + Postgres/pgvector), migrazioni Alembic
       (`upgrade head` + `downgrade base`) e build del panel, su ogni push/PR.
 - [ ] CD e ambiente di staging.
@@ -280,4 +292,6 @@ Lo stato attuale è un MVP dimostrativo. Prima della produzione:
       ticket, ingest asincrono, rate limit), gated su `TEST_DATABASE_URL`.
 - [x] Dockerfile del backend + `docker compose` (db healthy → migrazioni → app) con endpoint
       `/health`; build dell'immagine validato in CI. (Restano da documentare reverse proxy/TLS.)
-- [ ] Distribuzione plugin (build `.zip`, versioning, changelog).
+- [x] Distribuzione plugin: `wp-plugin/build.sh` produce uno zip versionato (versione letta
+      dall'header), `readme.txt` in formato WordPress con changelog, e job CI che pubblica lo
+      zip come artifact.

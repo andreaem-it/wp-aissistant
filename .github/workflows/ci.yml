@@ -99,3 +99,15 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build backend image
         run: docker build -t wp-aissistant-backend backend
+
+  plugin-package:
+    name: Plugin package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build plugin zip
+        run: bash wp-plugin/build.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wp-aissistant-plugin
+          path: wp-plugin/dist/*.zip
