@@ -231,6 +231,8 @@ docker compose -f docker-compose.prod.yml up -d
 | `CORS_ALLOW_ALL` | `true` | `true` riflette qualsiasi Origin; `false` applica l'allowlist |
 | `INGEST_WORKER_ENABLED` | `true` | Avvia il worker di ingest nel processo dell'app (coda condivisa via Postgres) |
 | `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` | *(non impostati)* | Abilitano `/billing/*`; se assenti il billing è disattivato — setup in [`deploy/STRIPE.md`](deploy/STRIPE.md) |
+| `DOCS_ENABLED` | `false` | Espone `/docs`, `/redoc`, `/openapi.json` (off di default in prod) |
+| `METRICS_TOKEN` | *(non impostato)* | Se assente `/metrics` è disabilitato; se impostato richiede `Bearer <token>` |
 | `RETRIEVE_FETCH_K` | `20` | Pool di candidati recuperati prima del rerank MMR |
 | `MMR_LAMBDA` | `0.5` | Bilanciamento MMR: `1.0` = solo rilevanza, `0.0` = solo diversità |
 
@@ -251,7 +253,7 @@ Auth via header `Authorization: Bearer <token>`. La colonna *Auth* indica quale 
 | Endpoint | Metodo | Auth | Descrizione |
 |----------|--------|------|-------------|
 | `/health` | GET | — | Liveness probe (nessuna auth) |
-| `/metrics` | GET | — | Metriche Prometheus (nessuna auth; restringi a livello di rete) |
+| `/metrics` | GET | 🔒 | Metriche Prometheus — disabilitato se `METRICS_TOKEN` non è impostato; altrimenti `Bearer <METRICS_TOKEN>` |
 | `/chat` | POST | 🔑 | Messaggio visitatore → risposta o escalation |
 | `/ingest/site-page` | POST | 🔑 | Push contenuto pagina/articolo (dal plugin) |
 | `/ingest/product` | POST | 🔑 | Push prodotto WooCommerce (dal plugin) |

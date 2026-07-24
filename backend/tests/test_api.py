@@ -10,10 +10,18 @@ def test_health(client):
     assert r.json() == {"status": "ok"}
 
 
+_METRICS_AUTH = {"Authorization": "Bearer metrics-test"}
+
+
+def test_metrics_requires_token(client):
+    assert client.get("/metrics").status_code == 401
+    assert client.get("/metrics", headers={"Authorization": "Bearer wrong"}).status_code == 401
+
+
 def test_metrics_endpoint(client, tenant):
     # generate some traffic so counters are present
     client.post("/chat", headers=tenant["key"], json={"visitor_id": "v", "message": "ciao"})
-    r = client.get("/metrics")
+    r = client.get("/metrics", headers=_METRICS_AUTH)
     assert r.status_code == 200
     body = r.text
     assert "wpai_http_requests_total" in body
@@ -21,9 +29,9 @@ def test_metrics_endpoint(client, tenant):
 
 
 def test_metrics_counts_escalation(client, tenant):
-    before = client.get("/metrics").text
+    before = client.get("/metrics", headers=_METRICS_AUTH).text
     client.post("/chat", headers=tenant["key"], json={"visitor_id": "v", "message": "vorrei un rimborso"})
-    after = client.get("/metrics").text
+    after = client.get("/metrics", headers=_METRICS_AUTH).text
     # the keyword escalation counter must appear after an escalation
     assert 'wpai_escalations_total{trigger="keyword"}' in after
     assert before != after

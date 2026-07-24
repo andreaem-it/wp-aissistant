@@ -64,7 +64,18 @@ async def lifespan(app: FastAPI):
         _worker_thread.join(timeout=5)
 
 
-app = FastAPI(title="wp-aissistant backend", lifespan=lifespan)
+# On Railway there's no reverse proxy in front to filter these, so gate them in the app:
+# docs are off unless explicitly enabled, and /metrics needs a token (see below).
+DOCS_ENABLED = os.getenv("DOCS_ENABLED", "false").lower() == "true"
+METRICS_TOKEN = os.getenv("METRICS_TOKEN")
+
+app = FastAPI(
+    title="wp-aissistant backend",
+    lifespan=lifespan,
+    docs_url="/docs" if DOCS_ENABLED else None,
+    redoc_url="/redoc" if DOCS_ENABLED else None,
+    openapi_url="/openapi.json" if DOCS_ENABLED else None,
+)
 
 
 @app.middleware("http")
@@ -101,8 +112,14 @@ async def request_logging(request: Request, call_next):
 
 
 @app.get("/metrics")
-def metrics_endpoint():
-    """Prometheus scrape endpoint (no auth — restrict at the network layer in production)."""
+def metrics_endpoint(authorization: str = Header(None)):
+    """Prometheus scrape endpoint. Disabled (404) unless METRICS_TOKEN is set; when set,
+    requires `Authorization: Bearer <METRICS_TOKEN>`. Scrape config: set the bearer token."""
+    if not METRICS_TOKEN:
+        raise HTTPException(404, "not found")
+    token = authorization[7:].strip() if authorization and authorization.lower().startswith("bearer ") else ""
+    if not secrets.compare_digest(token, METRICS_TOKEN):
+        raise HTTPException(401, "unauthorized")
     from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
     return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)

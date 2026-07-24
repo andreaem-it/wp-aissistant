@@ -16,6 +16,7 @@ os.environ.setdefault("INGEST_WORKER_ENABLED", "false")  # drive the queue manua
 os.environ.setdefault("CORS_ALLOW_ALL", "true")
 os.environ.setdefault("STRIPE_SECRET_KEY", "sk_test_dummy")  # Stripe calls are mocked in tests
 os.environ.setdefault("STRIPE_WEBHOOK_SECRET", "whsec_dummy")
+os.environ.setdefault("METRICS_TOKEN", "metrics-test")  # /metrics is token-gated
 
 _TEST_DB = os.environ.get("TEST_DATABASE_URL")
 if _TEST_DB:
