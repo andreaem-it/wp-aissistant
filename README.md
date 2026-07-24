@@ -335,7 +335,11 @@ Lo stato attuale è un MVP dimostrativo. Prima della produzione:
       (`upgrade head` + `downgrade base`) e build del panel, su ogni push/PR.
 - [x] CD: dopo una CI verde su `main`, un workflow pubblica l'immagine del backend su GHCR
       (`ghcr.io/andreaem-it/wp-aissistant-backend`, tag `latest` + `sha-<commit>`).
-- [ ] Ambiente di staging / deploy automatico sul target di hosting.
+- [x] Deploy live: backend su **Railway** (build automatica dal `Dockerfile` in `backend/`
+      ad ogni push su `main`), Postgres+pgvector su **Neon**, chat+embedding su **Cloudflare
+      Workers AI**. Dominio Railway generato automaticamente (HTTPS incluso); dominio
+      personalizzato non ancora configurato. `CORS_ALLOW_ALL=true` da restringere (allowlist
+      per-client via `/admin/clients/{id}/origins`) prima di collegare clienti reali.
 
 ### Test & documentazione
 - [x] Suite `pytest`: unitari (security/hashing, rate limit, escalation LLM, chunking,
