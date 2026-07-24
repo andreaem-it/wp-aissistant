@@ -541,6 +541,47 @@ def reembed(limit: int = 200, session: Session = Depends(get_session)):
     }
 
 
+# ---- Operator self-service (own account + own client's widget key) ----
+
+
+@app.get("/me")
+def get_me(operator: Operator = Depends(require_operator), session: Session = Depends(get_session)):
+    client = session.get(Client, operator.client_id)
+    return {
+        "email": operator.email,
+        "client_name": client.name,
+        "api_key": client.api_key,
+    }
+
+
+@app.post("/me/password")
+def change_password(
+    current_password: str = Body(...),
+    new_password: str = Body(...),
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
+    if not verify_password(current_password, operator.password_hash):
+        raise HTTPException(401, "current password is incorrect")
+    if len(new_password) < 8:
+        raise HTTPException(400, "new password must be at least 8 characters")
+    operator.password_hash = hash_password(new_password)
+    session.add(operator)
+    session.commit()
+    return {"ok": True}
+
+
+@app.post("/me/rotate-key")
+def rotate_own_key(operator: Operator = Depends(require_operator), session: Session = Depends(get_session)):
+    """Rotate the widget api_key for the operator's own client. Old key stops working
+    immediately — the WP plugin (or anything else using it) needs the new key."""
+    client = session.get(Client, operator.client_id)
+    client.api_key = secrets.token_urlsafe(32)
+    session.add(client)
+    session.commit()
+    return {"api_key": client.api_key}
+
+
 # ---- Operator auth (panel login) ----
 
 

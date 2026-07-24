@@ -5,6 +5,7 @@ import Conversations from "./Conversations.jsx";
 import Tickets from "./Tickets.jsx";
 import Upload from "./Upload.jsx";
 import Stats from "./Stats.jsx";
+import Profile from "./Profile.jsx";
 
 const TABS = [
   { key: "conversations", label: "Chat", Icon: MessageSquare, Component: Conversations },
@@ -12,6 +13,8 @@ const TABS = [
   { key: "upload", label: "Knowledge base", Icon: FileText, Component: Upload },
   { key: "stats", label: "Statistiche", Icon: BarChart3, Component: Stats },
 ];
+
+const PROFILE_TAB = { key: "profile", Component: Profile };
 
 function Brand() {
   return (
@@ -89,7 +92,7 @@ export default function App() {
 
   const email = getEmail();
   const initials = email ? email.slice(0, 2).toUpperCase() : "?";
-  const Active = TABS.find((t) => t.key === tab).Component;
+  const Active = (tab === "profile" ? PROFILE_TAB : TABS.find((t) => t.key === tab)).Component;
 
   return (
     <div className="wpai-app">
@@ -110,9 +113,11 @@ export default function App() {
             </button>
           ))}
         </div>
-        <div className="wpai-sidebar-footer">
-          <div className="wpai-avatar">{initials}</div>
-          <div className="wpai-sidebar-email">{email}</div>
+        <div className={"wpai-sidebar-footer" + (tab === "profile" ? " active" : "")}>
+          <button className="wpai-footer-profile" onClick={() => setTab("profile")}>
+            <div className="wpai-avatar">{initials}</div>
+            <div className="wpai-sidebar-email">{email}</div>
+          </button>
           <button className="wpai-icon-btn" onClick={logout} title="Esci" aria-label="Esci">
             <LogOut size={16} strokeWidth={2.25} />
           </button>

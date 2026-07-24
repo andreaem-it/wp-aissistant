@@ -50,6 +50,49 @@ def test_login_wrong_password(client, tenant):
     assert r.status_code == 401
 
 
+# ---- operator self-service ----
+
+def test_me_returns_own_client_api_key(client, tenant):
+    r = client.get("/me", headers=tenant["op"])
+    assert r.status_code == 200
+    body = r.json()
+    assert body["email"] == "op@acme.it"
+    assert body["api_key"] == tenant["api_key"]
+
+
+def test_change_password_then_login_with_new_password(client, tenant):
+    r = client.post(
+        "/me/password",
+        headers=tenant["op"],
+        json={"current_password": "pw", "new_password": "new-password-123"},
+    )
+    assert r.status_code == 200
+    assert client.post("/operator/login", json={"email": "op@acme.it", "password": "pw"}).status_code == 401
+    ok = client.post("/operator/login", json={"email": "op@acme.it", "password": "new-password-123"})
+    assert ok.status_code == 200
+
+
+def test_change_password_rejects_wrong_current_password(client, tenant):
+    r = client.post(
+        "/me/password",
+        headers=tenant["op"],
+        json={"current_password": "wrong", "new_password": "new-password-123"},
+    )
+    assert r.status_code == 401
+
+
+def test_rotate_own_key_invalidates_old_key(client, tenant):
+    r = client.post("/me/rotate-key", headers=tenant["op"])
+    assert r.status_code == 200
+    new_key = r.json()["api_key"]
+    assert new_key != tenant["api_key"]
+    # old key no longer works, new one does
+    old_headers = tenant["key"]
+    assert client.post("/chat", headers=old_headers, json={"visitor_id": "v1", "message": "ciao"}).status_code == 401
+    new_headers = {"Authorization": f"Bearer {new_key}"}
+    assert client.post("/chat", headers=new_headers, json={"visitor_id": "v1", "message": "ciao"}).status_code == 200
+
+
 # ---- chat + escalation ----
 
 def test_chat_normal_reply(client, tenant):
