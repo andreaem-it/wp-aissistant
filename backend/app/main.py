@@ -670,6 +670,18 @@ async def billing_webhook(request: Request, session: Session = Depends(get_sessi
     return {"received": True}
 
 
+@app.get("/billing/plans")
+def billing_plans(operator: Operator = Depends(require_operator), session: Session = Depends(get_session)):
+    """Plans visible to an operator for self-serve upgrades (purchasable = has a Stripe price)."""
+    return [
+        {
+            "id": p.id, "name": p.name, "price_cents": p.price_cents,
+            "currency": p.currency, "purchasable": bool(p.stripe_price_id),
+        }
+        for p in session.exec(select(Plan).order_by(Plan.id)).all()
+    ]
+
+
 @app.get("/admin/clients/{client_id}/operators", dependencies=[Depends(require_admin)])
 def list_operators(client_id: int, session: Session = Depends(get_session)):
     operators = session.exec(select(Operator).where(Operator.client_id == client_id)).all()
@@ -756,10 +768,14 @@ def reembed(limit: int = 200, session: Session = Depends(get_session)):
 @app.get("/me")
 def get_me(operator: Operator = Depends(require_operator), session: Session = Depends(get_session)):
     client = session.get(Client, operator.client_id)
+    plan = session.get(Plan, client.plan_id) if client.plan_id else None
     return {
         "email": operator.email,
         "client_name": client.name,
         "api_key": client.api_key,
+        "plan_id": client.plan_id,
+        "plan_name": plan.name if plan else None,
+        "billing_status": client.billing_status,
     }
 
 

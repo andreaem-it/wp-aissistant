@@ -1,6 +1,59 @@
 import { useEffect, useState } from "react";
-import { Eye, EyeOff, Copy, Check, RefreshCw, KeyRound } from "lucide-react";
+import { Eye, EyeOff, Copy, Check, RefreshCw, KeyRound, CreditCard } from "lucide-react";
 import { api } from "./api.js";
+
+function BillingCard({ me }) {
+  const [plans, setPlans] = useState([]);
+  const [busy, setBusy] = useState(null);
+
+  useEffect(() => {
+    api.plans().then(setPlans).catch(() => setPlans([]));
+  }, []);
+
+  const upgrade = async (planId) => {
+    setBusy(planId);
+    try {
+      const { checkout_url } = await api.checkout(planId);
+      window.location.href = checkout_url;
+    } catch {
+      setBusy(null);
+      alert("Il pagamento non è al momento disponibile. Riprova più tardi.");
+    }
+  };
+
+  const others = plans.filter((p) => p.id !== me.plan_id && p.purchasable);
+
+  return (
+    <div className="wpai-card" style={{ marginTop: 16 }}>
+      <div className="wpai-card-head">
+        <div className="wpai-card-icon"><CreditCard size={16} strokeWidth={2.25} /></div>
+        <div>
+          <div className="wpai-card-title">Piano — {me.plan_name || "—"}</div>
+          <div className="wpai-card-sub">Stato abbonamento: {me.billing_status || "—"}</div>
+        </div>
+      </div>
+
+      {others.length === 0 ? (
+        <p style={{ color: "var(--text-muted)", fontSize: 13.5, marginTop: 6 }}>
+          Nessun altro piano disponibile al momento.
+        </p>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 6 }}>
+          {others.map((p) => (
+            <div key={p.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+              <span>
+                <strong>{p.name}</strong> — {(p.price_cents / 100).toFixed(2)} {p.currency.toUpperCase()}/mese
+              </span>
+              <button className="wpai-btn" onClick={() => upgrade(p.id)} disabled={busy === p.id}>
+                {busy === p.id ? "Reindirizzamento…" : "Passa a questo piano"}
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function ApiKeyCard({ me, onRotated }) {
   const [visible, setVisible] = useState(false);
@@ -154,6 +207,7 @@ export default function Profile() {
       <h1 className="wpai-page-title">Profilo</h1>
       <p style={{ color: "var(--text-muted)", fontSize: 13.5, marginTop: -14, marginBottom: 20 }}>{me.email}</p>
       <ApiKeyCard me={me} onRotated={(api_key) => setMe((m) => ({ ...m, api_key }))} />
+      <BillingCard me={me} />
       <PasswordCard />
     </div>
   );

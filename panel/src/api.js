@@ -58,4 +58,6 @@ export const api = {
   changePassword: (current_password, new_password) =>
     call("/me/password", { method: "POST", body: { current_password, new_password } }),
   rotateKey: () => call("/me/rotate-key", { method: "POST" }),
+  plans: () => call("/billing/plans"),
+  checkout: (plan_id) => call("/billing/checkout", { method: "POST", body: { plan_id } }),
 };
