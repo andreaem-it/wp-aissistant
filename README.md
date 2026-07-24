@@ -132,7 +132,22 @@ accedi con **email e password dell'operatore** (crealo prima via endpoint admin,
 storage/token). Accesso con `ADMIN_API_KEY` come "password" — tenuta in `sessionStorage`,
 non `localStorage`, così non resta su disco oltre la chiusura della scheda. Da lì: creare
 client, vedere conteggi d'uso (conversazioni/operatori/chunk/prodotti) per client, gestire
-origin CORS, rigenerare api_key, aggiungere/rimuovere operatori, lanciare un re-embed globale.
+origin CORS, rigenerare api_key, aggiungere/rimuovere operatori, lanciare un re-embed globale,
+gestire i **piani** (prezzo, limiti chat/ingest) e assegnarli ai client.
+
+#### Billing: cosa c'è e cosa manca
+
+Le fondamenta sono pronte e funzionanti **senza bisogno di chiavi Stripe**: modello `Plan`
+(nome, prezzo mostrato, limiti rate-limit per chat/ingest), ogni `Client` è sempre legato a
+un piano (di default "Free", seedato dalla migrazione `0005`), i rate limit su `/chat` e
+`/ingest/*` derivano dal piano del client invece che da un valore globale fisso, e il
+pannello superadmin permette di creare piani e assegnarli.
+
+**Non ancora fatto** (richiede un account Stripe, anche solo con chiavi di *test*): checkout
+per far scegliere/pagare un piano al cliente, webhook per aggiornare `billing_status` /
+`stripe_subscription_id` in automatico, fatturazione. I campi `stripe_customer_id`,
+`stripe_subscription_id` e `Plan.stripe_price_id` esistono già nello schema in previsione
+di questo, ma restano vuoti finché non c'è un'integrazione reale da collegarci.
 
 ### Plugin WP
 
@@ -257,6 +272,8 @@ Auth via header `Authorization: Bearer <token>`. La colonna *Auth* indica quale 
 | `/admin/clients/{id}/operators` | GET/POST | 🛡️ | Elenca/crea operatori per un client |
 | `/admin/operators/{id}` | DELETE | 🛡️ | Rimuove un operatore (e le sue sessioni attive) |
 | `/admin/clients/{id}/origins` | POST | 🛡️ | Imposta gli origin widget ammessi per un client |
+| `/admin/clients/{id}/plan` | POST | 🛡️ | Assegna un piano a un client |
+| `/admin/plans` | GET/POST | 🛡️ | Elenca/crea piani (prezzo, limiti chat/ingest) |
 | `/admin/reembed` | POST | 🛡️ | Ri-embedda i contenuti senza embedding (dopo un cambio modello/dim) |
 
 ## Struttura del progetto

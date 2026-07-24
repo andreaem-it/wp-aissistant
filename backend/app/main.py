@@ -19,6 +19,7 @@ from .db import (
     Message,
     Operator,
     OperatorSession,
+    Plan,
     Product,
     Ticket,
     engine,
@@ -210,7 +211,15 @@ def require_admin(authorization: str = Header(None)) -> None:
         raise HTTPException(401, "invalid admin key")
 
 
-def rate_limit_chat(request: Request, client: Client = Depends(require_client)) -> Client:
+def _plan_limit(session: Session, client: Client, attr: str, fallback: int) -> int:
+    """The client's plan limit for `attr` (chat_rate_limit/ingest_rate_limit), or the
+    global default if the client has no plan (shouldn't happen post-migration, but a
+    missing/deleted plan must degrade to *some* limit rather than 500)."""
+    plan = session.get(Plan, client.plan_id) if client.plan_id else None
+    return getattr(plan, attr) if plan else fallback
+
+
+def rate_limit_chat(request: Request, client: Client = Depends(require_client), session: Session = Depends(get_session)) -> Client:
     # enforceable per-client binding: a browser call with this client's key must come from
     # one of its configured origins (skipped when unconfigured or for server-side calls)
     allowed = _split_origins(client.allowed_origins)
@@ -218,12 +227,14 @@ def rate_limit_chat(request: Request, client: Client = Depends(require_client)) 
     if allowed and origin and origin not in allowed:
         raise HTTPException(403, "origin not allowed for this client")
     ip = request.client.host if request.client else "unknown"
-    chat_limiter.check(f"chat:{client.id}:{ip}")
+    limit = _plan_limit(session, client, "chat_rate_limit", chat_limiter.limit)
+    chat_limiter.check(f"chat:{client.id}:{ip}", limit=limit)
     return client
 
 
-def rate_limit_ingest(client: Client = Depends(require_client)) -> Client:
-    ingest_limiter.check(f"ingest:{client.id}")
+def rate_limit_ingest(client: Client = Depends(require_client), session: Session = Depends(get_session)) -> Client:
+    limit = _plan_limit(session, client, "ingest_rate_limit", ingest_limiter.limit)
+    ingest_limiter.check(f"ingest:{client.id}", limit=limit)
     return client
 
 
@@ -489,29 +500,56 @@ def stats(operator: Operator = Depends(require_operator), session: Session = Dep
 # ---- Admin: client onboarding (guarded by ADMIN_API_KEY) ----
 
 
+def _default_plan_id(session: Session) -> int:
+    """The oldest plan (seeded "Free" on fresh DBs via migration 0005). Auto-creates one
+    if missing entirely — e.g. DB_AUTO_CREATE dev setups that skip migrations."""
+    plan = session.exec(select(Plan).order_by(Plan.id)).first()
+    if not plan:
+        plan = Plan(name="Free", chat_rate_limit=chat_limiter.limit, ingest_rate_limit=ingest_limiter.limit)
+        session.add(plan)
+        session.commit()
+        session.refresh(plan)
+    return plan.id
+
+
 @app.post("/admin/clients", dependencies=[Depends(require_admin)])
-def create_client(name: str = Body(...), allowed_origins: str = Body(""), session: Session = Depends(get_session)):
+def create_client(
+    name: str = Body(...),
+    allowed_origins: str = Body(""),
+    plan_id: int | None = Body(None),
+    session: Session = Depends(get_session),
+):
     """Provision a new client and return its generated api_key. The key is shown only here —
     it's not stored in a recoverable form for listing, so capture it now. allowed_origins is a
-    comma-separated list of widget origins (empty = no per-client origin enforcement)."""
-    client = Client(name=name, api_key=secrets.token_urlsafe(32), allowed_origins=allowed_origins)
+    comma-separated list of widget origins (empty = no per-client origin enforcement).
+    Defaults to the Free plan if plan_id isn't given."""
+    client = Client(
+        name=name,
+        api_key=secrets.token_urlsafe(32),
+        allowed_origins=allowed_origins,
+        plan_id=plan_id or _default_plan_id(session),
+    )
     session.add(client)
     session.commit()
     session.refresh(client)
     rebuild_allowed_origins(session)
-    return {"id": client.id, "name": client.name, "api_key": client.api_key, "allowed_origins": client.allowed_origins}
+    return {"id": client.id, "name": client.name, "api_key": client.api_key, "allowed_origins": client.allowed_origins, "plan_id": client.plan_id}
 
 
 @app.get("/admin/clients", dependencies=[Depends(require_admin)])
 def list_clients(session: Session = Depends(get_session)):
     # deliberately omit api_key so a leaked admin listing doesn't hand out client keys
     clients = session.exec(select(Client)).all()
+    plans = {p.id: p.name for p in session.exec(select(Plan)).all()}
     result = []
     for c in clients:
         result.append({
             "id": c.id,
             "name": c.name,
             "allowed_origins": c.allowed_origins,
+            "plan_id": c.plan_id,
+            "plan_name": plans.get(c.plan_id),
+            "billing_status": c.billing_status,
             "conversations": session.exec(
                 select(func.count()).select_from(Conversation).where(Conversation.client_id == c.id)
             ).one(),
@@ -526,6 +564,45 @@ def list_clients(session: Session = Depends(get_session)):
             ).one(),
         })
     return result
+
+
+@app.post("/admin/clients/{client_id}/plan", dependencies=[Depends(require_admin)])
+def set_client_plan(client_id: int, plan_id: int = Body(..., embed=True), session: Session = Depends(get_session)):
+    client = session.get(Client, client_id)
+    if not client:
+        raise HTTPException(404, "client not found")
+    if not session.get(Plan, plan_id):
+        raise HTTPException(404, "plan not found")
+    client.plan_id = plan_id
+    session.add(client)
+    session.commit()
+    return {"id": client.id, "plan_id": client.plan_id}
+
+
+@app.get("/admin/plans", dependencies=[Depends(require_admin)])
+def list_plans(session: Session = Depends(get_session)):
+    return session.exec(select(Plan).order_by(Plan.id)).all()
+
+
+@app.post("/admin/plans", dependencies=[Depends(require_admin)])
+def create_plan(
+    name: str = Body(...),
+    price_cents: int = Body(0),
+    currency: str = Body("eur"),
+    chat_rate_limit: int = Body(30),
+    ingest_rate_limit: int = Body(60),
+    session: Session = Depends(get_session),
+):
+    if session.exec(select(Plan).where(Plan.name == name)).first():
+        raise HTTPException(409, "a plan with this name already exists")
+    plan = Plan(
+        name=name, price_cents=price_cents, currency=currency,
+        chat_rate_limit=chat_rate_limit, ingest_rate_limit=ingest_rate_limit,
+    )
+    session.add(plan)
+    session.commit()
+    session.refresh(plan)
+    return plan
 
 
 @app.get("/admin/clients/{client_id}/operators", dependencies=[Depends(require_admin)])

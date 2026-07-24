@@ -19,8 +19,11 @@ class FixedWindowLimiter:
         self._hits: dict[str, tuple[float, int]] = {}
         self._lock = threading.Lock()
 
-    def check(self, key: str) -> None:
-        """Count one hit for `key`; raise HTTP 429 once the window limit is exceeded."""
+    def check(self, key: str, limit: int | None = None) -> None:
+        """Count one hit for `key`; raise HTTP 429 once the window limit is exceeded.
+        `limit` overrides the instance default — e.g. a per-plan limit instead of the
+        global one — without needing a separate limiter instance per plan."""
+        limit = self.limit if limit is None else limit
         now = time.time()
         with self._lock:
             start, count = self._hits.get(key, (now, 0))
@@ -28,7 +31,7 @@ class FixedWindowLimiter:
                 start, count = now, 0
             count += 1
             self._hits[key] = (start, count)
-            if count > self.limit:
+            if count > limit:
                 retry_after = max(int(self.window - (now - start)), 1)
                 raise HTTPException(
                     429, "rate limit exceeded", headers={"Retry-After": str(retry_after)}

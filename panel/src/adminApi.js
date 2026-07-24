@@ -40,4 +40,7 @@ export const adminApi = {
     call(`/admin/clients/${id}/operators`, { method: "POST", body: { email, password } }),
   deleteOperator: (operatorId) => call(`/admin/operators/${operatorId}`, { method: "DELETE" }),
   reembed: () => call("/admin/reembed", { method: "POST" }),
+  plans: () => call("/admin/plans"),
+  createPlan: (plan) => call("/admin/plans", { method: "POST", body: plan }),
+  setClientPlan: (clientId, plan_id) => call(`/admin/clients/${clientId}/plan`, { method: "POST", body: { plan_id } }),
 };

@@ -270,7 +270,7 @@ h1, h2, h3 { font-family: var(--font-display); letter-spacing: -0.01em; }
 
 /* ---- Form elements ---- */
 
-input, textarea {
+input, textarea, select {
   font: inherit;
   font-size: 13.5px;
   padding: 9px 12px;
@@ -282,7 +282,7 @@ input, textarea {
 }
 
 input::placeholder, textarea::placeholder { color: var(--text-faint); }
-input:focus, textarea:focus { outline: 2px solid var(--primary); outline-offset: -1px; border-color: var(--primary); }
+input:focus, textarea:focus, select:focus { outline: 2px solid var(--primary); outline-offset: -1px; border-color: var(--primary); }
 
 button.wpai-btn {
   display: inline-flex;

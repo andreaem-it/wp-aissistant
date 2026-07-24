@@ -11,6 +11,20 @@ EMBED_DIM = int(os.getenv("EMBED_DIM", "1024"))  # 1024 = bge-m3 (Workers AI); 7
 engine = create_engine(DATABASE_URL)
 
 
+class Plan(SQLModel, table=True):
+    """Billing plan: name, price (display only until Stripe is wired), and the per-plan
+    rate limits it grants. stripe_price_id stays empty until a Stripe account exists —
+    plans and gating work standalone; only checkout needs it."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    name: str = Field(index=True, unique=True)
+    price_cents: int = 0
+    currency: str = "eur"
+    chat_rate_limit: int = 30
+    ingest_rate_limit: int = 60
+    stripe_price_id: str = ""
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 class Client(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str
@@ -18,6 +32,13 @@ class Client(SQLModel, table=True):
     # comma-separated widget origins allowed to use this client's key from a browser;
     # empty = not configured (no per-client origin enforcement for this client)
     allowed_origins: str = ""
+    plan_id: int = Field(foreign_key="plan.id")
+    # billing status is tracked but not yet enforced anywhere (no Stripe webhook exists
+    # to change it from "active") — the field exists so gating logic has a hook to check
+    # once subscriptions are real, without another migration.
+    billing_status: str = "active"  # active | trialing | past_due | canceled
+    stripe_customer_id: str = ""
+    stripe_subscription_id: str = ""
 
 
 class Chunk(SQLModel, table=True):

@@ -1,9 +1,14 @@
 import { useEffect, useState } from "react";
 import {
   Shield, Building2, Plus, Eye, EyeOff, Copy, Check, RefreshCw,
-  Trash2, MessageSquare, Users, FileText, Package, Sparkles,
+  Trash2, MessageSquare, Users, FileText, Package, Sparkles, CreditCard,
 } from "lucide-react";
 import { getAdminKey, setAdminKey, clearAdminKey, adminApi } from "./adminApi.js";
+
+function formatPrice(cents, currency) {
+  if (!cents) return "Gratis";
+  return new Intl.NumberFormat("it-IT", { style: "currency", currency: currency || "eur" }).format(cents / 100);
+}
 
 function NewClientForm({ onCreated }) {
   const [open, setOpen] = useState(false);
@@ -123,7 +128,35 @@ function OperatorsPanel({ clientId }) {
   );
 }
 
-function ClientDetail({ client, onChanged }) {
+function PlanPicker({ client, plans, onChanged }) {
+  const [saving, setSaving] = useState(false);
+
+  const change = async (e) => {
+    const planId = Number(e.target.value);
+    setSaving(true);
+    try {
+      await adminApi.setClientPlan(client.id, planId);
+      onChanged();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="wpai-card" style={{ marginTop: 16 }}>
+      <div className="wpai-card-title" style={{ marginBottom: 12 }}><CreditCard size={15} /> Piano</div>
+      <select value={client.plan_id || ""} onChange={change} disabled={saving || !plans}>
+        {plans?.map((p) => (
+          <option key={p.id} value={p.id}>
+            {p.name} — {formatPrice(p.price_cents, p.currency)}/mese
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
+function ClientDetail({ client, plans, onChanged }) {
   const [origins, setOrigins] = useState(client.allowed_origins || "");
   const [savingOrigins, setSavingOrigins] = useState(false);
   const [newKey, setNewKey] = useState(null);
@@ -225,14 +258,87 @@ function ClientDetail({ client, onChanged }) {
         </button>
       </div>
 
+      <PlanPicker client={client} plans={plans} onChanged={onChanged} />
       <OperatorsPanel clientId={client.id} />
+    </div>
+  );
+}
+
+function PlansView({ plans, onChanged }) {
+  const [form, setForm] = useState({ name: "", price_cents: 0, chat_rate_limit: 30, ingest_rate_limit: 60 });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setSaving(true);
+    setError("");
+    try {
+      await adminApi.createPlan(form);
+      setForm({ name: "", price_cents: 0, chat_rate_limit: 30, ingest_rate_limit: 60 });
+      onChanged();
+    } catch {
+      setError("Nome piano già in uso.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div>
+      <h2 style={{ marginTop: 0 }}>Piani</h2>
+      <div className="wpai-kb-list" style={{ marginBottom: 20 }}>
+        {plans?.map((p) => (
+          <div key={p.id} className="wpai-kb-row">
+            <span className="wpai-kb-label">{p.name}</span>
+            <span className="wpai-kb-count">{formatPrice(p.price_cents, p.currency)}/mese</span>
+            <span className="wpai-kb-count">{p.chat_rate_limit} chat/min</span>
+            <span className="wpai-kb-count">{p.ingest_rate_limit} ingest/min</span>
+          </div>
+        ))}
+      </div>
+
+      <div className="wpai-card">
+        <div className="wpai-card-title" style={{ marginBottom: 12 }}>Nuovo piano</div>
+        <form onSubmit={submit}>
+          {error && <div className="wpai-error">{error}</div>}
+          <div className="wpai-field">
+            <label>Nome</label>
+            <input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} required />
+          </div>
+          <div className="wpai-field">
+            <label>Prezzo (centesimi/mese, 0 = gratis)</label>
+            <input
+              type="number" min={0} value={form.price_cents}
+              onChange={(e) => setForm((f) => ({ ...f, price_cents: Number(e.target.value) }))}
+            />
+          </div>
+          <div className="wpai-field">
+            <label>Limite chat (msg/min)</label>
+            <input
+              type="number" min={1} value={form.chat_rate_limit}
+              onChange={(e) => setForm((f) => ({ ...f, chat_rate_limit: Number(e.target.value) }))}
+            />
+          </div>
+          <div className="wpai-field">
+            <label>Limite ingest (richieste/min)</label>
+            <input
+              type="number" min={1} value={form.ingest_rate_limit}
+              onChange={(e) => setForm((f) => ({ ...f, ingest_rate_limit: Number(e.target.value) }))}
+            />
+          </div>
+          <button className="wpai-btn" type="submit" disabled={saving}>{saving ? "Creazione…" : "Crea piano"}</button>
+        </form>
+      </div>
     </div>
   );
 }
 
 function Dashboard() {
   const [clients, setClients] = useState(null);
+  const [plans, setPlans] = useState(null);
   const [selected, setSelected] = useState(null);
+  const [view, setView] = useState("clients"); // "clients" | "plans"
   const [reembedResult, setReembedResult] = useState(null);
 
   const load = () => adminApi.clients().then((list) => {
@@ -242,8 +348,9 @@ function Dashboard() {
       if (fresh) setSelected(fresh);
     }
   });
+  const loadPlans = () => adminApi.plans().then(setPlans);
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); loadPlans(); }, []);
 
   const runReembed = async () => {
     setReembedResult("in corso…");
@@ -258,43 +365,60 @@ function Dashboard() {
           <div className="wpai-brand-mark" style={{ background: "linear-gradient(135deg, #16161f, #4a4a5a)" }} />
           <div className="wpai-brand-name"><Shield size={13} style={{ verticalAlign: -2, marginRight: 4 }} />Superadmin</div>
         </div>
-        <div className="wpai-nav" style={{ flex: 1, overflowY: "auto" }}>
-          {clients?.map((c) => (
-            <button
-              key={c.id}
-              className={"wpai-nav-item" + (selected?.id === c.id ? " active" : "")}
-              onClick={() => setSelected(c)}
-            >
-              <Building2 size={16} strokeWidth={2.25} />
-              {c.name}
-            </button>
-          ))}
+        <div className="wpai-nav">
+          <button className={"wpai-nav-item" + (view === "clients" ? " active" : "")} onClick={() => setView("clients")}>
+            <Building2 size={16} strokeWidth={2.25} /> Clienti
+          </button>
+          <button className={"wpai-nav-item" + (view === "plans" ? " active" : "")} onClick={() => setView("plans")}>
+            <CreditCard size={16} strokeWidth={2.25} /> Piani
+          </button>
         </div>
-        <button
-          className="wpai-btn ghost"
-          style={{ marginBottom: 10 }}
-          onClick={runReembed}
-          title="Ricalcola gli embedding mancanti (dopo un cambio modello)"
-        >
-          <Sparkles size={14} /> Ri-embedding
-        </button>
-        {reembedResult && <p style={{ fontSize: 11.5, color: "var(--text-muted)", margin: "0 0 10px" }}>{reembedResult}</p>}
-        <button className="wpai-icon-btn" onClick={() => { clearAdminKey(); window.location.reload(); }} style={{ alignSelf: "flex-start" }}>
-          Esci
-        </button>
+        {view === "clients" && (
+          <div className="wpai-nav" style={{ flex: 1, overflowY: "auto", marginTop: 10 }}>
+            {clients?.map((c) => (
+              <button
+                key={c.id}
+                className={"wpai-nav-item" + (selected?.id === c.id ? " active" : "")}
+                onClick={() => setSelected(c)}
+              >
+                {c.name}
+              </button>
+            ))}
+          </div>
+        )}
+        <div style={{ marginTop: "auto" }}>
+          <button
+            className="wpai-btn ghost"
+            style={{ marginBottom: 10 }}
+            onClick={runReembed}
+            title="Ricalcola gli embedding mancanti (dopo un cambio modello)"
+          >
+            <Sparkles size={14} /> Ri-embedding
+          </button>
+          {reembedResult && <p style={{ fontSize: 11.5, color: "var(--text-muted)", margin: "0 0 10px" }}>{reembedResult}</p>}
+          <button className="wpai-icon-btn" onClick={() => { clearAdminKey(); window.location.reload(); }} style={{ alignSelf: "flex-start" }}>
+            Esci
+          </button>
+        </div>
       </nav>
       <main className="wpai-main">
-        <NewClientForm onCreated={load} />
-        <div style={{ marginTop: 20 }}>
-          {selected ? (
-            <ClientDetail client={selected} onChanged={load} />
-          ) : (
-            <div className="wpai-empty">
-              <Building2 size={28} strokeWidth={1.5} />
-              <p>Seleziona un cliente dalla sidebar, o creane uno nuovo.</p>
+        {view === "clients" ? (
+          <>
+            <NewClientForm onCreated={load} />
+            <div style={{ marginTop: 20 }}>
+              {selected ? (
+                <ClientDetail client={selected} plans={plans} onChanged={() => { load(); loadPlans(); }} />
+              ) : (
+                <div className="wpai-empty">
+                  <Building2 size={28} strokeWidth={1.5} />
+                  <p>Seleziona un cliente dalla sidebar, o creane uno nuovo.</p>
+                </div>
+              )}
             </div>
-          )}
-        </div>
+          </>
+        ) : (
+          <PlansView plans={plans} onChanged={loadPlans} />
+        )}
       </main>
     </div>
   );
