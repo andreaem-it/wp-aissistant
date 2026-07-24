@@ -12,6 +12,14 @@ export function clearToken() {
   localStorage.removeItem("operator_token");
 }
 
+export function getEmail() {
+  return localStorage.getItem("operator_email") || "";
+}
+
+export function setEmail(email) {
+  localStorage.setItem("operator_email", email);
+}
+
 async function call(path, { method = "GET", params = {}, body, auth = true } = {}) {
   const qs = new URLSearchParams(params).toString();
   const headers = {};
