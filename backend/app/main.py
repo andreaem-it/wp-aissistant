@@ -505,7 +505,46 @@ def create_client(name: str = Body(...), allowed_origins: str = Body(""), sessio
 @app.get("/admin/clients", dependencies=[Depends(require_admin)])
 def list_clients(session: Session = Depends(get_session)):
     # deliberately omit api_key so a leaked admin listing doesn't hand out client keys
-    return [{"id": c.id, "name": c.name, "allowed_origins": c.allowed_origins} for c in session.exec(select(Client)).all()]
+    clients = session.exec(select(Client)).all()
+    result = []
+    for c in clients:
+        result.append({
+            "id": c.id,
+            "name": c.name,
+            "allowed_origins": c.allowed_origins,
+            "conversations": session.exec(
+                select(func.count()).select_from(Conversation).where(Conversation.client_id == c.id)
+            ).one(),
+            "operators": session.exec(
+                select(func.count()).select_from(Operator).where(Operator.client_id == c.id)
+            ).one(),
+            "documents": session.exec(
+                select(func.count()).select_from(Chunk).where(Chunk.client_id == c.id)
+            ).one(),
+            "products": session.exec(
+                select(func.count()).select_from(Product).where(Product.client_id == c.id)
+            ).one(),
+        })
+    return result
+
+
+@app.get("/admin/clients/{client_id}/operators", dependencies=[Depends(require_admin)])
+def list_operators(client_id: int, session: Session = Depends(get_session)):
+    operators = session.exec(select(Operator).where(Operator.client_id == client_id)).all()
+    return [{"id": o.id, "email": o.email, "created_at": o.created_at} for o in operators]
+
+
+@app.delete("/admin/operators/{operator_id}", dependencies=[Depends(require_admin)])
+def delete_operator(operator_id: int, session: Session = Depends(get_session)):
+    operator = session.get(Operator, operator_id)
+    if not operator:
+        raise HTTPException(404, "operator not found")
+    for s in session.exec(select(OperatorSession).where(OperatorSession.operator_id == operator_id)).all():
+        session.delete(s)
+    session.commit()  # flush the FK-dependent sessions before deleting their operator
+    session.delete(operator)
+    session.commit()
+    return {"ok": True}
 
 
 @app.post("/admin/clients/{client_id}/origins", dependencies=[Depends(require_admin)])

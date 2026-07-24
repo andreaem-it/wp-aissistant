@@ -90,16 +90,15 @@ alembic upgrade head             # crea/aggiorna lo schema del DB
 uvicorn app.main:app --reload   # http://localhost:8000
 ```
 
-> **Creare un client:** imposta `ADMIN_API_KEY` in `.env`, poi chiama l'endpoint admin:
+> **Creare client e operatori:** più comodo dal **pannello superadmin** (`/#admin` nel panel,
+> vedi sotto) — form per creare client, impostare origin CORS, rigenerare l'api_key, e
+> aggiungere/rimuovere operatori. In alternativa, via API diretta:
 > ```bash
 > curl -X POST http://localhost:8000/admin/clients \
 >   -H "Authorization: Bearer $ADMIN_API_KEY" \
 >   -H "Content-Type: application/json" \
 >   -d '{"name": "Acme Srl"}'
 > # -> {"id": 1, "name": "Acme Srl", "api_key": "…"}  ← salva l'api_key, è mostrata solo qui
-> ```
-> **Creare un operatore** (per accedere al panel):
-> ```bash
 > curl -X POST http://localhost:8000/admin/clients/1/operators \
 >   -H "Authorization: Bearer $ADMIN_API_KEY" \
 >   -H "Content-Type: application/json" \
@@ -128,6 +127,12 @@ npm run dev                     # http://localhost:5173
 ```
 Configura il backend con `VITE_API_BASE` (default `http://localhost:8000`). All'avvio
 accedi con **email e password dell'operatore** (crealo prima via endpoint admin, vedi sopra).
+
+**Pannello superadmin**: `/#admin` (identità separata dal login operatore — mai lo stesso
+storage/token). Accesso con `ADMIN_API_KEY` come "password" — tenuta in `sessionStorage`,
+non `localStorage`, così non resta su disco oltre la chiusura della scheda. Da lì: creare
+client, vedere conteggi d'uso (conversazioni/operatori/chunk/prodotti) per client, gestire
+origin CORS, rigenerare api_key, aggiungere/rimuovere operatori, lanciare un re-embed globale.
 
 ### Plugin WP
 
@@ -241,11 +246,16 @@ Auth via header `Authorization: Bearer <token>`. La colonna *Auth* indica quale 
 | `/tickets` | GET | 👤 | Ticket per stato |
 | `/tickets/{id}/reply` | POST | 👤 | Risposta operatore |
 | `/stats` | GET | 👤 | Contatori conversazioni |
+| `/knowledge-base` | GET | 👤 | Documenti/pagine (raggruppati, con conteggio chunk) e prodotti sincronizzati |
+| `/me` | GET | 👤 | Profilo operatore: email, nome client, api_key del widget |
+| `/me/password` | POST | 👤 | Cambia la propria password |
+| `/me/rotate-key` | POST | 👤 | Rigenera l'api_key del proprio client |
 | `/operator/login` | POST | — | Login operatore (email+password) → token |
 | `/operator/logout` | POST | 👤 | Invalida la sessione operatore |
-| `/admin/clients` | POST/GET | 🛡️ | Crea/elenca client |
+| `/admin/clients` | POST/GET | 🛡️ | Crea/elenca client (con conteggi d'uso) |
 | `/admin/clients/{id}/rotate-key` | POST | 🛡️ | Rigenera l'api_key di un client |
-| `/admin/clients/{id}/operators` | POST | 🛡️ | Crea un operatore per un client |
+| `/admin/clients/{id}/operators` | GET/POST | 🛡️ | Elenca/crea operatori per un client |
+| `/admin/operators/{id}` | DELETE | 🛡️ | Rimuove un operatore (e le sue sessioni attive) |
 | `/admin/clients/{id}/origins` | POST | 🛡️ | Imposta gli origin widget ammessi per un client |
 | `/admin/reembed` | POST | 🛡️ | Ri-embedda i contenuti senza embedding (dopo un cambio modello/dim) |
 

@@ -38,6 +38,27 @@ def test_admin_requires_key(client):
     assert ok.json()["api_key"]
 
 
+def test_admin_list_clients_includes_usage_counts(client, tenant):
+    admin = {"Authorization": "Bearer test-admin"}
+    client.post("/chat", headers=tenant["key"], json={"visitor_id": "v", "message": "ciao"})
+    body = client.get("/admin/clients", headers=admin).json()
+    row = next(c for c in body if c["id"] == tenant["cid"])
+    assert row["conversations"] == 1
+    assert row["operators"] == 1
+    assert "api_key" not in row
+
+
+def test_admin_list_and_delete_operators(client, tenant):
+    admin = {"Authorization": "Bearer test-admin"}
+    ops = client.get(f"/admin/clients/{tenant['cid']}/operators", headers=admin).json()
+    assert ops[0]["email"] == "op@acme.it"
+
+    r = client.delete(f"/admin/operators/{ops[0]['id']}", headers=admin)
+    assert r.status_code == 200
+    # the deleted operator's session is now invalid
+    assert client.get("/stats", headers=tenant["op"]).status_code == 401
+
+
 def test_operator_login_and_scope(client, tenant):
     # operator token works on a panel endpoint
     assert client.get("/stats", headers=tenant["op"]).status_code == 200
