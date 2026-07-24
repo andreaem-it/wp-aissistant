@@ -305,7 +305,8 @@ wp-aissistant/
 ### Sito marketing (`website/`)
 
 Landing page promozionale statica, senza build: apri `website/index.html` nel browser (o
-servila con qualsiasi web server statico). Presenta funzionalità, prezzi **a pacchetto**
+servila con qualsiasi web server statico). Deploy consigliato su **Cloudflare Pages** — vedi
+[`deploy/CLOUDFLARE-PAGES.md`](deploy/CLOUDFLARE-PAGES.md). Presenta funzionalità, prezzi **a pacchetto**
 (Starter/Pro/Business, con toggle mensile/annuale) e **a consumo** (pay-as-you-go), più i link
 di **login** e **registrazione**. Le destinazioni di quei link si configurano nell'oggetto
 `LINKS` in fondo a `index.html` (di default puntano al panel su `http://localhost:5173`).
