@@ -82,6 +82,9 @@
     } finally {
       setTyping(messages, false);
     }
+    if (!res.ok) {
+      throw new Error(`chat request failed: ${res.status}`);
+    }
     const data = await res.json();
     localStorage.setItem(CONV_KEY, data.conversation_id);
     startPolling(data.conversation_id, messages);
@@ -99,7 +102,7 @@
 
   // ponytail: polling instead of websockets, good enough for occasional operator replies
   function startPolling(conversationId, messages) {
-    if (pollTimer) return;
+    if (pollTimer || !conversationId) return;
     pollTimer = setInterval(async () => {
       try {
         const res = await fetch(
