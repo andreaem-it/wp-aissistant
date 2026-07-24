@@ -17,6 +17,7 @@ STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY")
 STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
 SUCCESS_URL = os.getenv("BILLING_SUCCESS_URL", "http://localhost:5173/billing?status=success")
 CANCEL_URL = os.getenv("BILLING_CANCEL_URL", "http://localhost:5173/billing?status=cancel")
+TRIAL_DAYS = int(os.getenv("TRIAL_DAYS", "14"))  # free trial length for self-serve signup
 
 if STRIPE_SECRET_KEY:
     stripe.api_key = STRIPE_SECRET_KEY
@@ -63,6 +64,11 @@ def _free_plan_id(session: Session) -> "int | None":
     return plan.id if plan else None
 
 
+def _apply_plan(session: Session, client: "Client", plan_id) -> None:
+    if plan_id and session.get(Plan, int(plan_id)):
+        client.plan_id = int(plan_id)
+
+
 def handle_event(session: Session, event) -> None:
     """Apply a verified Stripe event to the owning client. Unknown event types are ignored."""
     etype = event["type"]
@@ -75,21 +81,24 @@ def handle_event(session: Session, event) -> None:
             return
         client.stripe_customer_id = obj.get("customer") or client.stripe_customer_id
         client.stripe_subscription_id = obj.get("subscription") or client.stripe_subscription_id
-        plan_id = metadata.get("plan_id")
-        if plan_id and session.get(Plan, int(plan_id)):
-            client.plan_id = int(plan_id)
-        client.billing_status = "active"
+        _apply_plan(session, client, metadata.get("plan_id"))
+        # activate only if a subscription.* event hasn't already set a precise status (e.g.
+        # "trialing" for a signup) — avoids overwriting the trial status regardless of order.
+        if client.billing_status in ("incomplete", ""):
+            client.billing_status = "active"
         session.add(client)
         session.commit()
 
-    elif etype in ("customer.subscription.updated", "customer.subscription.deleted"):
+    elif etype in ("customer.subscription.created", "customer.subscription.updated", "customer.subscription.deleted"):
         client = _client_by_subscription(session, obj.get("id")) or _client_by_id(session, metadata.get("client_id"))
         if not client:
             return
+        client.stripe_subscription_id = obj.get("id") or client.stripe_subscription_id
         if etype == "customer.subscription.deleted":
             client.billing_status = "canceled"
         else:
-            client.billing_status = map_status(obj.get("status", "active"))
+            client.billing_status = map_status(obj.get("status", "active"))  # active | trialing | past_due | ...
+            _apply_plan(session, client, metadata.get("plan_id"))
         # policy: canceled -> downgrade to Free (its limits apply via plan_id). past_due keeps
         # the paid plan as a grace period while Stripe retries the payment.
         if client.billing_status == "canceled":

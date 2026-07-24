@@ -6,6 +6,7 @@ import Tickets from "./Tickets.jsx";
 import Upload from "./Upload.jsx";
 import Stats from "./Stats.jsx";
 import Profile from "./Profile.jsx";
+import Signup from "./Signup.jsx";
 
 const TABS = [
   { key: "conversations", label: "Chat", Icon: MessageSquare, Component: Conversations },
@@ -27,8 +28,12 @@ function Brand() {
   );
 }
 
+const initialAuthMode = () =>
+  new URLSearchParams(window.location.search).has("signup") ? "signup" : "login";
+
 export default function App() {
   const [token, setTokenState] = useState(getToken());
+  const [authMode, setAuthMode] = useState(initialAuthMode);
   const [tab, setTab] = useState("conversations");
   const [error, setError] = useState("");
   const [openTickets, setOpenTickets] = useState(0);
@@ -42,39 +47,56 @@ export default function App() {
   }, [token, tab]);
 
   if (!token) {
+    const isSignup = authMode === "signup";
     return (
       <div className="wpai-login">
         <div className="wpai-login-card">
           <Brand />
-          <h1>Accedi al pannello</h1>
-          <p className="sub">Gestisci conversazioni, ticket e knowledge base.</p>
-          <form
-            onSubmit={async (e) => {
-              e.preventDefault();
-              const data = new FormData(e.target);
-              const email = data.get("email");
-              try {
-                const { token } = await api.login(email, data.get("password"));
-                setToken(token);
-                setEmail(email);
-                setTokenState(token);
-                setError("");
-              } catch {
-                setError("Credenziali non valide.");
-              }
-            }}
-          >
-            {error && <div className="wpai-error">{error}</div>}
-            <div className="wpai-field">
-              <label htmlFor="wpai-email">Email</label>
-              <input id="wpai-email" name="email" type="email" placeholder="operatore@azienda.it" autoFocus required />
-            </div>
-            <div className="wpai-field">
-              <label htmlFor="wpai-password">Password</label>
-              <input id="wpai-password" name="password" type="password" placeholder="••••••••" required />
-            </div>
-            <button className="wpai-btn full" type="submit">Entra</button>
-          </form>
+          <h1>{isSignup ? "Crea il tuo account" : "Accedi al pannello"}</h1>
+          <p className="sub">
+            {isSignup
+              ? "Attiva l'assistente AI sul tuo sito in pochi minuti."
+              : "Gestisci conversazioni, ticket e knowledge base."}
+          </p>
+          {isSignup ? (
+            <Signup onBackToLogin={() => { setAuthMode("login"); setError(""); }} />
+          ) : (
+            <>
+              <form
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  const data = new FormData(e.target);
+                  const email = data.get("email");
+                  try {
+                    const { token } = await api.login(email, data.get("password"));
+                    setToken(token);
+                    setEmail(email);
+                    setTokenState(token);
+                    setError("");
+                  } catch {
+                    setError("Credenziali non valide.");
+                  }
+                }}
+              >
+                {error && <div className="wpai-error">{error}</div>}
+                <div className="wpai-field">
+                  <label htmlFor="wpai-email">Email</label>
+                  <input id="wpai-email" name="email" type="email" placeholder="operatore@azienda.it" autoFocus required />
+                </div>
+                <div className="wpai-field">
+                  <label htmlFor="wpai-password">Password</label>
+                  <input id="wpai-password" name="password" type="password" placeholder="••••••••" required />
+                </div>
+                <button className="wpai-btn full" type="submit">Entra</button>
+              </form>
+              <p className="sub" style={{ marginTop: 14, textAlign: "center" }}>
+                Non hai un account?{" "}
+                <a href="#" onClick={(e) => { e.preventDefault(); setAuthMode("signup"); setError(""); }}>
+                  Registrati
+                </a>
+              </p>
+            </>
+          )}
         </div>
       </div>
     );

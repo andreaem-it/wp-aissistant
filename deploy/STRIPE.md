@@ -33,6 +33,7 @@ Stripe → **Developers → API keys** → copia la **Secret key** (`sk_test_…
 2. URL: `https://<tuo-dominio>/billing/webhook`
 3. Eventi da inviare:
    - `checkout.session.completed`
+   - `customer.subscription.created`
    - `customer.subscription.updated`
    - `customer.subscription.deleted`
 4. Dopo la creazione, copia il **Signing secret** (`whsec_…`).
@@ -67,6 +68,14 @@ Stripe → **Developers → API keys** → copia la **Secret key** (`sk_test_…
 
 Ripeti 1–5 con **Test mode OFF**: nuovi price id live, `sk_live_…`, nuovo webhook live con il
 suo `whsec_…`. Aggiorna le env var di Railway.
+
+## Registrazione self-service (signup)
+
+Il sito e il panel hanno una **registrazione self-service** (`POST /signup`): l'utente sceglie
+un piano, si apre Stripe Checkout in modalità subscription con **prova gratuita di `TRIAL_DAYS`
+giorni** e **carta obbligatoria** (pre-autorizzata, addebito solo a fine prova). Perché funzioni:
+il piano deve avere `stripe_price_id` impostato (passo 1-2) e le chiavi/webhook configurati.
+Regola `TRIAL_DAYS` (default 14) tra le env di Railway.
 
 ## Cosa succede se un cliente non paga
 

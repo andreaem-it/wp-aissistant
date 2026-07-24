@@ -699,6 +699,70 @@ def billing_plans(operator: Operator = Depends(require_operator), session: Sessi
     ]
 
 
+@app.get("/public/plans")
+def public_plans(session: Session = Depends(get_session)):
+    """Purchasable plans for the public signup page (no auth). Free/priceless plans are hidden."""
+    return [
+        {"id": p.id, "name": p.name, "price_cents": p.price_cents, "currency": p.currency}
+        for p in session.exec(select(Plan).order_by(Plan.id)).all()
+        if p.stripe_price_id
+    ]
+
+
+@app.post("/signup")
+def signup(
+    company_name: str = Body(...),
+    email: str = Body(...),
+    password: str = Body(...),
+    plan_id: int = Body(...),
+    session: Session = Depends(get_session),
+):
+    """Self-serve registration: create the account (on the Free plan, 'incomplete' until paid)
+    and start a Stripe Checkout subscription with a free trial + card capture. The chosen plan is
+    applied by the webhook once checkout completes. Returns the hosted checkout URL."""
+    if not billing.enabled():
+        raise HTTPException(503, "billing not configured")
+    plan = session.get(Plan, plan_id)
+    if not plan or not plan.stripe_price_id:
+        raise HTTPException(400, "invalid plan")
+
+    existing = session.exec(select(Operator).where(Operator.email == email)).first()
+    if existing:
+        client = session.get(Client, existing.client_id)
+        # allow re-signup only if the previous attempt never completed payment
+        if not client or client.billing_status != "incomplete":
+            raise HTTPException(409, "email already registered")
+        existing.password_hash = hash_password(password)
+        session.add(existing)
+        session.commit()
+    else:
+        client = Client(
+            name=company_name,
+            api_key=secrets.token_urlsafe(32),
+            plan_id=_default_plan_id(session),  # Free limits until the subscription activates
+            billing_status="incomplete",
+        )
+        session.add(client)
+        session.commit()
+        session.refresh(client)
+        session.add(Operator(client_id=client.id, email=email, password_hash=hash_password(password)))
+        session.commit()
+        rebuild_allowed_origins(session)
+
+    meta = {"client_id": str(client.id), "plan_id": str(plan.id)}
+    checkout = stripe.checkout.Session.create(
+        mode="subscription",
+        line_items=[{"price": plan.stripe_price_id, "quantity": 1}],
+        success_url=billing.SUCCESS_URL,
+        cancel_url=billing.CANCEL_URL,
+        client_reference_id=str(client.id),
+        payment_method_collection="always",  # capture a card even during the free trial
+        metadata=meta,
+        subscription_data={"trial_period_days": billing.TRIAL_DAYS, "metadata": meta},
+    )
+    return {"checkout_url": checkout.url}
+
+
 @app.get("/admin/clients/{client_id}/operators", dependencies=[Depends(require_admin)])
 def list_operators(client_id: int, session: Session = Depends(get_session)):
     operators = session.exec(select(Operator).where(Operator.client_id == client_id)).all()

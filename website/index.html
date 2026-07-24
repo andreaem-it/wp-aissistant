@@ -299,9 +299,10 @@
   <script>
     // -------- Configura qui le destinazioni reali di login/registrazione/contatto --------
     // Punta questi URL al pannello operatori e al flusso di signup quando saranno pronti.
+    const PANEL = "https://panel-production-ed34.up.railway.app";
     const LINKS = {
-      login: "https://panel-production-ed34.up.railway.app",     // pannello operatori (panel/)
-      register: "https://panel-production-ed34.up.railway.app",  // no self-serve signup yet → login
+      login: PANEL,
+      register: PANEL + "/?signup=1",   // apre la pagina di registrazione (prova gratuita + carta)
       contact: "mailto:ciao@wp-aissistant.example",
     };
     document.querySelectorAll("[data-link]").forEach((a) => {

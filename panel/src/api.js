@@ -42,6 +42,8 @@ async function call(path, { method = "GET", params = {}, body, auth = true } = {
 export const api = {
   login: (email, password) =>
     call("/operator/login", { method: "POST", body: { email, password }, auth: false }),
+  publicPlans: () => call("/public/plans", { auth: false }),
+  signup: (body) => call("/signup", { method: "POST", body, auth: false }),
   logout: () => call("/operator/logout", { method: "POST" }),
   conversations: () => call("/conversations"),
   messages: (id) => call(`/conversations/${id}/messages`),

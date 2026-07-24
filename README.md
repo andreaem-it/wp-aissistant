@@ -278,6 +278,8 @@ Auth via header `Authorization: Bearer <token>`. La colonna *Auth* indica quale 
 | `/admin/clients/{id}/plan` | POST | 🛡️ | Assegna un piano a un client |
 | `/admin/plans` | GET/POST | 🛡️ | Elenca/crea piani (prezzo, limiti chat/ingest) |
 | `/admin/reembed` | POST | 🛡️ | Ri-embedda i contenuti senza embedding (dopo un cambio modello/dim) |
+| `/public/plans` | GET | — | Piani acquistabili per la pagina di registrazione |
+| `/signup` | POST | — | Registrazione self-service → Stripe Checkout (prova + carta) |
 | `/billing/plans` | GET | 👤 | Piani acquistabili (per l'upgrade self-service dal panel) |
 | `/billing/checkout` | POST | 👤 | Avvia il checkout Stripe per il piano scelto → URL di pagamento |
 | `/billing/webhook` | POST | — | Webhook Stripe (firma verificata): sincronizza piano e `billing_status` |
