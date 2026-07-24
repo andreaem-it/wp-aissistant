@@ -7,9 +7,12 @@ import time
 import uuid
 from contextlib import asynccontextmanager
 
+import stripe
 from fastapi import Body, Depends, FastAPI, Header, HTTPException, Request, Response, UploadFile
 from sqlalchemy import func
 from sqlmodel import Session, select
+
+from . import billing
 
 from .db import (
     Chunk,
@@ -591,6 +594,7 @@ def create_plan(
     currency: str = Body("eur"),
     chat_rate_limit: int = Body(30),
     ingest_rate_limit: int = Body(60),
+    stripe_price_id: str = Body(""),
     session: Session = Depends(get_session),
 ):
     if session.exec(select(Plan).where(Plan.name == name)).first():
@@ -598,11 +602,72 @@ def create_plan(
     plan = Plan(
         name=name, price_cents=price_cents, currency=currency,
         chat_rate_limit=chat_rate_limit, ingest_rate_limit=ingest_rate_limit,
+        stripe_price_id=stripe_price_id,
     )
     session.add(plan)
     session.commit()
     session.refresh(plan)
     return plan
+
+
+@app.post("/admin/plans/{plan_id}", dependencies=[Depends(require_admin)])
+def update_plan(plan_id: int, stripe_price_id: str = Body(..., embed=True), session: Session = Depends(get_session)):
+    """Set the Stripe price id for a plan (needed before checkout can use it)."""
+    plan = session.get(Plan, plan_id)
+    if not plan:
+        raise HTTPException(404, "plan not found")
+    plan.stripe_price_id = stripe_price_id
+    session.add(plan)
+    session.commit()
+    session.refresh(plan)
+    return plan
+
+
+# ---- Billing (Stripe) ----
+
+
+@app.post("/billing/checkout")
+def billing_checkout(plan_id: int = Body(..., embed=True), operator: Operator = Depends(require_operator), session: Session = Depends(get_session)):
+    """Start a Stripe Checkout session for the operator's client to subscribe to `plan_id`.
+    Returns the hosted checkout URL to redirect the browser to."""
+    if not billing.enabled():
+        raise HTTPException(503, "billing not configured")
+    plan = session.get(Plan, plan_id)
+    if not plan:
+        raise HTTPException(404, "plan not found")
+    if not plan.stripe_price_id:
+        raise HTTPException(400, "plan has no stripe_price_id")
+    client = session.get(Client, operator.client_id)
+
+    params = {
+        "mode": "subscription",
+        "line_items": [{"price": plan.stripe_price_id, "quantity": 1}],
+        "success_url": billing.SUCCESS_URL,
+        "cancel_url": billing.CANCEL_URL,
+        "client_reference_id": str(client.id),
+        "metadata": {"client_id": str(client.id), "plan_id": str(plan.id)},
+        # carry ids onto the subscription too, so later subscription.* events map back to the client
+        "subscription_data": {"metadata": {"client_id": str(client.id), "plan_id": str(plan.id)}},
+    }
+    if client.stripe_customer_id:
+        params["customer"] = client.stripe_customer_id
+    checkout = stripe.checkout.Session.create(**params)
+    return {"checkout_url": checkout.url, "id": checkout.id}
+
+
+@app.post("/billing/webhook")
+async def billing_webhook(request: Request, session: Session = Depends(get_session)):
+    """Stripe webhook: verifies the signature, then syncs the client's plan/billing status."""
+    if not billing.enabled():
+        raise HTTPException(503, "billing not configured")
+    payload = await request.body()
+    signature = request.headers.get("stripe-signature")
+    try:
+        event = stripe.Webhook.construct_event(payload, signature, billing.STRIPE_WEBHOOK_SECRET)
+    except Exception:  # noqa: BLE001 — bad signature or malformed payload
+        raise HTTPException(400, "invalid signature")
+    billing.handle_event(session, event)
+    return {"received": True}
 
 
 @app.get("/admin/clients/{client_id}/operators", dependencies=[Depends(require_admin)])

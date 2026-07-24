@@ -230,6 +230,7 @@ docker compose -f docker-compose.prod.yml up -d
 | `PANEL_ORIGINS` | `http://localhost:5173` | Origin del panel ammessi dal CORS (comma-separated) |
 | `CORS_ALLOW_ALL` | `true` | `true` riflette qualsiasi Origin; `false` applica l'allowlist |
 | `INGEST_WORKER_ENABLED` | `true` | Avvia il worker di ingest nel processo dell'app (coda condivisa via Postgres) |
+| `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` | *(non impostati)* | Abilitano `/billing/*`; se assenti il billing è disattivato |
 | `RETRIEVE_FETCH_K` | `20` | Pool di candidati recuperati prima del rerank MMR |
 | `MMR_LAMBDA` | `0.5` | Bilanciamento MMR: `1.0` = solo rilevanza, `0.0` = solo diversità |
 
@@ -275,6 +276,8 @@ Auth via header `Authorization: Bearer <token>`. La colonna *Auth* indica quale 
 | `/admin/clients/{id}/plan` | POST | 🛡️ | Assegna un piano a un client |
 | `/admin/plans` | GET/POST | 🛡️ | Elenca/crea piani (prezzo, limiti chat/ingest) |
 | `/admin/reembed` | POST | 🛡️ | Ri-embedda i contenuti senza embedding (dopo un cambio modello/dim) |
+| `/billing/checkout` | POST | 👤 | Avvia il checkout Stripe per il piano scelto → URL di pagamento |
+| `/billing/webhook` | POST | — | Webhook Stripe (firma verificata): sincronizza piano e `billing_status` |
 
 ## Struttura del progetto
 
