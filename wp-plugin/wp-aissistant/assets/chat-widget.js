@@ -72,7 +72,6 @@
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${WPAI.apiKey}`,
-          "ngrok-skip-browser-warning": "true",
         },
         body: JSON.stringify({
           visitor_id: visitorId(),
@@ -105,7 +104,7 @@
       try {
         const res = await fetch(
           `${WPAI.backendUrl}/conversations/${conversationId}/messages?after_id=${lastMessageId}`,
-          { headers: { Authorization: `Bearer ${WPAI.apiKey}`, "ngrok-skip-browser-warning": "true" } }
+          { headers: { Authorization: `Bearer ${WPAI.apiKey}` } }
         );
         const data = await res.json();
         for (const m of data.messages) {

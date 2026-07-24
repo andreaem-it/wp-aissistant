@@ -2,13 +2,20 @@
 /**
  * Plugin Name: WP AIssistant
  * Description: Floating AI chat widget backed by a RAG backend, with automatic site content sync.
- * Version: 0.1.0
+ * Version: 0.2.0
  */
 
 if (!defined('ABSPATH')) exit;
 
 define('WPAI_OPTION', 'wpai_settings');
-define('WPAI_VERSION', '0.1.0'); // keep in sync with the "Version:" header above
+define('WPAI_VERSION', '0.2.0'); // keep in sync with the "Version:" header above
+
+// The backend is a single hosted service (not something each site owner runs), so its URL
+// isn't a setting — it's hardcoded here. Override only for local/staging testing by defining
+// WPAI_BACKEND_URL in wp-config.php before this plugin loads.
+if (!defined('WPAI_BACKEND_URL')) {
+    define('WPAI_BACKEND_URL', 'https://wp-aissistant-production.up.railway.app');
+}
 
 // ---- Settings ----
 
@@ -29,11 +36,6 @@ function wpai_settings_page() {
         <form method="post" action="options.php">
             <?php settings_fields('wpai'); ?>
             <table class="form-table">
-                <tr>
-                    <th><label for="backend_url">Backend URL</label></th>
-                    <td><input type="url" id="backend_url" name="<?php echo WPAI_OPTION; ?>[backend_url]"
-                               value="<?php echo esc_attr($opts['backend_url'] ?? ''); ?>" class="regular-text" placeholder="https://api.tuodominio.com" /></td>
-                </tr>
                 <tr>
                     <th><label for="api_key">API Key</label></th>
                     <td><input type="text" id="api_key" name="<?php echo WPAI_OPTION; ?>[api_key]"
@@ -115,11 +117,11 @@ function wpai_widget_image() {
 // ---- Floating chat widget ----
 
 add_action('wp_enqueue_scripts', function () {
-    if (!wpai_opt('backend_url') || !wpai_opt('api_key')) return;
+    if (!wpai_opt('api_key')) return;
     wp_enqueue_style('wpai-chat', plugins_url('assets/chat-widget.css', __FILE__), [], WPAI_VERSION);
     wp_enqueue_script('wpai-chat', plugins_url('assets/chat-widget.js', __FILE__), [], WPAI_VERSION, true);
     wp_localize_script('wpai-chat', 'WPAI', [
-        'backendUrl' => rtrim(wpai_opt('backend_url'), '/'),
+        'backendUrl' => rtrim(WPAI_BACKEND_URL, '/'),
         'apiKey' => wpai_opt('api_key'),
         'title' => wpai_widget_title(),
         'image' => wpai_widget_image(),
@@ -171,8 +173,8 @@ function wpai_build_site_info_content() {
 }
 
 function wpai_push_content($url, $text) {
-    if (!wpai_opt('backend_url') || !wpai_opt('api_key') || !trim($text)) return;
-    return wp_remote_post(wpai_opt('backend_url') . '/ingest/site-page', [
+    if (!wpai_opt('api_key') || !trim($text)) return;
+    return wp_remote_post(WPAI_BACKEND_URL . '/ingest/site-page', [
         'timeout' => 15,
         'blocking' => false,
         'headers' => [
@@ -184,11 +186,11 @@ function wpai_push_content($url, $text) {
 }
 
 function wpai_push_product($post) {
-    if (!wpai_opt('backend_url') || !wpai_opt('api_key') || !function_exists('wc_get_product')) return;
+    if (!wpai_opt('api_key') || !function_exists('wc_get_product')) return;
     $product = wc_get_product($post->ID);
     if (!$product) return;
 
-    wp_remote_post(wpai_opt('backend_url') . '/ingest/product', [
+    wp_remote_post(WPAI_BACKEND_URL . '/ingest/product', [
         'timeout' => 15,
         'blocking' => false,
         'headers' => [

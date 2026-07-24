@@ -2,6 +2,15 @@
 
 Tutte le modifiche rilevanti del plugin WP AIssistant.
 
+## [0.2.0] - 2026-07-24
+
+- Il Backend URL non è più un campo di impostazione: il plugin punta al backend
+  hosted ufficiale (`WPAI_BACKEND_URL`, hardcoded). Restano configurabili solo API
+  Key, titolo e immagine del widget. Per test/staging, override definendo
+  `WPAI_BACKEND_URL` in `wp-config.php` prima del caricamento del plugin.
+- Rimosso l'header `ngrok-skip-browser-warning` dal widget (era solo per i test
+  tramite tunnel ngrok in fase di sviluppo).
+
 ## [0.1.0] - 2026-07-23
 
 Prima versione.
