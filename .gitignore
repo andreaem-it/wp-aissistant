@@ -7,3 +7,4 @@ panel/node_modules/
 panel/dist/
 wp-plugin/wp-aissistant.zip
 wp-plugin/dist/
+.wrangler/
