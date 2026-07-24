@@ -34,6 +34,7 @@ def client(monkeypatch):
 
     # no Ollama in tests: deterministic embeddings and a canned chat reply
     monkeypatch.setattr(rag, "embed", lambda text: [0.0] * db.EMBED_DIM)
+    monkeypatch.setattr(main, "embed", lambda text: [0.0] * db.EMBED_DIM)  # used by /admin/reembed
     monkeypatch.setattr(main, "llm_chat", lambda system, history, message: {"reply": "ok"})
 
     try:

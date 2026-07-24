@@ -3,12 +3,18 @@
 # Usage: ./build.sh   (run from wp-plugin/, or anywhere — paths are relative to this script)
 set -euo pipefail
 
-cd "$(dirname "$0")"
-PLUGIN_FILE="wp-aissistant/wp-aissistant.php"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PLUGIN_DIR="$SCRIPT_DIR/wp-aissistant"
+PLUGIN_FILE="$PLUGIN_DIR/wp-aissistant.php"
+DIST_DIR="$SCRIPT_DIR/dist"
 
 header_version=$(grep -m1 -oE 'Version:\s*[0-9][0-9A-Za-z.-]*' "$PLUGIN_FILE" | grep -oE '[0-9][0-9A-Za-z.-]*')
 const_version=$(grep -m1 -oE "define\('WPAI_VERSION', '[^']+'\)" "$PLUGIN_FILE" | grep -oE "[0-9][0-9A-Za-z.-]*")
 
+if [ -z "$header_version" ]; then
+  echo "error: could not read Version from $PLUGIN_FILE" >&2
+  exit 1
+fi
 if [ "$header_version" != "$const_version" ]; then
   echo "Version mismatch: docblock header says $header_version, WPAI_VERSION constant says $const_version." >&2
   echo "Update both in $PLUGIN_FILE before building." >&2
@@ -16,11 +22,10 @@ if [ "$header_version" != "$const_version" ]; then
 fi
 
 version="$header_version"
-out_dir="dist"
-out_zip="$out_dir/wp-aissistant-${version}.zip"
+mkdir -p "$DIST_DIR"
+ZIP="$DIST_DIR/wp-aissistant-$version.zip"
+rm -f "$ZIP"
 
-mkdir -p "$out_dir"
-rm -f "$out_zip"
-zip -rq "$out_zip" wp-aissistant -x '*.DS_Store'
+( cd "$SCRIPT_DIR" && zip -rq "$ZIP" wp-aissistant -x '*.DS_Store' -x '*/.*' )
 
-echo "Built $out_zip (version $version)"
+echo "built $ZIP ($(du -h "$ZIP" | cut -f1), version $version)"

@@ -5,6 +5,8 @@ alembic
 psycopg[binary]
 pgvector
 litellm
+tenacity
+prometheus-client
 pypdf
 pytesseract
 pillow

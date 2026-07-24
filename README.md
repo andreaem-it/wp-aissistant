@@ -147,6 +147,14 @@ costante `WPAI_VERSION` (tenerle allineate a mano ad ogni release, insieme a una
 Dopo l'installazione, attiva il plugin e in **Impostazioni → WP AIssistant** imposta
 Backend URL e API Key. Usa "Sincronizza ora" per il primo caricamento della knowledge base.
 
+Per un pacchetto distribuibile (`.zip` installabile da *Plugin → Aggiungi nuovo → Carica*):
+
+```bash
+bash wp-plugin/build.sh          # -> wp-plugin/dist/wp-aissistant-<versione>.zip
+```
+La versione è letta dall'header del plugin; il changelog è in `wp-plugin/wp-aissistant/readme.txt`
+(formato WordPress). La CI produce lo zip come artifact a ogni push/PR.
+
 ## Deploy (Docker)
 
 Il backend è containerizzato. Il modo più rapido per avviare tutto lo stack (Postgres+pgvector,
@@ -165,12 +173,33 @@ Il servizio `backend` attende che il DB sia healthy, esegue le migrazioni e serv
 un `GET /health` per gli healthcheck del container/orchestratore. Panel e sito marketing sono
 asset statici: buildali (`npm run build` per il panel) e servili con qualsiasi web server / CDN.
 
+In produzione metti un **reverse proxy con TLS** davanti al backend (non esporre la 8000
+pubblicamente): esempi pronti per Caddy (HTTPS automatico) e Nginx, più la guida completa
+(real client IP dietro proxy, `/metrics` non pubblico, CORS), in **[`deploy/`](deploy/)**.
+
+Immagine backend pubblicata su **GHCR** a ogni CI verde su `main`:
+
+```bash
+docker pull ghcr.io/andreaem-it/wp-aissistant-backend:latest
+# oppure un commit specifico: ...:sha-<commit>
+```
+
+Per la **produzione con un comando** c'è [`docker-compose.prod.yml`](docker-compose.prod.yml)
+(backend da GHCR, Caddy con HTTPS automatico davanti, backend non esposto, CORS ristretto):
+
+```bash
+export ADMIN_API_KEY=<token-robusto> POSTGRES_PASSWORD=<password>
+# edita deploy/Caddyfile con il tuo dominio, poi:
+docker compose -f docker-compose.prod.yml up -d
+```
+(Il pacchetto GHCR nasce privato: rendilo pubblico dalle *Package settings* se vuoi pull senza login.)
+
 ## Configurazione (backend/.env)
 
 | Variabile | Default | Descrizione |
 |-----------|---------|-------------|
 | `DATABASE_URL` | `postgresql+psycopg://rag:rag@localhost:5432/rag` | Connessione Postgres |
-| `EMBED_DIM` | `768` | Dimensione embedding (default di `nomic-embed-text`) |
+| `EMBED_DIM` | `1024` | Dimensione embedding — deve combaciare con `EMBED_MODEL` (1024 = bge-m3, 768 = nomic) |
 | `DB_AUTO_CREATE` | `false` | `true` crea le tabelle dai modelli allo startup (solo dev; in prod usa Alembic) |
 | `CHAT_MODEL` | `ollama/llama3.1` | Modello chat (formato LiteLLM) |
 | `EMBED_MODEL` | `ollama/nomic-embed-text` | Modello embedding |
@@ -181,9 +210,17 @@ asset statici: buildali (`npm run build` per il panel) e servili con qualsiasi w
 | `PANEL_ORIGINS` | `http://localhost:5173` | Origin del panel ammessi dal CORS (comma-separated) |
 | `CORS_ALLOW_ALL` | `true` | `true` riflette qualsiasi Origin; `false` applica l'allowlist |
 | `INGEST_WORKER_ENABLED` | `true` | Avvia il worker di ingest nel processo dell'app (coda condivisa via Postgres) |
+| `RETRIEVE_FETCH_K` | `20` | Pool di candidati recuperati prima del rerank MMR |
+| `MMR_LAMBDA` | `0.5` | Bilanciamento MMR: `1.0` = solo rilevanza, `0.0` = solo diversità |
 
-LiteLLM permette di passare a OpenAI / Claude / altri provider cambiando `CHAT_MODEL`,
-`EMBED_MODEL` e le relative API key, senza modifiche al codice.
+LiteLLM permette di passare a OpenAI / Claude / **Cloudflare Workers AI** / altri provider
+cambiando `CHAT_MODEL`, `EMBED_MODEL` e le relative credenziali, senza modifiche al codice.
+
+**Cloudflare Workers AI** (inferenza edge, senza GPU da ospitare) — esempio in `.env.example`:
+`CHAT_MODEL=cloudflare/@cf/meta/llama-3.1-8b-instruct`, `EMBED_MODEL=cloudflare/@cf/baai/bge-m3`
+(1024-dim → `EMBED_DIM=1024`) + `CLOUDFLARE_API_KEY`/`CLOUDFLARE_ACCOUNT_ID`. Cambiare modello di
+embedding richiede la migrazione `0004` e un re-embed dei contenuti via `POST /admin/reembed`
+(la ricerca ignora i chunk non ancora ri-embeddati nel frattempo).
 
 ## API principali (backend)
 
@@ -193,6 +230,7 @@ Auth via header `Authorization: Bearer <token>`. La colonna *Auth* indica quale 
 | Endpoint | Metodo | Auth | Descrizione |
 |----------|--------|------|-------------|
 | `/health` | GET | — | Liveness probe (nessuna auth) |
+| `/metrics` | GET | — | Metriche Prometheus (nessuna auth; restringi a livello di rete) |
 | `/chat` | POST | 🔑 | Messaggio visitatore → risposta o escalation |
 | `/ingest/site-page` | POST | 🔑 | Push contenuto pagina/articolo (dal plugin) |
 | `/ingest/product` | POST | 🔑 | Push prodotto WooCommerce (dal plugin) |
@@ -209,6 +247,7 @@ Auth via header `Authorization: Bearer <token>`. La colonna *Auth* indica quale 
 | `/admin/clients/{id}/rotate-key` | POST | 🛡️ | Rigenera l'api_key di un client |
 | `/admin/clients/{id}/operators` | POST | 🛡️ | Crea un operatore per un client |
 | `/admin/clients/{id}/origins` | POST | 🛡️ | Imposta gli origin widget ammessi per un client |
+| `/admin/reembed` | POST | 🛡️ | Ri-embedda i contenuti senza embedding (dopo un cambio modello/dim) |
 
 ## Struttura del progetto
 
@@ -272,23 +311,31 @@ Lo stato attuale è un MVP dimostrativo. Prima della produzione:
       dietro `DB_AUTO_CREATE=true`.
 - [x] Sostituito il deprecato `@app.on_event("startup")` con un lifespan handler (che avvia
       anche il worker di ingest e ricostruisce l'allowlist CORS).
-- [ ] Gestione errori LLM/embedding (timeout, retry, fallback).
+- [x] Gestione errori LLM/embedding: timeout+retry sulle chiamate Ollama e fallback con
+      escalation a operatore (`LLMUnavailableError`) invece di un 500 quando il modello è down.
 
 ### Qualità RAG
-- [ ] Chunking naïf a dimensione fissa (800 char) → chunking sentence-aware / con overlap.
-- [ ] Valutazione qualità retrieval e tuning delle soglie (`PRODUCT_MAX_DISTANCE`, `k`).
-- [ ] Reranking dei risultati.
+- [x] Chunking sentence-aware con overlap (era a dimensione fissa) e soglia di distanza cosine
+      anche sul retrieval dei chunk; parametri configurabili via env.
+- [~] Tuning delle soglie: cutoff introdotto; resta una valutazione sistematica del retrieval.
+- [x] Reranking dei risultati con MMR (Maximal Marginal Relevance): pesca un pool più ampio
+      (`RETRIEVE_FETCH_K`) e riordina bilanciando rilevanza e diversità (`MMR_LAMBDA`), usando
+      gli embedding già calcolati — nessun modello/infra extra. Testato in unit.
 
 ### Osservabilità & operatività
 - [x] Logging strutturato (JSON, stdlib): `request_id` per-richiesta propagato via
       contextvar a ogni log line (anche dal worker), header `X-Request-Id` in risposta.
       Eventi chiave loggati: escalation (keyword/modello), LLM irraggiungibile, job di
-      ingest falliti. `LOG_LEVEL` configurabile. Metriche vere e proprie restano da fare.
-- [x] Notifiche agli operatori sui nuovi ticket: webhook generico configurabile
-      (`OPERATOR_WEBHOOK_URL`, compatibile Slack/Zapier/n8n), best-effort/non bloccante.
+      ingest falliti. `LOG_LEVEL` configurabile. Health check `/health`.
+- [x] Metriche Prometheus su `/metrics`: latenza/conteggio richieste HTTP (per route
+      template), più contatori di business (chat, escalation per trigger, esiti job di ingest).
+- [x] Notifiche agli operatori sui nuovi ticket via webhook (`OPERATOR_WEBHOOK_URL`,
+      payload JSON compatibile Slack/Zapier/n8n, best-effort non bloccante).
 - [x] CI (GitHub Actions): test backend (pytest + Postgres/pgvector), migrazioni Alembic
       (`upgrade head` + `downgrade base`) e build del panel, su ogni push/PR.
-- [ ] CD e ambiente di staging.
+- [x] CD: dopo una CI verde su `main`, un workflow pubblica l'immagine del backend su GHCR
+      (`ghcr.io/andreaem-it/wp-aissistant-backend`, tag `latest` + `sha-<commit>`).
+- [ ] Ambiente di staging / deploy automatico sul target di hosting.
 
 ### Test & documentazione
 - [x] Suite `pytest`: unitari (security/hashing, rate limit, escalation LLM, chunking,
@@ -296,7 +343,9 @@ Lo stato attuale è un MVP dimostrativo. Prima della produzione:
       escalation, ownership ticket, ingest asincrono, rate limit), gated su
       `TEST_DATABASE_URL`.
 - [x] Dockerfile del backend + `docker compose` (db healthy → migrazioni → app) con endpoint
-      `/health`; build dell'immagine validato in CI. (Restano da documentare reverse proxy/TLS.)
+      `/health`; build dell'immagine validato in CI.
+- [x] Reverse proxy + TLS documentati in `deploy/` (esempi Caddy e Nginx, guida): terminazione
+      TLS, `/metrics` non pubblico, real client IP via `--proxy-headers`/`FORWARDED_ALLOW_IPS`.
 - [x] Distribuzione plugin: `wp-plugin/build.sh` genera uno zip versionato (valida che
-      docblock e costante `WPAI_VERSION` combacino) + `CHANGELOG.md`; build validata in CI
-      come artifact ad ogni push.
+      docblock e costante `WPAI_VERSION` combacino), `readme.txt` in formato WordPress con
+      changelog, e job CI che pubblica lo zip come artifact ad ogni push.

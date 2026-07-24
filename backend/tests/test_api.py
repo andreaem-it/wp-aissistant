@@ -2,12 +2,31 @@
 skipped otherwise. The LLM is faked in the `client` fixture."""
 
 
-# ---- health ----
+# ---- health / metrics ----
 
 def test_health(client):
     r = client.get("/health")
     assert r.status_code == 200
     assert r.json() == {"status": "ok"}
+
+
+def test_metrics_endpoint(client, tenant):
+    # generate some traffic so counters are present
+    client.post("/chat", headers=tenant["key"], json={"visitor_id": "v", "message": "ciao"})
+    r = client.get("/metrics")
+    assert r.status_code == 200
+    body = r.text
+    assert "wpai_http_requests_total" in body
+    assert "wpai_chat_messages_total" in body
+
+
+def test_metrics_counts_escalation(client, tenant):
+    before = client.get("/metrics").text
+    client.post("/chat", headers=tenant["key"], json={"visitor_id": "v", "message": "vorrei un rimborso"})
+    after = client.get("/metrics").text
+    # the keyword escalation counter must appear after an escalation
+    assert 'wpai_escalations_total{trigger="keyword"}' in after
+    assert before != after
 
 
 # ---- admin / operator auth ----
@@ -94,6 +113,26 @@ def test_ingest_job_scoped_to_client(client, tenant):
     other = client.post("/admin/clients", headers=admin, json={"name": "Other"}).json()
     r = client.get(f"/ingest/jobs/{job_id}", headers={"Authorization": f"Bearer {other['api_key']}"})
     assert r.status_code == 404
+
+
+# ---- re-embed ----
+
+def test_reembed_fills_null_embeddings(client, tenant):
+    from sqlmodel import Session
+    from app import db
+
+    with Session(db.engine) as session:
+        session.add(db.Chunk(
+            client_id=tenant["cid"], source="document", source_ref="x",
+            text="ciao mondo", embedding=None,
+        ))
+        session.commit()
+
+    r = client.post("/admin/reembed", headers={"Authorization": "Bearer test-admin"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["reembedded"]["chunks"] >= 1
+    assert body["remaining"]["chunks"] == 0
 
 
 # ---- rate limiting ----

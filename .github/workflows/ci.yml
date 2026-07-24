@@ -114,3 +114,11 @@ jobs:
         with:
           name: wp-aissistant-plugin
           path: wp-plugin/dist/*.zip
+
+  compose-validate:
+    name: Validate prod compose
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: docker compose config
+        run: ADMIN_API_KEY=dummy docker compose -f docker-compose.prod.yml config -q

@@ -1,0 +1,19 @@
+# Caddy reverse proxy with automatic HTTPS (Let's Encrypt).
+# Replace api.example.com with your domain (its A/AAAA record must point at this host).
+# Caddy obtains and renews the TLS certificate automatically — no manual cert handling.
+#
+# Run with: caddy run --config ./Caddyfile
+# (or use the official caddy Docker image with this file mounted at /etc/caddy/Caddyfile)
+
+api.example.com {
+	# /metrics is for internal Prometheus scraping only — never expose it publicly.
+	# Scrape the backend directly on the private network (backend:8000/metrics) instead.
+	@metrics path /metrics
+	respond @metrics 404
+
+	# Terminate TLS here and forward to the backend. Caddy automatically sets
+	# X-Forwarded-For / X-Forwarded-Proto, which uvicorn --proxy-headers reads.
+	reverse_proxy backend:8000
+
+	encode gzip
+}
