@@ -54,6 +54,15 @@ def _client_by_subscription(session: Session, sub_id) -> "Client | None":
     return session.exec(select(Client).where(Client.stripe_subscription_id == sub_id)).first()
 
 
+def _free_plan_id(session: Session) -> "int | None":
+    """The plan to fall back to on cancellation: the one named 'Free', else the oldest."""
+    plan = (
+        session.exec(select(Plan).where(Plan.name == "Free")).first()
+        or session.exec(select(Plan).order_by(Plan.id)).first()
+    )
+    return plan.id if plan else None
+
+
 def handle_event(session: Session, event) -> None:
     """Apply a verified Stripe event to the owning client. Unknown event types are ignored."""
     etype = event["type"]
@@ -81,5 +90,11 @@ def handle_event(session: Session, event) -> None:
             client.billing_status = "canceled"
         else:
             client.billing_status = map_status(obj.get("status", "active"))
+        # policy: canceled -> downgrade to Free (its limits apply via plan_id). past_due keeps
+        # the paid plan as a grace period while Stripe retries the payment.
+        if client.billing_status == "canceled":
+            free_id = _free_plan_id(session)
+            if free_id:
+                client.plan_id = free_id
         session.add(client)
         session.commit()

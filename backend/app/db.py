@@ -33,9 +33,9 @@ class Client(SQLModel, table=True):
     # empty = not configured (no per-client origin enforcement for this client)
     allowed_origins: str = ""
     plan_id: int = Field(foreign_key="plan.id")
-    # billing status is tracked but not yet enforced anywhere (no Stripe webhook exists
-    # to change it from "active") — the field exists so gating logic has a hook to check
-    # once subscriptions are real, without another migration.
+    # billing_status is kept in sync by the Stripe webhook (app/billing.py). Policy: on
+    # "canceled" the client is downgraded to the Free plan (plan_id changes, so the per-plan
+    # rate limits follow automatically); "past_due" keeps the paid plan as a grace period.
     billing_status: str = "active"  # active | trialing | past_due | canceled
     stripe_customer_id: str = ""
     stripe_subscription_id: str = ""

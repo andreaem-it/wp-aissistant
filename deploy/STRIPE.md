@@ -68,6 +68,13 @@ Stripe → **Developers → API keys** → copia la **Secret key** (`sk_test_…
 Ripeti 1–5 con **Test mode OFF**: nuovi price id live, `sk_live_…`, nuovo webhook live con il
 suo `whsec_…`. Aggiorna le env var di Railway.
 
+## Cosa succede se un cliente non paga
+
+- **`past_due`** (pagamento fallito, Stripe ritenta): nessun cambiamento — periodo di **grazia**,
+  il cliente continua sul suo piano.
+- **`canceled`** (abbonamento terminato): il client viene **retrocesso automaticamente al piano
+  Free** (i limiti Free si applicano subito). Riabbonandosi torna sul piano scelto.
+
 ## Sicurezza
 
 - Non committare mai le chiavi; non incollarle in chat. Se una `sk_…` viene esposta, **ruotala**
