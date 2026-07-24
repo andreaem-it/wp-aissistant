@@ -8,6 +8,7 @@
 if (!defined('ABSPATH')) exit;
 
 define('WPAI_OPTION', 'wpai_settings');
+define('WPAI_VERSION', '0.1.0'); // keep in sync with the "Version:" header above
 
 // ---- Settings ----
 
@@ -115,8 +116,8 @@ function wpai_widget_image() {
 
 add_action('wp_enqueue_scripts', function () {
     if (!wpai_opt('backend_url') || !wpai_opt('api_key')) return;
-    wp_enqueue_style('wpai-chat', plugins_url('assets/chat-widget.css', __FILE__), [], '0.1.0');
-    wp_enqueue_script('wpai-chat', plugins_url('assets/chat-widget.js', __FILE__), [], '0.1.0', true);
+    wp_enqueue_style('wpai-chat', plugins_url('assets/chat-widget.css', __FILE__), [], WPAI_VERSION);
+    wp_enqueue_script('wpai-chat', plugins_url('assets/chat-widget.js', __FILE__), [], WPAI_VERSION, true);
     wp_localize_script('wpai-chat', 'WPAI', [
         'backendUrl' => rtrim(wpai_opt('backend_url'), '/'),
         'apiKey' => wpai_opt('api_key'),

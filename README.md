@@ -131,9 +131,21 @@ accedi con **email e password dell'operatore** (crealo prima via endpoint admin,
 
 ### Plugin WP
 
-Copia `wp-plugin/wp-aissistant/` in `wp-content/plugins/`, attiva il plugin, poi in
-**Impostazioni → WP AIssistant** imposta Backend URL e API Key. Usa "Sincronizza ora"
-per il primo caricamento della knowledge base.
+Per lo sviluppo: copia `wp-plugin/wp-aissistant/` direttamente in `wp-content/plugins/`
+(o creane un symlink). Per un'installazione via upload WP standard, genera lo zip:
+
+```bash
+cd wp-plugin
+./build.sh                      # -> dist/wp-aissistant-<versione>.zip
+```
+
+Lo script legge la versione dal docblock del plugin e fallisce se non combacia con la
+costante `WPAI_VERSION` (tenerle allineate a mano ad ogni release, insieme a una voce in
+`wp-plugin/wp-aissistant/CHANGELOG.md`). La CI builda lo zip ad ogni push come artifact
+(`plugin-build` job).
+
+Dopo l'installazione, attiva il plugin e in **Impostazioni → WP AIssistant** imposta
+Backend URL e API Key. Usa "Sincronizza ora" per il primo caricamento della knowledge base.
 
 ## Deploy (Docker)
 
@@ -268,16 +280,23 @@ Lo stato attuale è un MVP dimostrativo. Prima della produzione:
 - [ ] Reranking dei risultati.
 
 ### Osservabilità & operatività
-- [ ] Logging strutturato, metriche, health check.
-- [ ] Notifiche agli operatori sui nuovi ticket (email/webhook).
+- [x] Logging strutturato (JSON, stdlib): `request_id` per-richiesta propagato via
+      contextvar a ogni log line (anche dal worker), header `X-Request-Id` in risposta.
+      Eventi chiave loggati: escalation (keyword/modello), LLM irraggiungibile, job di
+      ingest falliti. `LOG_LEVEL` configurabile. Metriche vere e proprie restano da fare.
+- [x] Notifiche agli operatori sui nuovi ticket: webhook generico configurabile
+      (`OPERATOR_WEBHOOK_URL`, compatibile Slack/Zapier/n8n), best-effort/non bloccante.
 - [x] CI (GitHub Actions): test backend (pytest + Postgres/pgvector), migrazioni Alembic
       (`upgrade head` + `downgrade base`) e build del panel, su ogni push/PR.
 - [ ] CD e ambiente di staging.
 
 ### Test & documentazione
-- [x] Suite `pytest`: unitari (security/hashing, rate limit, escalation LLM, chunking) +
-      integrazione endpoint via `TestClient` con LLM mockato (auth, escalation, ownership
-      ticket, ingest asincrono, rate limit), gated su `TEST_DATABASE_URL`.
+- [x] Suite `pytest`: unitari (security/hashing, rate limit, escalation LLM, chunking,
+      notifiche) + integrazione endpoint via `TestClient` con LLM mockato (auth,
+      escalation, ownership ticket, ingest asincrono, rate limit), gated su
+      `TEST_DATABASE_URL`.
 - [x] Dockerfile del backend + `docker compose` (db healthy → migrazioni → app) con endpoint
       `/health`; build dell'immagine validato in CI. (Restano da documentare reverse proxy/TLS.)
-- [ ] Distribuzione plugin (build `.zip`, versioning, changelog).
+- [x] Distribuzione plugin: `wp-plugin/build.sh` genera uno zip versionato (valida che
+      docblock e costante `WPAI_VERSION` combacino) + `CHANGELOG.md`; build validata in CI
+      come artifact ad ogni push.
