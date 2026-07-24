@@ -158,6 +158,31 @@ def test_ingest_job_scoped_to_client(client, tenant):
     assert r.status_code == 404
 
 
+def test_knowledge_base_lists_ingested_content(client, tenant, drain):
+    client.post("/ingest/site-page", headers=tenant["key"], json={"url": "http://s/a", "text": "pagina uno " * 200})
+    client.post("/ingest/product", headers=tenant["key"], json={"url": "http://s/p1", "title": "Scarpe", "price": "10"})
+    drain()
+
+    r = client.get("/knowledge-base", headers=tenant["op"])
+    assert r.status_code == 200
+    body = r.json()
+    assert body["documents"][0]["source_ref"] == "http://s/a"
+    assert body["documents"][0]["chunks"] >= 1
+    assert body["products"][0]["title"] == "Scarpe"
+
+
+def test_knowledge_base_scoped_to_client(client, tenant):
+    admin = {"Authorization": "Bearer test-admin"}
+    other = client.post("/admin/clients", headers=admin, json={"name": "Other"}).json()
+    client.post(f"/admin/clients/{other['id']}/operators", headers=admin,
+                json={"email": "op2@other.it", "password": "pw"})
+    other_op = client.post("/operator/login", json={"email": "op2@other.it", "password": "pw"}).json()["token"]
+
+    client.post("/ingest/site-page", headers=tenant["key"], json={"url": "http://s/a", "text": "x"})
+    r = client.get("/knowledge-base", headers={"Authorization": f"Bearer {other_op}"})
+    assert r.json()["documents"] == []
+
+
 # ---- re-embed ----
 
 def test_reembed_fills_null_embeddings(client, tenant):

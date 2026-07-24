@@ -448,6 +448,34 @@ def reply_ticket(ticket_id: int, reply: str, operator: Operator = Depends(requir
     return {"ok": True}
 
 
+@app.get("/knowledge-base")
+def list_knowledge_base(operator: Operator = Depends(require_operator), session: Session = Depends(get_session)):
+    """What's actually been ingested for this client — documents/pages grouped by
+    source (deduped, the worker replaces old chunks on re-sync) and products."""
+    rows = session.exec(
+        select(Chunk.source, Chunk.source_ref, func.count(Chunk.id), func.max(Chunk.id))
+        .where(Chunk.client_id == operator.client_id)
+        .group_by(Chunk.source, Chunk.source_ref)
+        .order_by(func.max(Chunk.id).desc())
+    ).all()
+    documents = [
+        {"source": source, "source_ref": ref, "chunks": count}
+        for source, ref, count, _ in rows
+    ]
+    products = session.exec(
+        select(Product)
+        .where(Product.client_id == operator.client_id)
+        .order_by(Product.id.desc())
+    ).all()
+    return {
+        "documents": documents,
+        "products": [
+            {"title": p.title, "price": p.price, "image_url": p.image_url, "product_url": p.product_url}
+            for p in products
+        ],
+    }
+
+
 @app.get("/stats")
 def stats(operator: Operator = Depends(require_operator), session: Session = Depends(get_session)):
     convs = session.exec(select(Conversation).where(Conversation.client_id == operator.client_id)).all()

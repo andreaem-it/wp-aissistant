@@ -48,6 +48,7 @@ export const api = {
   tickets: (status = "open") => call("/tickets", { params: { status } }),
   replyTicket: (id, reply) => call(`/tickets/${id}/reply`, { method: "POST", params: { reply } }),
   stats: () => call("/stats"),
+  knowledgeBase: () => call("/knowledge-base"),
   uploadDocument: (file) => {
     const form = new FormData();
     form.append("file", file);
