@@ -227,6 +227,7 @@ docker compose -f docker-compose.prod.yml up -d
 | `ADMIN_API_KEY` | *(non impostato)* | Token per gli endpoint `/admin/clients`; se assente l'admin API è disabilitata |
 | `CHAT_RATE_LIMIT` | `30` | Richieste `/chat` per 60s, per client+IP |
 | `INGEST_RATE_LIMIT` | `60` | Richieste di ingest per 60s, per client |
+| `REDIS_URL` | *(non impostato)* | Store condiviso per il rate limiter (necessario in multi-worker); se assente usa l'in-memory per-processo. Fail-open se Redis è irraggiungibile |
 | `PANEL_ORIGINS` | `http://localhost:5173` | Origin del panel ammessi dal CORS (comma-separated) |
 | `CORS_ALLOW_ALL` | `true` | `true` riflette qualsiasi Origin; `false` applica l'allowlist |
 | `INGEST_WORKER_ENABLED` | `true` | Avvia il worker di ingest nel processo dell'app (coda condivisa via Postgres) |

@@ -39,7 +39,7 @@ from .logging_config import log, request_id_var, setup_logging
 from . import metrics
 from .notify import notify_new_ticket
 from .rag import extract_text, retrieve, retrieve_products
-from .ratelimit import FixedWindowLimiter
+from .ratelimit import make_limiter
 from .security import hash_password, verify_password
 from .worker import requeue_stale, run_worker
 
@@ -142,8 +142,8 @@ VERIFY_TOKEN_TTL = timedelta(hours=int(os.getenv("VERIFY_TOKEN_TTL_HOURS", "48")
 
 # /chat hits the LLM on every call, so it's the main abuse/cost surface — limit per client+IP.
 # Ingest is limited per client. Windows are 60s; override the counts via env.
-chat_limiter = FixedWindowLimiter(int(os.getenv("CHAT_RATE_LIMIT", "30")), 60)
-ingest_limiter = FixedWindowLimiter(int(os.getenv("INGEST_RATE_LIMIT", "60")), 60)
+chat_limiter = make_limiter(int(os.getenv("CHAT_RATE_LIMIT", "30")), 60)
+ingest_limiter = make_limiter(int(os.getenv("INGEST_RATE_LIMIT", "60")), 60)
 
 # ponytail: deterministic safety net for categories that must always reach a human —
 # small local LLMs don't reliably follow "always escalate refunds" instructions

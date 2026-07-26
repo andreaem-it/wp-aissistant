@@ -36,13 +36,22 @@ services:
     volumes: ["ollamadata:/root/.ollama"]
     restart: unless-stopped
 
+  redis:
+    image: redis:7-alpine
+    # shared store for the rate limiter so multiple backend workers share one window
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    restart: unless-stopped
+
   backend:
     image: ${BACKEND_IMAGE:-ghcr.io/andreaem-it/wp-aissistant-backend:latest}
     depends_on:
       db:
         condition: service_healthy
+      redis:
+        condition: service_started
     environment:
       DATABASE_URL: postgresql+psycopg://rag:${POSTGRES_PASSWORD:-rag}@db:5432/rag
+      REDIS_URL: redis://redis:6379/0
       LLM_API_BASE: http://ollama:11434
       CHAT_MODEL: ollama/llama3.1
       EMBED_MODEL: ollama/nomic-embed-text
