@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import re
 import secrets
 import threading
 import time
@@ -19,9 +20,11 @@ from .db import (
     AiResponseLog,
     AuditLog,
     AuthToken,
+    CannedResponse,
     Chunk,
     Client,
     Conversation,
+    InfoField,
     IngestJob,
     Message,
     Operator,
@@ -804,6 +807,118 @@ def reply_conversation(
     _audit(session, "operator", operator.email, "conversation.reply", target=f"conversation:{conversation_id}", client_id=operator.client_id)
     _notify_visitor_reply(session, operator.client_id, conv)
     return {"ok": True}
+
+
+# ---- Operator tools: canned responses + info-field definitions (per client) ----
+
+
+def _slugify(text: str) -> str:
+    s = re.sub(r"[^a-z0-9]+", "_", (text or "").lower()).strip("_")
+    return s or "campo"
+
+
+@app.get("/canned-responses")
+def list_canned(operator: Operator = Depends(require_operator), session: Session = Depends(get_session)):
+    rows = session.exec(
+        select(CannedResponse).where(CannedResponse.client_id == operator.client_id)
+        .order_by(CannedResponse.position, CannedResponse.id)
+    ).all()
+    return [{"id": r.id, "title": r.title, "body": r.body, "position": r.position} for r in rows]
+
+
+@app.post("/canned-responses")
+def create_canned(
+    title: str = Body(...),
+    body: str = Body(...),
+    position: int = Body(0),
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
+    row = CannedResponse(client_id=operator.client_id, title=title, body=body, position=position)
+    session.add(row)
+    session.commit()
+    session.refresh(row)
+    return {"id": row.id, "title": row.title, "body": row.body, "position": row.position}
+
+
+@app.delete("/canned-responses/{canned_id}")
+def delete_canned(canned_id: int, operator: Operator = Depends(require_operator), session: Session = Depends(get_session)):
+    row = session.get(CannedResponse, canned_id)
+    if not row or row.client_id != operator.client_id:
+        raise HTTPException(404, "not found")
+    session.delete(row)
+    session.commit()
+    return {"ok": True}
+
+
+@app.get("/info-fields")
+def list_info_fields(operator: Operator = Depends(require_operator), session: Session = Depends(get_session)):
+    rows = session.exec(
+        select(InfoField).where(InfoField.client_id == operator.client_id)
+        .order_by(InfoField.position, InfoField.id)
+    ).all()
+    return [{"id": r.id, "label": r.label, "key": r.key, "position": r.position} for r in rows]
+
+
+@app.post("/info-fields")
+def create_info_field(
+    label: str = Body(...),
+    key: str | None = Body(None),
+    position: int = Body(0),
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
+    slug = _slugify(key or label)
+    # ensure the key is unique within the client so placeholder substitution is unambiguous
+    existing = {f.key for f in session.exec(select(InfoField).where(InfoField.client_id == operator.client_id)).all()}
+    base, n = slug, 2
+    while slug in existing:
+        slug = f"{base}_{n}"
+        n += 1
+    row = InfoField(client_id=operator.client_id, label=label, key=slug, position=position)
+    session.add(row)
+    session.commit()
+    session.refresh(row)
+    return {"id": row.id, "label": row.label, "key": row.key, "position": row.position}
+
+
+@app.delete("/info-fields/{field_id}")
+def delete_info_field(field_id: int, operator: Operator = Depends(require_operator), session: Session = Depends(get_session)):
+    row = session.get(InfoField, field_id)
+    if not row or row.client_id != operator.client_id:
+        raise HTTPException(404, "not found")
+    session.delete(row)
+    session.commit()
+    return {"ok": True}
+
+
+@app.get("/conversations/{conversation_id}/info")
+def get_conversation_info(conversation_id: int, operator: Operator = Depends(require_operator), session: Session = Depends(get_session)):
+    """Operator-only: the structured info values saved on this conversation (keyed by
+    InfoField.key). Kept separate from /messages so it never leaks to the visitor's widget."""
+    conv = session.get(Conversation, conversation_id)
+    if not conv or conv.client_id != operator.client_id:
+        raise HTTPException(404, "conversation not found")
+    return {"info": json.loads(conv.info) if conv.info else {}}
+
+
+@app.put("/conversations/{conversation_id}/info")
+def set_conversation_info(
+    conversation_id: int,
+    info: dict = Body(..., embed=True),
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
+    conv = session.get(Conversation, conversation_id)
+    if not conv or conv.client_id != operator.client_id:
+        raise HTTPException(404, "conversation not found")
+    # store only string values, capped, to keep the JSON blob bounded
+    clean = {str(k): str(v)[:2000] for k, v in info.items()}
+    conv.info = json.dumps(clean)
+    conv.updated_at = datetime.utcnow()
+    session.add(conv)
+    session.commit()
+    return {"ok": True, "info": clean}
 
 
 @app.get("/knowledge-base")

@@ -70,6 +70,8 @@ class Conversation(SQLModel, table=True):
     # replies; visitor_url is the page they chatted from, used as the link back in that email.
     visitor_email: Optional[str] = None
     visitor_url: Optional[str] = None
+    # operator-filled structured info for this conversation, keyed by InfoField.key. JSON dict.
+    info: Optional[str] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
     # updated_at is touched on every new message / status change; closed_at is stamped when a
     # conversation is closed. Together they let the stats compute response times & durations.
@@ -127,6 +129,26 @@ class AuditLog(SQLModel, table=True):
     client_id: Optional[int] = Field(default=None, index=True)  # tenant scope when applicable
     detail: str = ""  # JSON
     created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class CannedResponse(SQLModel, table=True):
+    """A per-client saved reply the operator can insert with one click. `body` may contain
+    {placeholder} tokens matching InfoField.key, substituted from the conversation's info."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    client_id: int = Field(index=True, foreign_key="client.id")
+    title: str  # short label shown on the button
+    body: str
+    position: int = 0
+
+
+class InfoField(SQLModel, table=True):
+    """Per-client definition of a structured info field shown on each conversation
+    (e.g. label 'Nome cliente', key 'nome_cliente'). Values live in Conversation.info."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    client_id: int = Field(index=True, foreign_key="client.id")
+    label: str
+    key: str  # slug used both to store the value and as {key} placeholder in canned responses
+    position: int = 0
 
 
 class Operator(SQLModel, table=True):

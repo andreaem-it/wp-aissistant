@@ -1,0 +1,43 @@
+"""Canned responses, info-field definitions, and per-conversation info values."""
+ADMIN = {"Authorization": "Bearer test-admin"}
+
+
+def test_canned_crud_and_scope(client, tenant):
+    r = client.post("/canned-responses", headers=tenant["op"], json={"title": "Saluto", "body": "Ciao {nome}"}).json()
+    assert r["id"]
+    assert [c["title"] for c in client.get("/canned-responses", headers=tenant["op"]).json()] == ["Saluto"]
+    assert client.delete(f"/canned-responses/{r['id']}", headers=tenant["op"]).status_code == 200
+    assert client.get("/canned-responses", headers=tenant["op"]).json() == []
+
+
+def test_info_field_key_is_slugified_and_unique(client, tenant):
+    a = client.post("/info-fields", headers=tenant["op"], json={"label": "Nome Cliente"}).json()
+    assert a["key"] == "nome_cliente"
+    b = client.post("/info-fields", headers=tenant["op"], json={"label": "Nome Cliente"}).json()
+    assert b["key"] == "nome_cliente_2"  # deduped within the client
+
+
+def test_conversation_info_roundtrip(client, tenant):
+    conv_id = client.post("/chat", headers=tenant["key"], json={"visitor_id": "v", "message": "ciao"}).json()["conversation_id"]
+    assert client.get(f"/conversations/{conv_id}/info", headers=tenant["op"]).json() == {"info": {}}
+    client.put(f"/conversations/{conv_id}/info", headers=tenant["op"], json={"info": {"id_ordine": "001"}})
+    assert client.get(f"/conversations/{conv_id}/info", headers=tenant["op"]).json() == {"info": {"id_ordine": "001"}}
+
+
+def test_operator_tools_scoped_to_client(client, tenant):
+    r = client.post("/canned-responses", headers=tenant["op"], json={"title": "x", "body": "y"}).json()
+    other = client.post("/admin/clients", headers=ADMIN, json={"name": "Other"}).json()
+    client.post(f"/admin/clients/{other['id']}/operators", headers=ADMIN, json={"email": "o2@x.it", "password": "password1"})
+    tok = client.post("/operator/login", json={"email": "o2@x.it", "password": "password1"}).json()["token"]
+    other_op = {"Authorization": f"Bearer {tok}"}
+    # the other client can't see or delete this client's canned response
+    assert client.get("/canned-responses", headers=other_op).json() == []
+    assert client.delete(f"/canned-responses/{r['id']}", headers=other_op).status_code == 404
+
+
+def test_conversation_info_not_leaked_to_widget(client, tenant):
+    # the visitor-facing /messages endpoint must not expose operator info fields
+    conv_id = client.post("/chat", headers=tenant["key"], json={"visitor_id": "v", "message": "ciao"}).json()["conversation_id"]
+    client.put(f"/conversations/{conv_id}/info", headers=tenant["op"], json={"info": {"segreto": "x"}})
+    msgs = client.get(f"/conversations/{conv_id}/messages", headers=tenant["key"]).json()
+    assert "info" not in msgs
