@@ -64,7 +64,11 @@ def _verify_token(email, purpose="verify_email"):
         return row.token if row else None
 
 
-def test_signup_blocks_login_until_verified(client, monkeypatch):
+def test_signup_blocks_login_until_verified_when_smtp_configured(client, monkeypatch):
+    from app import main
+    # email verification is only enforced when SMTP is actually configured
+    monkeypatch.setattr(main.email_service, "enabled", lambda: True)
+    monkeypatch.setattr(main.email_service, "send_verification", lambda to, token: True)
     pro_id = _setup_plans(client)
     _mock_checkout(monkeypatch)
     client.post("/signup", json={
@@ -79,6 +83,17 @@ def test_signup_blocks_login_until_verified(client, monkeypatch):
     assert token
     assert client.post("/auth/verify-email", json={"token": token}).status_code == 200
     r = client.post("/operator/login", json={"email": "log@acme.it", "password": "password1"})
+    assert r.status_code == 200
+
+
+def test_signup_without_smtp_allows_immediate_login(client, monkeypatch):
+    # default test env has no SMTP => the account is created already usable (no verification gate)
+    pro_id = _setup_plans(client)
+    _mock_checkout(monkeypatch)
+    client.post("/signup", json={
+        "company_name": "Acme", "email": "nosmtp@acme.it", "password": "password1", "plan_id": pro_id,
+    })
+    r = client.post("/operator/login", json={"email": "nosmtp@acme.it", "password": "password1"})
     assert r.status_code == 200
 
 

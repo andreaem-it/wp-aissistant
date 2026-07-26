@@ -1040,11 +1040,18 @@ def signup(
         session.refresh(operator)
         rebuild_allowed_origins(session)
 
-    # send the email-verification link (login stays blocked until confirmed). Best-effort:
-    # a mail hiccup must not lose the account/checkout — they can hit /auth/resend-verification.
+    # Email verification is enforced ONLY when SMTP is actually configured — otherwise the link
+    # can't be delivered and blocking login would be a footgun. With SMTP: send the link and keep
+    # login blocked until confirmed (best-effort send; they can also /auth/resend-verification).
+    # Without SMTP: create the account already usable.
     if not operator.email_verified:
-        token = _issue_token(session, operator.id, "verify_email", VERIFY_TOKEN_TTL)
-        email_service.send_verification(operator.email, token)
+        if email_service.enabled():
+            token = _issue_token(session, operator.id, "verify_email", VERIFY_TOKEN_TTL)
+            email_service.send_verification(operator.email, token)
+        else:
+            operator.email_verified = True
+            session.add(operator)
+            session.commit()
 
     meta = {"client_id": str(client.id), "plan_id": str(plan.id)}
     checkout = stripe.checkout.Session.create(

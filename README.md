@@ -150,8 +150,9 @@ un account Stripe (anche solo di *test*) — setup in [`deploy/STRIPE.md`](deplo
 Con Stripe configurato (`STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, e lo `stripe_price_id` sui
 piani a pagamento):
 - **Registrazione self-service** (`POST /signup`): crea account + operatore e apre una Stripe
-  Checkout subscription con prova gratuita (`TRIAL_DAYS`) e cattura carta. Il nuovo operatore
-  **verifica l'email** prima di poter accedere (vedi sopra, email transazionali).
+  Checkout subscription con prova gratuita (`TRIAL_DAYS`) e cattura carta. Se SMTP è configurato,
+  il nuovo operatore **verifica l'email** prima di poter accedere (vedi sopra, email transazionali);
+  senza SMTP la verifica è disattivata e l'account è subito utilizzabile (niente link non recapitabili).
 - **Checkout upgrade** dal panel (`POST /billing/checkout`) per cambiare piano.
 - **Webhook** (`POST /billing/webhook`, firma verificata): sincronizza
   `plan_id`/`billing_status`/`stripe_customer_id`/`stripe_subscription_id` sugli eventi
