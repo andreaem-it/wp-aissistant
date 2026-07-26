@@ -90,27 +90,48 @@ def ingest(session: Session, client_id: int, source: str, source_ref: str, text:
     session.commit()
 
 
-def retrieve(session: Session, client_id: int, query: str, k: int = 5) -> list[str]:
-    """Fetch the top RETRIEVE_FETCH_K chunks by cosine distance, drop off-topic ones
-    (CHUNK_MAX_DISTANCE), then MMR-rerank to k relevant-but-diverse chunks."""
+def retrieve_with_meta(session: Session, client_id: int, query: str, k: int = 5) -> tuple[list[str], list[dict]]:
+    """Like retrieve() but also returns diagnostics for the admin debug view: the surviving
+    candidate pool (source_ref + cosine distance) and which chunks the MMR rerank selected.
+
+    Returns (context_texts, meta): context_texts are the k selected chunk texts (what the LLM
+    sees); meta is the full candidate list ordered by distance, each entry
+    {chunk_id, source, source_ref, distance, selected}."""
     qvec = embed(query)
     distance = Chunk.embedding.cosine_distance(qvec)
     rows = session.exec(
-        select(Chunk.text, Chunk.embedding, distance.label("distance"))
+        select(Chunk.id, Chunk.source, Chunk.source_ref, Chunk.text, Chunk.embedding, distance.label("distance"))
         .where(Chunk.client_id == client_id)
         .order_by(distance)
         .limit(RETRIEVE_FETCH_K)
     ).all()
     candidates = [
-        (text, list(emb), float(dist))
-        for text, emb, dist in rows
+        {"id": cid, "source": src, "source_ref": ref, "text": txt, "emb": list(emb), "distance": float(dist)}
+        for cid, src, ref, txt, emb, dist in rows
         if emb is not None and dist < CHUNK_MAX_DISTANCE
     ]
     if not candidates:
-        return []
-    query_sims = [1.0 - dist for _, _, dist in candidates]  # pgvector cosine_distance = 1 - sim
-    embeddings = [emb for _, emb, _ in candidates]
-    return [candidates[i][0] for i in mmr_select(query_sims, embeddings, k, MMR_LAMBDA)]
+        return [], []
+    query_sims = [1.0 - c["distance"] for c in candidates]  # pgvector cosine_distance = 1 - sim
+    embeddings = [c["emb"] for c in candidates]
+    selected_idx = mmr_select(query_sims, embeddings, k, MMR_LAMBDA)
+    selected_set = set(selected_idx)
+    context = [candidates[i]["text"] for i in selected_idx]
+    meta = [
+        {
+            "chunk_id": c["id"], "source": c["source"], "source_ref": c["source_ref"],
+            "distance": round(c["distance"], 4), "selected": i in selected_set,
+        }
+        for i, c in enumerate(candidates)
+    ]
+    return context, meta
+
+
+def retrieve(session: Session, client_id: int, query: str, k: int = 5) -> list[str]:
+    """Fetch the top RETRIEVE_FETCH_K chunks by cosine distance, drop off-topic ones
+    (CHUNK_MAX_DISTANCE), then MMR-rerank to k relevant-but-diverse chunks."""
+    context, _ = retrieve_with_meta(session, client_id, query, k)
+    return context
 
 
 def ingest_product(session: Session, client_id: int, product_url: str, title: str, price: str, image_url: str, text: str):

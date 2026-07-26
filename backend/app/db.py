@@ -67,6 +67,10 @@ class Conversation(SQLModel, table=True):
     client_id: int = Field(index=True, foreign_key="client.id")
     visitor_id: str
     created_at: datetime = Field(default_factory=datetime.utcnow)
+    # updated_at is touched on every new message / status change; closed_at is stamped when a
+    # conversation is closed. Together they let the stats compute response times & durations.
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    closed_at: Optional[datetime] = None
     status: str = "open"  # open | escalated | closed
 
 
@@ -83,6 +87,39 @@ class Ticket(SQLModel, table=True):
     conversation_id: int = Field(index=True, foreign_key="conversation.id")
     reason: str
     status: str = "open"  # open | answered | closed
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)  # touched on status change/reply
+
+
+class AiResponseLog(SQLModel, table=True):
+    """Per-turn AI diagnostics: what was retrieved (chunk refs + cosine distances + which the
+    reranker selected), which model answered, how long it took, token usage, and the outcome.
+    One row per /chat turn. Powers the admin debug view ("why did it answer this way?") and the
+    latency/quality stats. `retrieved` is a JSON list of {chunk_id, source, source_ref,
+    distance, selected}."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    client_id: int = Field(index=True, foreign_key="client.id")
+    conversation_id: int = Field(index=True, foreign_key="conversation.id")
+    message_id: Optional[int] = Field(default=None, foreign_key="message.id")
+    outcome: str  # answered | escalated_keyword | escalated_model | escalated_llm_down
+    model: str = ""
+    latency_ms: int = 0
+    tokens_prompt: int = 0
+    tokens_completion: int = 0
+    retrieved: str = ""  # JSON
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class AuditLog(SQLModel, table=True):
+    """Append-only record of privileged actions (admin onboarding + operator actions) so the
+    superadmin can see who did what, when. `detail` is action-specific JSON."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    actor_type: str = Field(index=True)  # admin | operator | system
+    actor_id: str = ""  # operator email/id, or "admin" for the shared admin key
+    action: str = Field(index=True)  # e.g. client.create, client.rotate_key, ticket.reply
+    target: str = ""  # affected entity, e.g. "client:12"
+    client_id: Optional[int] = Field(default=None, index=True)  # tenant scope when applicable
+    detail: str = ""  # JSON
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 

@@ -16,6 +16,8 @@ from sqlmodel import Session, select
 from . import billing
 
 from .db import (
+    AiResponseLog,
+    AuditLog,
     AuthToken,
     Chunk,
     Client,
@@ -38,7 +40,7 @@ from .llm import embed
 from .logging_config import log, request_id_var, setup_logging
 from . import metrics
 from .notify import notify_new_ticket
-from .rag import extract_text, retrieve, retrieve_products
+from .rag import extract_text, retrieve, retrieve_products, retrieve_with_meta
 from .ratelimit import make_limiter
 from .security import hash_password, verify_password
 from .worker import requeue_stale, run_worker
@@ -344,6 +346,42 @@ def ingest_job_status(job_id: int, client_id: int = Depends(resolve_client_id), 
     return {"id": job.id, "kind": job.kind, "status": job.status, "error": job.error}
 
 
+def _log_ai_response(session, client_id, conversation_id, outcome, retrieval_meta=None, llm_meta=None, message_id=None):
+    """Persist one AiResponseLog row (the admin debug/stats record for a /chat turn). Never
+    raises — diagnostics must not break the chat flow."""
+    m = llm_meta or {}
+    try:
+        session.add(AiResponseLog(
+            client_id=client_id,
+            conversation_id=conversation_id,
+            message_id=message_id,
+            outcome=outcome,
+            model=m.get("model", "") or "",
+            latency_ms=int(m.get("latency_ms", 0) or 0),
+            tokens_prompt=int(m.get("tokens_prompt", 0) or 0),
+            tokens_completion=int(m.get("tokens_completion", 0) or 0),
+            retrieved=json.dumps(retrieval_meta or []),
+        ))
+        session.commit()
+    except Exception as exc:  # noqa: BLE001
+        session.rollback()
+        log(logger, logging.WARNING, "ai_response_log.failed", conversation_id=conversation_id, error=str(exc))
+
+
+def _audit(session, actor_type, actor_id, action, target="", client_id=None, detail=None):
+    """Append an AuditLog entry. Best-effort: a logging failure must never fail the action
+    it records, so errors are swallowed (and logged)."""
+    try:
+        session.add(AuditLog(
+            actor_type=actor_type, actor_id=str(actor_id), action=action,
+            target=target, client_id=client_id, detail=json.dumps(detail or {}),
+        ))
+        session.commit()
+    except Exception as exc:  # noqa: BLE001
+        session.rollback()
+        log(logger, logging.WARNING, "audit.failed", action=action, error=str(exc))
+
+
 @app.post("/chat")
 def chat_endpoint(
     visitor_id: str = Body(...),
@@ -367,6 +405,8 @@ def chat_endpoint(
         for m in session.exec(select(Message).where(Message.conversation_id == conv.id).order_by(Message.id)).all()
     ]
     session.add(Message(conversation_id=conv.id, role="user", content=message))
+    conv.updated_at = datetime.utcnow()
+    session.add(conv)
     session.commit()
     metrics.chat_messages_total.inc()
 
@@ -378,6 +418,7 @@ def chat_endpoint(
     if keyword_hit:
         reason = f"richiede intervento umano ({keyword_hit})"
         conv.status = "escalated"
+        conv.updated_at = datetime.utcnow()
         session.add(conv)
         ticket = Ticket(conversation_id=conv.id, reason=reason)
         session.add(ticket)
@@ -385,11 +426,13 @@ def chat_endpoint(
         session.refresh(ticket)
         log(logger, logging.INFO, "chat.escalated", client_id=client.id, conversation_id=conv.id, trigger="keyword", keyword=keyword_hit)
         metrics.escalations_total.labels(trigger="keyword").inc()
+        _log_ai_response(session, client.id, conv.id, "escalated_keyword")
         notify_new_ticket(client.name, conv.id, ticket.id, reason)
         return {"conversation_id": conv.id, "status": "escalated", "reply": None}
 
+    retrieval_meta: list[dict] = []
     try:
-        context = retrieve(session, client.id, message)
+        context, retrieval_meta = retrieve_with_meta(session, client.id, message)
         system = (
             "You are a customer support assistant. Handle greetings and small talk yourself, "
             "normally, without calling any tool. For substantive questions, answer only using "
@@ -403,6 +446,7 @@ def chat_endpoint(
         # model provider unreachable after retries — hand off instead of failing the request
         reason = "assistente AI non disponibile al momento"
         conv.status = "escalated"
+        conv.updated_at = datetime.utcnow()
         session.add(conv)
         ticket = Ticket(conversation_id=conv.id, reason=reason)
         session.add(ticket)
@@ -410,11 +454,13 @@ def chat_endpoint(
         session.refresh(ticket)
         log(logger, logging.ERROR, "chat.llm_unavailable", client_id=client.id, conversation_id=conv.id, error=str(exc))
         metrics.escalations_total.labels(trigger="llm_down").inc()
+        _log_ai_response(session, client.id, conv.id, "escalated_llm_down", retrieval_meta=retrieval_meta)
         notify_new_ticket(client.name, conv.id, ticket.id, reason)
         return {"conversation_id": conv.id, "status": "escalated", "reply": None}
 
     if "escalate" in result:
         conv.status = "escalated"
+        conv.updated_at = datetime.utcnow()
         session.add(conv)
         ticket = Ticket(conversation_id=conv.id, reason=result["escalate"])
         session.add(ticket)
@@ -422,11 +468,17 @@ def chat_endpoint(
         session.refresh(ticket)
         log(logger, logging.INFO, "chat.escalated", client_id=client.id, conversation_id=conv.id, trigger="model", reason=result["escalate"])
         metrics.escalations_total.labels(trigger="model").inc()
+        _log_ai_response(session, client.id, conv.id, "escalated_model", retrieval_meta=retrieval_meta, llm_meta=result)
         notify_new_ticket(client.name, conv.id, ticket.id, result["escalate"])
         return {"conversation_id": conv.id, "status": "escalated", "reply": None}
 
-    session.add(Message(conversation_id=conv.id, role="assistant", content=result["reply"]))
+    reply_msg = Message(conversation_id=conv.id, role="assistant", content=result["reply"])
+    session.add(reply_msg)
+    conv.updated_at = datetime.utcnow()
+    session.add(conv)
     session.commit()
+    session.refresh(reply_msg)
+    _log_ai_response(session, client.id, conv.id, "answered", retrieval_meta=retrieval_meta, llm_meta=result, message_id=reply_msg.id)
     try:
         products = retrieve_products(session, client.id, message)
     except LLMUnavailableError:
@@ -478,11 +530,15 @@ def reply_ticket(ticket_id: int, reply: str, operator: Operator = Depends(requir
     if not ticket or not conv or conv.client_id != operator.client_id:
         raise HTTPException(404, "ticket not found")
     session.add(Message(conversation_id=ticket.conversation_id, role="operator", content=reply))
+    now = datetime.utcnow()
     ticket.status = "answered"
+    ticket.updated_at = now
     conv.status = "open"
+    conv.updated_at = now
     session.add(ticket)
     session.add(conv)
     session.commit()
+    _audit(session, "operator", operator.email, "ticket.reply", target=f"ticket:{ticket_id}", client_id=operator.client_id)
     return {"ok": True}
 
 
@@ -560,6 +616,7 @@ def create_client(
     session.commit()
     session.refresh(client)
     rebuild_allowed_origins(session)
+    _audit(session, "admin", "admin", "client.create", target=f"client:{client.id}", client_id=client.id, detail={"name": name})
     return {"id": client.id, "name": client.name, "api_key": client.api_key, "allowed_origins": client.allowed_origins, "plan_id": client.plan_id}
 
 
@@ -603,7 +660,61 @@ def set_client_plan(client_id: int, plan_id: int = Body(..., embed=True), sessio
     client.plan_id = plan_id
     session.add(client)
     session.commit()
+    _audit(session, "admin", "admin", "client.set_plan", target=f"client:{client_id}", client_id=client_id, detail={"plan_id": plan_id})
     return {"id": client.id, "plan_id": client.plan_id}
+
+
+@app.get("/admin/conversations/{conversation_id}/debug", dependencies=[Depends(require_admin)])
+def conversation_debug(conversation_id: int, session: Session = Depends(get_session)):
+    """Full diagnostic view of a conversation for the superadmin: every message plus, for each
+    AI turn, what was retrieved (chunk refs + cosine distances + which the reranker selected),
+    the model, latency and token usage, and the outcome — i.e. *why* the AI answered as it did."""
+    conv = session.get(Conversation, conversation_id)
+    if not conv:
+        raise HTTPException(404, "conversation not found")
+    messages = session.exec(
+        select(Message).where(Message.conversation_id == conversation_id).order_by(Message.id)
+    ).all()
+    logs = session.exec(
+        select(AiResponseLog).where(AiResponseLog.conversation_id == conversation_id).order_by(AiResponseLog.id)
+    ).all()
+    return {
+        "conversation": {
+            "id": conv.id, "client_id": conv.client_id, "visitor_id": conv.visitor_id,
+            "status": conv.status, "created_at": conv.created_at, "updated_at": conv.updated_at,
+            "closed_at": conv.closed_at,
+        },
+        "messages": [
+            {"id": m.id, "role": m.role, "content": m.content, "created_at": m.created_at}
+            for m in messages
+        ],
+        "ai_turns": [
+            {
+                "id": lg.id, "outcome": lg.outcome, "model": lg.model,
+                "latency_ms": lg.latency_ms, "tokens_prompt": lg.tokens_prompt,
+                "tokens_completion": lg.tokens_completion, "message_id": lg.message_id,
+                "created_at": lg.created_at, "retrieved": json.loads(lg.retrieved or "[]"),
+            }
+            for lg in logs
+        ],
+    }
+
+
+@app.get("/admin/audit", dependencies=[Depends(require_admin)])
+def list_audit(client_id: int | None = None, limit: int = 100, session: Session = Depends(get_session)):
+    """Recent privileged actions (who did what, when). Optional client_id filter; newest first."""
+    q = select(AuditLog)
+    if client_id is not None:
+        q = q.where(AuditLog.client_id == client_id)
+    rows = session.exec(q.order_by(AuditLog.id.desc()).limit(min(limit, 500))).all()
+    return [
+        {
+            "id": r.id, "actor_type": r.actor_type, "actor_id": r.actor_id,
+            "action": r.action, "target": r.target, "client_id": r.client_id,
+            "detail": json.loads(r.detail or "{}"), "created_at": r.created_at,
+        }
+        for r in rows
+    ]
 
 
 @app.get("/admin/plans", dependencies=[Depends(require_admin)])
@@ -793,8 +904,10 @@ def delete_operator(operator_id: int, session: Session = Depends(get_session)):
     for s in session.exec(select(OperatorSession).where(OperatorSession.operator_id == operator_id)).all():
         session.delete(s)
     session.commit()  # flush the FK-dependent sessions before deleting their operator
+    client_id = operator.client_id
     session.delete(operator)
     session.commit()
+    _audit(session, "admin", "admin", "operator.delete", target=f"operator:{operator_id}", client_id=client_id)
     return {"ok": True}
 
 
@@ -808,6 +921,7 @@ def set_client_origins(client_id: int, allowed_origins: str = Body(..., embed=Tr
     session.add(client)
     session.commit()
     rebuild_allowed_origins(session)
+    _audit(session, "admin", "admin", "client.set_origins", target=f"client:{client_id}", client_id=client_id, detail={"allowed_origins": allowed_origins})
     return {"id": client.id, "name": client.name, "allowed_origins": client.allowed_origins}
 
 
@@ -819,6 +933,7 @@ def rotate_client_key(client_id: int, session: Session = Depends(get_session)):
     client.api_key = secrets.token_urlsafe(32)
     session.add(client)
     session.commit()
+    _audit(session, "admin", "admin", "client.rotate_key", target=f"client:{client_id}", client_id=client_id)
     return {"id": client.id, "name": client.name, "api_key": client.api_key}
 
 
@@ -834,6 +949,7 @@ def create_operator(client_id: int, email: str = Body(...), password: str = Body
     session.add(operator)
     session.commit()
     session.refresh(operator)
+    _audit(session, "admin", "admin", "operator.create", target=f"operator:{operator.id}", client_id=client_id, detail={"email": email})
     return {"id": operator.id, "client_id": client_id, "email": email}
 
 

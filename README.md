@@ -293,6 +293,8 @@ Auth via header `Authorization: Bearer <token>`. La colonna *Auth* indica quale 
 | `/admin/clients/{id}/plan` | POST | 🛡️ | Assegna un piano a un client |
 | `/admin/plans` | GET/POST | 🛡️ | Elenca/crea piani (prezzo, limiti chat/ingest) |
 | `/admin/reembed` | POST | 🛡️ | Ri-embedda i contenuti senza embedding (dopo un cambio modello/dim) |
+| `/admin/conversations/{id}/debug` | GET | 🛡️ | Vista diagnostica: messaggi + per ogni turno AI cosa è stato recuperato (chunk/distanze/selezione), modello, latenza, token, esito |
+| `/admin/audit` | GET | 🛡️ | Log azioni privilegiate (chi/cosa/quando), filtrabile per client |
 | `/public/plans` | GET | — | Piani acquistabili per la pagina di registrazione |
 | `/signup` | POST | — | Registrazione self-service → Stripe Checkout (prova + carta) |
 | `/billing/plans` | GET | 👤 | Piani acquistabili (per l'upgrade self-service dal panel) |

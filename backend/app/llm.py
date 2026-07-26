@@ -1,5 +1,6 @@
 import json
 import os
+import time
 import urllib.request
 
 import litellm
@@ -61,7 +62,8 @@ def embed(text: str) -> list[float]:
 
 
 def chat(system: str, history: list[dict], user_message: str) -> dict:
-    """Returns {"reply": str} or {"escalate": reason}.
+    """Returns {"reply": str} or {"escalate": reason}, always with diagnostic fields
+    {"model", "latency_ms", "tokens_prompt", "tokens_completion"} for the AI response log.
 
     ponytail: plain-text escalation marker instead of native tool-calling — small local
     models (llama3.1 on Ollama) hallucinate arbitrary function calls when given a tools
@@ -76,13 +78,21 @@ def chat(system: str, history: list[dict], user_message: str) -> dict:
         f"apologize, just escalate immediately. Otherwise answer normally."
     )
     messages = [{"role": "system", "content": instructions}, *history, {"role": "user", "content": user_message}]
+    start = time.monotonic()
     try:
         resp = litellm.completion(
             model=CHAT_MODEL, messages=messages, timeout=LLM_TIMEOUT, num_retries=LLM_RETRIES
         )
     except Exception as exc:
         raise LLMUnavailableError(str(exc)) from exc
+    usage = getattr(resp, "usage", None)
+    meta = {
+        "model": getattr(resp, "model", None) or CHAT_MODEL,
+        "latency_ms": int((time.monotonic() - start) * 1000),
+        "tokens_prompt": int(getattr(usage, "prompt_tokens", 0) or 0),
+        "tokens_completion": int(getattr(usage, "completion_tokens", 0) or 0),
+    }
     text = (resp.choices[0].message.content or "").strip()
     if text.startswith(ESCALATE_PREFIX):
-        return {"escalate": text[len(ESCALATE_PREFIX):].strip() or "unspecified"}
-    return {"reply": text}
+        return {"escalate": text[len(ESCALATE_PREFIX):].strip() or "unspecified", **meta}
+    return {"reply": text, **meta}
