@@ -17,7 +17,9 @@ CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", "150"))  # chars carried into the
 # cosine distance cutoffs so unrelated queries don't drag in random chunks/products;
 # tune per deployment — chunks are noisier text so their cutoff is looser than products'
 CHUNK_MAX_DISTANCE = float(os.getenv("CHUNK_MAX_DISTANCE", "0.8"))
-PRODUCT_MAX_DISTANCE = float(os.getenv("PRODUCT_MAX_DISTANCE", "0.6"))
+# 0.45 (was 0.6): 0.6 was loose enough that greetings/small-talk ("Ciao") dragged in unrelated
+# products. Real product queries score well below this; tune per deployment/embedding model.
+PRODUCT_MAX_DISTANCE = float(os.getenv("PRODUCT_MAX_DISTANCE", "0.45"))
 # reranking: pull a wider candidate pool then use MMR to pick a relevant *and* diverse set,
 # so near-duplicate chunks don't crowd out complementary context.
 RETRIEVE_FETCH_K = int(os.getenv("RETRIEVE_FETCH_K", "20"))
