@@ -1,6 +1,41 @@
 import { useEffect, useState } from "react";
-import { Eye, EyeOff, Copy, Check, RefreshCw, KeyRound, CreditCard } from "lucide-react";
+import { Eye, EyeOff, Copy, Check, RefreshCw, KeyRound, CreditCard, User } from "lucide-react";
 import { api } from "./api.js";
+
+function NameCard({ me }) {
+  const [name, setName] = useState(me.name || "");
+  const [status, setStatus] = useState(null);
+  const [saving, setSaving] = useState(false);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setSaving(true);
+    setStatus(null);
+    try {
+      await api.setName(name.trim());
+      setStatus("saved");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="wpai-card" style={{ marginBottom: 16 }}>
+      <div className="wpai-card-head">
+        <div className="wpai-card-icon"><User size={16} strokeWidth={2.25} /></div>
+        <div>
+          <div className="wpai-card-title">Nome operatore</div>
+          <div className="wpai-card-sub">Mostrato ai visitatori (es. "{name || "Mario"} sta scrivendo…"). Se vuoto si usa l'email.</div>
+        </div>
+      </div>
+      <form onSubmit={submit} style={{ display: "flex", gap: 8, marginTop: 12 }}>
+        <input value={name} onChange={(e) => { setName(e.target.value); setStatus(null); }} placeholder="Es. Giulia" style={{ flex: 1 }} />
+        <button className="wpai-btn" type="submit" disabled={saving}>{saving ? "Salvataggio…" : "Salva"}</button>
+      </form>
+      {status === "saved" && <div className="wpai-success" style={{ marginTop: 10, marginBottom: 0 }}>Nome aggiornato.</div>}
+    </div>
+  );
+}
 
 function BillingCard({ me }) {
   const [plans, setPlans] = useState([]);
@@ -206,6 +241,7 @@ export default function Profile() {
     <div>
       <h1 className="wpai-page-title">Profilo</h1>
       <p style={{ color: "var(--text-muted)", fontSize: 13.5, marginTop: -14, marginBottom: 20 }}>{me.email}</p>
+      <NameCard me={me} />
       <ApiKeyCard me={me} onRotated={(api_key) => setMe((m) => ({ ...m, api_key }))} />
       <BillingCard me={me} />
       <PasswordCard />

@@ -63,6 +63,17 @@ export default function Conversations() {
     }
   };
 
+  // ping the "operator is typing" state at most once every 2.5s while typing
+  const [lastTyping, setLastTyping] = useState(0);
+  const pingTyping = () => {
+    if (!selected) return;
+    const now = Date.now();
+    if (now - lastTyping > 2500) {
+      setLastTyping(now);
+      api.typing(selected).catch(() => {});
+    }
+  };
+
   const insertCanned = (body) => {
     const filled = fillPlaceholders(body, infoValues);
     setDraft((prev) => (prev ? prev + "\n" : "") + filled);
@@ -125,7 +136,7 @@ export default function Conversations() {
                 <textarea
                   rows={1}
                   value={draft}
-                  onChange={(e) => setDraft(e.target.value)}
+                  onChange={(e) => { setDraft(e.target.value); pingTyping(); }}
                   onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
                   placeholder="Rispondi come operatore… (Invio per inviare, Shift+Invio a capo)"
                 />

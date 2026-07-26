@@ -77,6 +77,8 @@ export const api = {
     return call("/ingest/document", { method: "POST", body: form });
   },
   me: () => call("/me"),
+  setName: (name) => call("/me/name", { method: "POST", body: { name } }),
+  typing: (id) => call(`/conversations/${id}/typing`, { method: "POST" }),
   changePassword: (current_password, new_password) =>
     call("/me/password", { method: "POST", body: { current_password, new_password } }),
   rotateKey: () => call("/me/rotate-key", { method: "POST" }),

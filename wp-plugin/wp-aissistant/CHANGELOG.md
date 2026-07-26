@@ -2,6 +2,11 @@
 
 Tutte le modifiche rilevanti del plugin WP AIssistant.
 
+## [0.6.0] - 2026-07-26
+
+- Nuovo: indicatore "<nome operatore> sta scrivendo…" nel widget (dal polling di
+  `/conversations/{id}/messages`, campo `operator_typing`). Poll widget a 3s.
+
 ## [0.5.2] - 2026-07-26
 
 - Fix: nessun indicatore "sta scrivendo" quando la conversazione è escalata a un

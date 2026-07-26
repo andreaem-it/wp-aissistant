@@ -157,6 +157,8 @@ class Operator(SQLModel, table=True):
     client_id: int = Field(index=True, foreign_key="client.id")
     email: str = Field(index=True, unique=True)
     password_hash: str
+    # display name shown to visitors (e.g. in the "… sta scrivendo" indicator); falls back to email
+    name: str = ""
     # self-serve signups must confirm their email before they can log in; admin-provisioned
     # operators are created already verified (see create_operator). Migration 0006 backfills
     # every pre-existing operator to True so nobody gets locked out on upgrade.

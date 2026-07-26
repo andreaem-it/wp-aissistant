@@ -274,6 +274,20 @@
     }
   }
 
+  // shows "<name> sta scrivendo..." when a human operator is typing; kept at the bottom
+  function setOperatorTyping(container, name) {
+    const existing = container.querySelector("#wpai-op-typing");
+    if (existing) existing.remove();
+    if (name) {
+      const el = document.createElement("div");
+      el.id = "wpai-op-typing";
+      el.className = "wpai-msg assistant wpai-typing";
+      el.textContent = `${name} sta scrivendo...`;
+      container.appendChild(el);
+      container.scrollTop = container.scrollHeight;
+    }
+  }
+
   // ponytail: polling instead of websockets, good enough for occasional operator replies
   function startPolling(conversationId, messages) {
     if (pollTimer || !conversationId) return;
@@ -288,10 +302,11 @@
           lastMessageId = Math.max(lastMessageId, m.id);
           if (m.role === "operator") addMessage(messages, "assistant", m.content);
         }
+        setOperatorTyping(messages, data.operator_typing);
       } catch (err) {
         // silent: next tick retries
       }
-    }, 5000);
+    }, 3000);
   }
 
   function init() {

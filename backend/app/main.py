@@ -715,6 +715,27 @@ def chat_contact(
     return {"ok": True}
 
 
+# transient "operator is typing" state: {conversation_id: (operator_name, monotonic_ts)}.
+# In-memory (ephemeral, fine to lose on restart). ponytail: per-process — with multiple workers a
+# typing ping and the widget's poll can land on different workers; back with Redis if we scale out.
+_operator_typing: dict[int, tuple[str, float]] = {}
+TYPING_TTL = float(os.getenv("TYPING_TTL_SECONDS", "8"))
+
+
+def _operator_name(operator: Operator) -> str:
+    return operator.name or operator.email
+
+
+@app.post("/conversations/{conversation_id}/typing")
+def operator_typing(conversation_id: int, operator: Operator = Depends(require_operator), session: Session = Depends(get_session)):
+    """Panel pings this while the operator is typing; the widget's poll shows '<name> sta scrivendo'."""
+    conv = session.get(Conversation, conversation_id)
+    if not conv or conv.client_id != operator.client_id:
+        raise HTTPException(404, "conversation not found")
+    _operator_typing[conversation_id] = (_operator_name(operator), time.monotonic())
+    return {"ok": True}
+
+
 @app.get("/conversations/{conversation_id}/messages")
 def conversation_messages(conversation_id: int, after_id: int = 0, client_id: int = Depends(resolve_client_id), session: Session = Depends(get_session)):
     """Polled by the chat widget (client api_key) and read by the panel (operator token)."""
@@ -724,7 +745,13 @@ def conversation_messages(conversation_id: int, after_id: int = 0, client_id: in
     messages = session.exec(
         select(Message).where(Message.conversation_id == conversation_id, Message.id > after_id).order_by(Message.id)
     ).all()
-    return {"status": conv.status, "messages": [{"id": m.id, "role": m.role, "content": m.content} for m in messages]}
+    typing = _operator_typing.get(conversation_id)
+    operator_typing_name = typing[0] if typing and (time.monotonic() - typing[1]) < TYPING_TTL else None
+    return {
+        "status": conv.status,
+        "messages": [{"id": m.id, "role": m.role, "content": m.content} for m in messages],
+        "operator_typing": operator_typing_name,
+    }
 
 
 @app.get("/conversations")
@@ -1517,14 +1544,14 @@ def rotate_client_key(client_id: int, session: Session = Depends(get_session)):
 
 
 @app.post("/admin/clients/{client_id}/operators", dependencies=[Depends(require_admin)])
-def create_operator(client_id: int, email: str = Body(...), password: str = Body(...), session: Session = Depends(get_session)):
+def create_operator(client_id: int, email: str = Body(...), password: str = Body(...), name: str = Body(""), session: Session = Depends(get_session)):
     """Provision a panel operator for a client. Password is stored hashed (PBKDF2)."""
     if not session.get(Client, client_id):
         raise HTTPException(404, "client not found")
     if session.exec(select(Operator).where(Operator.email == email)).first():
         raise HTTPException(409, "email already registered")
     # admin-provisioned by a trusted human => no email round-trip needed, log in right away
-    operator = Operator(client_id=client_id, email=email, password_hash=hash_password(password), email_verified=True)
+    operator = Operator(client_id=client_id, email=email, name=name, password_hash=hash_password(password), email_verified=True)
     session.add(operator)
     session.commit()
     session.refresh(operator)
@@ -1564,12 +1591,22 @@ def get_me(operator: Operator = Depends(require_operator), session: Session = De
     plan = session.get(Plan, client.plan_id) if client.plan_id else None
     return {
         "email": operator.email,
+        "name": operator.name,
         "client_name": client.name,
         "api_key": client.api_key,
         "plan_id": client.plan_id,
         "plan_name": plan.name if plan else None,
         "billing_status": client.billing_status,
     }
+
+
+@app.post("/me/name")
+def set_my_name(name: str = Body(..., embed=True), operator: Operator = Depends(require_operator), session: Session = Depends(get_session)):
+    """Operator sets their own display name (shown to visitors in the typing indicator)."""
+    operator.name = name.strip()[:80]
+    session.add(operator)
+    session.commit()
+    return {"ok": True, "name": operator.name}
 
 
 @app.post("/me/password")

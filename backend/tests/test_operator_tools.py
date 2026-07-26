@@ -35,6 +35,21 @@ def test_operator_tools_scoped_to_client(client, tenant):
     assert client.delete(f"/canned-responses/{r['id']}", headers=other_op).status_code == 404
 
 
+def test_operator_name_and_typing_indicator(client, tenant):
+    # operator sets their display name
+    client.post("/me/name", headers=tenant["op"], json={"name": "Giulia"})
+    assert client.get("/me", headers=tenant["op"]).json()["name"] == "Giulia"
+
+    conv_id = client.post("/chat", headers=tenant["key"], json={"visitor_id": "v", "message": "ciao"}).json()["conversation_id"]
+    # before any typing ping, the widget poll shows no operator typing
+    poll = client.get(f"/conversations/{conv_id}/messages", headers=tenant["key"]).json()
+    assert poll["operator_typing"] is None
+    # after the operator pings typing, the widget poll surfaces the name
+    client.post(f"/conversations/{conv_id}/typing", headers=tenant["op"])
+    poll = client.get(f"/conversations/{conv_id}/messages", headers=tenant["key"]).json()
+    assert poll["operator_typing"] == "Giulia"
+
+
 def test_conversation_info_not_leaked_to_widget(client, tenant):
     # the visitor-facing /messages endpoint must not expose operator info fields
     conv_id = client.post("/chat", headers=tenant["key"], json={"visitor_id": "v", "message": "ciao"}).json()["conversation_id"]

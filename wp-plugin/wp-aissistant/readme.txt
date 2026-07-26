@@ -3,7 +3,7 @@ Tags: ai, chatbot, customer-support, woocommerce, rag
 Requires at least: 5.8
 Tested up to: 6.5
 Requires PHP: 7.4
-Stable tag: 0.5.2
+Stable tag: 0.6.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -36,6 +36,10 @@ Richiede un'istanza del backend WP AIssistant raggiungibile e una API Key del cl
 4. Usa **Sincronizza ora** per il primo caricamento della knowledge base.
 
 == Changelog ==
+
+= 0.6.0 =
+* Nuovo: quando un operatore umano sta scrivendo la risposta, il widget mostra
+  "<nome operatore> sta scrivendo…".
 
 = 0.5.2 =
 * Fix: quando la conversazione è già stata passata a un operatore, inviando un nuovo
