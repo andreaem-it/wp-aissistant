@@ -2,6 +2,12 @@
 
 Tutte le modifiche rilevanti del plugin WP AIssistant.
 
+## [0.5.1] - 2026-07-26
+
+- Fix: auto-recovery su 404. Un `wpai_conversation_id` in localStorage non più valido
+  (es. dopo cambio api_key/client) faceva 404 e bloccava il widget; ora `sendMessage` e
+  `sendMessageStream` azzerano l'id e riprovano una volta da conversazione nuova.
+
 ## [0.5.0] - 2026-07-26
 
 - Nuovo: alla escalation il widget mostra un campo email; il visitatore può lasciarla

@@ -134,8 +134,9 @@
   let lastMessageId = 0;
   let pollTimer = null;
 
-  async function sendMessage(message, messages) {
-    const conversationId = localStorage.getItem(CONV_KEY);
+  async function sendMessage(message, messages, retried) {
+    // on a retry, ignore the stored conversation id (it was stale) and start fresh
+    const conversationId = retried ? null : localStorage.getItem(CONV_KEY);
     setTyping(messages, true);
     let res;
     try {
@@ -155,6 +156,12 @@
       setTyping(messages, false);
     }
     if (!res.ok) {
+      // a stored conversation id that no longer belongs to this client 404s — drop it and retry once
+      if (res.status === 404 && conversationId && !retried) {
+        localStorage.removeItem(CONV_KEY);
+        localStorage.removeItem(ESCALATED_KEY);
+        return sendMessage(message, messages, true);
+      }
       throw new Error(`chat request failed: ${res.status}`);
     }
     const data = await res.json();
@@ -177,8 +184,9 @@
   // Streaming variant: renders the reply token-by-token over SSE. Throws only on a *pre-stream*
   // failure (so the caller can safely fall back to the blocking /chat); once the stream has
   // started, mid-stream errors are shown inline and never rethrown (avoids double-sending).
-  async function sendMessageStream(message, messages) {
-    const conversationId = localStorage.getItem(CONV_KEY);
+  async function sendMessageStream(message, messages, retried) {
+    // on a retry, ignore the stored conversation id (it was stale) and start fresh
+    const conversationId = retried ? null : localStorage.getItem(CONV_KEY);
     setTyping(messages, true);
     let res;
     try {
@@ -197,6 +205,12 @@
     }
     if (!res.ok || !res.body) {
       setTyping(messages, false);
+      // a stored conversation id that no longer belongs to this client 404s — drop it and retry once
+      if (res.status === 404 && conversationId && !retried) {
+        localStorage.removeItem(CONV_KEY);
+        localStorage.removeItem(ESCALATED_KEY);
+        return sendMessageStream(message, messages, true);
+      }
       throw new Error(`stream failed: ${res.status}`);
     }
 
