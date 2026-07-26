@@ -747,3 +747,20 @@ button.wpai-btn.danger:hover { background: #b91c1c; }
 .wpai-ai-turn { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px; margin-top: 10px; }
 .wpai-ai-turn-head { display: flex; align-items: center; gap: 12px; font-size: 12px; }
 .wpai-ai-turn-head .dim { color: var(--text-muted); }
+
+/* ---- Clients list: search + filters + clickable rows ---- */
+.wpai-filters { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.wpai-filters select {
+  height: 38px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: 0 10px; background: var(--surface); font-size: 13px; color: var(--text);
+}
+.wpai-search {
+  display: flex; align-items: center; gap: 8px; flex: 1; min-width: 200px;
+  height: 38px; padding: 0 12px; border: 1px solid var(--border);
+  border-radius: var(--radius-sm); background: var(--surface); color: var(--text-muted);
+}
+.wpai-search input { border: none; outline: none; background: transparent; flex: 1; font-size: 13.5px; color: var(--text); }
+
+.wpai-table-rows td, .wpai-table-rows th { padding-left: 16px; padding-right: 16px; }
+.wpai-row-click { cursor: pointer; transition: background 0.12s; }
+.wpai-row-click:hover { background: var(--surface-sunken); }

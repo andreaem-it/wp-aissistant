@@ -588,6 +588,90 @@ function DebugView({ initialId }) {
   );
 }
 
+function ClientsView({ clients, plans, selected, onSelect, onReload, onReloadPlans }) {
+  const [search, setSearch] = useState("");
+  const [planFilter, setPlanFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [showNew, setShowNew] = useState(false);
+
+  // a selected client takes over the whole view (detail + back)
+  if (selected) {
+    return (
+      <div>
+        <button className="wpai-btn ghost" onClick={() => onSelect(null)} style={{ marginBottom: 16 }}>
+          ← Torna alla lista
+        </button>
+        <ClientDetail client={selected} plans={plans} onChanged={() => { onReload(); onReloadPlans(); }} />
+      </div>
+    );
+  }
+
+  if (!clients) return <p style={{ color: "var(--text-muted)" }}>Caricamento…</p>;
+
+  const q = search.trim().toLowerCase();
+  const filtered = clients.filter((c) => {
+    if (q && !(`${c.name} ${c.allowed_origins || ""}`.toLowerCase().includes(q))) return false;
+    if (planFilter !== "all" && String(c.plan_id) !== planFilter) return false;
+    if (statusFilter !== "all" && c.billing_status !== statusFilter) return false;
+    return true;
+  });
+  const statuses = [...new Set(clients.map((c) => c.billing_status).filter(Boolean))];
+
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+        <h2 style={{ margin: 0 }}>Clienti <span style={{ color: "var(--text-muted)", fontWeight: 500 }}>({filtered.length})</span></h2>
+        <button className="wpai-btn" onClick={() => setShowNew((v) => !v)}>
+          <Plus size={15} /> Nuovo cliente
+        </button>
+      </div>
+
+      {showNew && <NewClientForm onCreated={() => { onReload(); setShowNew(false); }} />}
+
+      <div className="wpai-filters">
+        <div className="wpai-search">
+          <Search size={15} />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Cerca per nome o sito…"
+          />
+        </div>
+        <select value={planFilter} onChange={(e) => setPlanFilter(e.target.value)}>
+          <option value="all">Tutti i piani</option>
+          {plans?.map((p) => <option key={p.id} value={String(p.id)}>{p.name}</option>)}
+        </select>
+        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+          <option value="all">Tutti gli stati</option>
+          {statuses.map((s) => <option key={s} value={s}>{s}</option>)}
+        </select>
+      </div>
+
+      <div className="wpai-card" style={{ marginTop: 14, padding: 0, overflow: "hidden" }}>
+        <table className="wpai-table wpai-table-rows">
+          <thead>
+            <tr><th>Nome</th><th>Piano</th><th>Stato</th><th>Sito / Origin</th><th style={{ textAlign: "right" }}>Conv.</th></tr>
+          </thead>
+          <tbody>
+            {filtered.map((c) => (
+              <tr key={c.id} className="wpai-row-click" onClick={() => onSelect(c)}>
+                <td style={{ fontWeight: 600 }}>{c.name}</td>
+                <td>{c.plan_name || "—"}</td>
+                <td><span className={"wpai-badge " + (c.billing_status === "active" || c.billing_status === "trialing" ? "ok" : "warn")}>{c.billing_status}</span></td>
+                <td style={{ maxWidth: 260, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--text-muted)" }}>{c.allowed_origins || "—"}</td>
+                <td style={{ textAlign: "right" }}>{c.conversations}</td>
+              </tr>
+            ))}
+            {filtered.length === 0 && (
+              <tr><td colSpan={5} style={{ color: "var(--text-muted)", textAlign: "center", padding: 24 }}>Nessun cliente trovato.</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 function Dashboard() {
   const [clients, setClients] = useState(null);
   const [plans, setPlans] = useState(null);
@@ -645,19 +729,6 @@ function Dashboard() {
             <Activity size={16} strokeWidth={2.25} /> Sistema
           </button>
         </div>
-        {view === "clients" && (
-          <div className="wpai-nav" style={{ flex: 1, overflowY: "auto", marginTop: 10 }}>
-            {clients?.map((c) => (
-              <button
-                key={c.id}
-                className={"wpai-nav-item" + (selected?.id === c.id ? " active" : "")}
-                onClick={() => setSelected(c)}
-              >
-                {c.name}
-              </button>
-            ))}
-          </div>
-        )}
         <div style={{ marginTop: "auto" }}>
           <button
             className="wpai-btn ghost"
@@ -676,19 +747,14 @@ function Dashboard() {
       <main className="wpai-main">
         {view === "overview" && <OverviewView />}
         {view === "clients" && (
-          <>
-            <NewClientForm onCreated={load} />
-            <div style={{ marginTop: 20 }}>
-              {selected ? (
-                <ClientDetail client={selected} plans={plans} onChanged={() => { load(); loadPlans(); }} />
-              ) : (
-                <div className="wpai-empty">
-                  <Building2 size={28} strokeWidth={1.5} />
-                  <p>Seleziona un cliente dalla sidebar, o creane uno nuovo.</p>
-                </div>
-              )}
-            </div>
-          </>
+          <ClientsView
+            clients={clients}
+            plans={plans}
+            selected={selected}
+            onSelect={setSelected}
+            onReload={load}
+            onReloadPlans={loadPlans}
+          />
         )}
         {view === "plans" && <PlansView plans={plans} onChanged={loadPlans} />}
         {view === "problematic" && <ProblematicView onOpenDebug={openDebug} />}
