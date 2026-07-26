@@ -96,3 +96,57 @@ def chat(system: str, history: list[dict], user_message: str) -> dict:
     if text.startswith(ESCALATE_PREFIX):
         return {"escalate": text[len(ESCALATE_PREFIX):].strip() or "unspecified", **meta}
     return {"reply": text, **meta}
+
+
+def _chat_instructions(system: str) -> str:
+    return (
+        f"{system}\n\nIf you cannot answer from the context above, or the request needs "
+        f"human authority (refunds, complaints, account changes, order-specific issues), "
+        f'you MUST respond with EXACTLY one line: "{ESCALATE_PREFIX} <short reason>" and '
+        f"nothing else — do not ask clarifying questions first, do not explain, do not "
+        f"apologize, just escalate immediately. Otherwise answer normally."
+    )
+
+
+def chat_stream(system: str, history: list[dict], user_message: str):
+    """Streaming variant of chat(). A generator that yields ("delta", text) tuples as tokens
+    arrive, then one final ("meta", {model, latency_ms, tokens_prompt, tokens_completion}).
+
+    The caller reassembles the text and applies the same ESCALATE_PREFIX convention as chat()
+    — it must buffer the first tokens to decide escalation before showing anything. Raises
+    LLMUnavailableError if the provider is unreachable (before or mid-stream)."""
+    messages = [{"role": "system", "content": _chat_instructions(system)}, *history, {"role": "user", "content": user_message}]
+    start = time.monotonic()
+    try:
+        # NB: no stream_options={"include_usage":...} — not every provider (e.g. Cloudflare
+        # Workers AI via litellm) accepts it, and a rejected param would fail every stream and
+        # escalate every message. Cost of omitting it: token counts are 0 for streamed replies.
+        stream = litellm.completion(
+            model=CHAT_MODEL, messages=messages, timeout=LLM_TIMEOUT, num_retries=LLM_RETRIES,
+            stream=True,
+        )
+    except Exception as exc:
+        raise LLMUnavailableError(str(exc)) from exc
+
+    model = CHAT_MODEL
+    usage = None
+    try:
+        for chunk in stream:
+            if getattr(chunk, "model", None):
+                model = chunk.model
+            if getattr(chunk, "usage", None):
+                usage = chunk.usage  # some providers send usage only in the final chunk
+            choices = getattr(chunk, "choices", None)
+            if choices:
+                content = getattr(choices[0].delta, "content", None)
+                if content:
+                    yield ("delta", content)
+    except Exception as exc:
+        raise LLMUnavailableError(str(exc)) from exc
+
+    yield ("meta", {
+        "model": model,
+        "latency_ms": int((time.monotonic() - start) * 1000),
+        "tokens_prompt": int(getattr(usage, "prompt_tokens", 0) or 0),
+        "tokens_completion": int(getattr(usage, "completion_tokens", 0) or 0),
+    })

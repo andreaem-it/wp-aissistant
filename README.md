@@ -275,6 +275,7 @@ Auth via header `Authorization: Bearer <token>`. La colonna *Auth* indica quale 
 | `/health` | GET | — | Liveness probe (nessuna auth) |
 | `/metrics` | GET | 🔒 | Metriche Prometheus — disabilitato se `METRICS_TOKEN` non è impostato; altrimenti `Bearer <METRICS_TOKEN>` |
 | `/chat` | POST | 🔑 | Messaggio visitatore → risposta o escalation (ritorna `message_id`) |
+| `/chat/stream` | POST | 🔑 | Come `/chat` ma in streaming SSE (token progressivi); il widget lo usa con fallback su `/chat` |
 | `/chat/feedback` | POST | 🔑 | Valutazione 👍/👎 su una risposta AI (scoping per conversazione) |
 | `/ingest/site-page` | POST | 🔑 | Push contenuto pagina/articolo (dal plugin) |
 | `/ingest/product` | POST | 🔑 | Push prodotto WooCommerce (dal plugin) |

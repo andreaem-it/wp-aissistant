@@ -2,6 +2,13 @@
 
 Tutte le modifiche rilevanti del plugin WP AIssistant.
 
+## [0.4.0] - 2026-07-26
+
+- Nuovo: streaming delle risposte AI via SSE (`POST /chat/stream`). Il widget renderizza
+  i token man mano che arrivano (`sendMessageStream`), con rilevazione dell'escalation
+  bufferizzando il prefisso `ESCALATE:` così una risposta parziale non viene mai mostrata.
+  Fallback automatico al `POST /chat` bloccante se lo streaming fallisce prima di iniziare.
+
 ## [0.3.0] - 2026-07-26
 
 - Nuovo: pulsanti di valutazione 👍/👎 sotto ogni risposta dell'assistente AI. Il

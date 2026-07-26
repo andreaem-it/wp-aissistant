@@ -131,6 +131,86 @@
     }
   }
 
+  // Streaming variant: renders the reply token-by-token over SSE. Throws only on a *pre-stream*
+  // failure (so the caller can safely fall back to the blocking /chat); once the stream has
+  // started, mid-stream errors are shown inline and never rethrown (avoids double-sending).
+  async function sendMessageStream(message, messages) {
+    const conversationId = localStorage.getItem(CONV_KEY);
+    setTyping(messages, true);
+    let res;
+    try {
+      res = await fetch(`${WPAI.backendUrl}/chat/stream`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${WPAI.apiKey}` },
+        body: JSON.stringify({
+          visitor_id: visitorId(),
+          message,
+          conversation_id: conversationId ? Number(conversationId) : null,
+        }),
+      });
+    } catch (e) {
+      setTyping(messages, false);
+      throw e; // network error before streaming -> caller falls back
+    }
+    if (!res.ok || !res.body) {
+      setTyping(messages, false);
+      throw new Error(`stream failed: ${res.status}`);
+    }
+
+    let convId = conversationId;
+    let bubble = null;
+    const onEvent = (evt) => {
+      if (evt.type === "start") {
+        convId = evt.conversation_id;
+        localStorage.setItem(CONV_KEY, convId);
+        startPolling(convId, messages);
+      } else if (evt.type === "token") {
+        setTyping(messages, false);
+        if (!bubble) {
+          bubble = document.createElement("div");
+          bubble.className = "wpai-msg assistant";
+          messages.appendChild(bubble);
+        }
+        bubble.textContent += evt.text;
+        messages.scrollTop = messages.scrollHeight;
+      } else if (evt.type === "escalated") {
+        setTyping(messages, false);
+        if (localStorage.getItem(ESCALATED_KEY) !== String(convId)) {
+          localStorage.setItem(ESCALATED_KEY, String(convId));
+          addMessage(messages, "system", "La tua richiesta è stata inoltrata a un operatore, ti risponderemo qui appena possibile.");
+        }
+      } else if (evt.type === "done") {
+        setTyping(messages, false);
+        localStorage.removeItem(ESCALATED_KEY);
+        addProducts(messages, evt.products);
+        addFeedback(messages, evt.conversation_id, evt.message_id);
+      }
+    };
+
+    try {
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        let idx;
+        while ((idx = buf.indexOf("\n\n")) !== -1) {
+          const frame = buf.slice(0, idx).trim();
+          buf = buf.slice(idx + 2);
+          if (frame.startsWith("data:")) {
+            try { onEvent(JSON.parse(frame.slice(5).trim())); } catch (e) { /* skip bad frame */ }
+          }
+        }
+      }
+    } catch (e) {
+      // mid-stream failure: surface inline, do NOT rethrow (a fallback would double-send)
+      setTyping(messages, false);
+      addMessage(messages, "system", "Connessione interrotta, riprova tra poco.");
+    }
+  }
+
   // ponytail: polling instead of websockets, good enough for occasional operator replies
   function startPolling(conversationId, messages) {
     if (pollTimer || !conversationId) return;
@@ -185,9 +265,14 @@
       addMessage(messages, "user", text);
       input.value = "";
       try {
-        await sendMessage(text, messages);
+        await sendMessageStream(text, messages);
       } catch (err) {
-        addMessage(messages, "system", "Errore di connessione, riprova tra poco.");
+        // streaming unavailable (old backend / buffering proxy) — fall back to blocking /chat
+        try {
+          await sendMessage(text, messages);
+        } catch (err2) {
+          addMessage(messages, "system", "Errore di connessione, riprova tra poco.");
+        }
       }
     });
   }

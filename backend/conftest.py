@@ -40,6 +40,14 @@ def client(monkeypatch):
     monkeypatch.setattr(main, "embed", lambda text: [0.0] * db.EMBED_DIM)  # used by /admin/reembed
     monkeypatch.setattr(main, "llm_chat", lambda system, history, message: {"reply": "ok"})
 
+    def _fake_stream(system, history, message):
+        # mirror the ("delta", ...)* then ("meta", ...) protocol of llm.chat_stream
+        for tok in ["Ciao", ", come ", "posso ", "aiutarti?"]:
+            yield ("delta", tok)
+        yield ("meta", {"model": "test", "latency_ms": 1, "tokens_prompt": 0, "tokens_completion": 0})
+
+    monkeypatch.setattr(main, "llm_chat_stream", _fake_stream)
+
     try:
         with db.engine.connect() as conn:
             conn.exec_driver_sql("CREATE EXTENSION IF NOT EXISTS vector")

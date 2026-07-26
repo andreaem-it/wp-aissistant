@@ -34,8 +34,11 @@ from .db import (
     init_db,
 )
 from . import email as email_service
-from .llm import LLMUnavailableError
+from fastapi.responses import StreamingResponse
+
+from .llm import ESCALATE_PREFIX, LLMUnavailableError
 from .llm import chat as llm_chat
+from .llm import chat_stream as llm_chat_stream
 from .llm import embed
 from .logging_config import log, request_id_var, setup_logging
 from . import metrics
@@ -382,6 +385,168 @@ def _audit(session, actor_type, actor_id, action, target="", client_id=None, det
         log(logger, logging.WARNING, "audit.failed", action=action, error=str(exc))
 
 
+def _build_system(context: list[str]) -> str:
+    return (
+        "You are a customer support assistant. Handle greetings and small talk yourself, "
+        "normally, without calling any tool. For substantive questions, answer only using "
+        "the context below. Call escalate_to_human ONLY when: the answer to a substantive "
+        "question isn't in the context, or the request needs human authority (refunds, "
+        "complaints, account changes). Do not escalate greetings or vague messages — ask "
+        "the user to clarify instead.\n\nContext:\n" + "\n---\n".join(context)
+    )
+
+
+def _escalate(session, client_id, client_name, conv, reason, *, outcome, trigger,
+              retrieval_meta=None, llm_meta=None, error=None):
+    """Shared escalation: mark the conversation escalated, open a ticket, log + count the
+    escalation, record the AI-response diagnostics, and notify operators. Used by both the
+    sync /chat and the streaming /chat/stream so the two stay in lockstep."""
+    conv.status = "escalated"
+    conv.updated_at = datetime.utcnow()
+    session.add(conv)
+    ticket = Ticket(conversation_id=conv.id, reason=reason)
+    session.add(ticket)
+    session.commit()
+    session.refresh(ticket)
+    if error is not None:
+        log(logger, logging.ERROR, "chat.llm_unavailable", client_id=client_id, conversation_id=conv.id, error=error)
+    else:
+        log(logger, logging.INFO, "chat.escalated", client_id=client_id, conversation_id=conv.id, trigger=trigger, reason=reason)
+    metrics.escalations_total.labels(trigger=trigger).inc()
+    _log_ai_response(session, client_id, conv.id, outcome, retrieval_meta=retrieval_meta, llm_meta=llm_meta)
+    notify_new_ticket(client_name, conv.id, ticket.id, reason)
+    return ticket
+
+
+def _sse(payload: dict) -> str:
+    """Serialize one Server-Sent Event frame."""
+    return f"data: {json.dumps(payload)}\n\n"
+
+
+@app.post("/chat/stream")
+def chat_stream_endpoint(
+    visitor_id: str = Body(...),
+    message: str = Body(...),
+    conversation_id: int | None = Body(None),
+    client: Client = Depends(rate_limit_chat),
+    session: Session = Depends(get_session),
+):
+    """Streaming variant of /chat over Server-Sent Events. Emits JSON frames:
+      {"type":"start","conversation_id"} → {"type":"token","text"}* →
+      {"type":"done","conversation_id","message_id","products"}  (answered)
+      or {"type":"escalated","conversation_id"}                  (handed to a human)
+      or {"type":"error"}                                        (unexpected failure).
+    Escalation is decided by buffering the first tokens (same ESCALATE_PREFIX convention as
+    /chat) before any token is shown, so an escalation never leaks a partial reply.
+    The sync /chat endpoint stays available as a fallback for older widgets."""
+    client_id = client.id
+    client_name = client.name
+    # validate ownership up front so we can 404 *before* the stream starts
+    if conversation_id:
+        conv = session.get(Conversation, conversation_id)
+        if not conv or conv.client_id != client_id:
+            raise HTTPException(404, "conversation not found")
+
+    def event_stream():
+        # a fresh session: the request-scoped one closes when this function returns, before the
+        # generator is consumed while streaming
+        with Session(engine) as s:
+            if conversation_id:
+                conv = s.get(Conversation, conversation_id)
+            else:
+                conv = Conversation(client_id=client_id, visitor_id=visitor_id)
+                s.add(conv)
+                s.commit()
+                s.refresh(conv)
+
+            history = [
+                {"role": m.role if m.role != "operator" else "assistant", "content": m.content}
+                for m in s.exec(select(Message).where(Message.conversation_id == conv.id).order_by(Message.id)).all()
+            ]
+            s.add(Message(conversation_id=conv.id, role="user", content=message))
+            conv.updated_at = datetime.utcnow()
+            s.add(conv)
+            s.commit()
+            metrics.chat_messages_total.inc()
+
+            yield _sse({"type": "start", "conversation_id": conv.id})
+
+            if conv.status == "escalated":
+                yield _sse({"type": "escalated", "conversation_id": conv.id})
+                return
+
+            lowered = message.lower()
+            keyword_hit = next((k for k in ALWAYS_ESCALATE_KEYWORDS if k in lowered), None)
+            if keyword_hit:
+                reason = f"richiede intervento umano ({keyword_hit})"
+                _escalate(s, client_id, client_name, conv, reason, outcome="escalated_keyword", trigger="keyword")
+                yield _sse({"type": "escalated", "conversation_id": conv.id})
+                return
+
+            retrieval_meta: list[dict] = []
+            buffer = ""
+            decided = False
+            is_escalation = False
+            full = ""
+            meta: dict = {}
+            try:
+                context, retrieval_meta = retrieve_with_meta(s, client_id, message)
+                system = _build_system(context)
+                for kind, payload in llm_chat_stream(system, history, message):
+                    if kind == "meta":
+                        meta = payload
+                        continue
+                    full += payload
+                    if not decided:
+                        buffer += payload
+                        # decide escalation only once enough has arrived to compare the prefix
+                        if len(buffer) >= len(ESCALATE_PREFIX) or "\n" in buffer:
+                            decided = True
+                            is_escalation = buffer.startswith(ESCALATE_PREFIX)
+                            if not is_escalation and buffer:
+                                yield _sse({"type": "token", "text": buffer})
+                    elif not is_escalation:
+                        yield _sse({"type": "token", "text": payload})
+            except LLMUnavailableError as exc:
+                reason = "assistente AI non disponibile al momento"
+                _escalate(s, client_id, client_name, conv, reason, outcome="escalated_llm_down",
+                          trigger="llm_down", retrieval_meta=retrieval_meta, error=str(exc))
+                yield _sse({"type": "escalated", "conversation_id": conv.id})
+                return
+
+            # very short output that never reached the decision threshold
+            if not decided:
+                is_escalation = full.startswith(ESCALATE_PREFIX)
+                if not is_escalation and full:
+                    yield _sse({"type": "token", "text": full})
+
+            if is_escalation:
+                reason = full[len(ESCALATE_PREFIX):].strip() or "unspecified"
+                _escalate(s, client_id, client_name, conv, reason, outcome="escalated_model",
+                          trigger="model", retrieval_meta=retrieval_meta, llm_meta=meta)
+                yield _sse({"type": "escalated", "conversation_id": conv.id})
+                return
+
+            reply_msg = Message(conversation_id=conv.id, role="assistant", content=full)
+            s.add(reply_msg)
+            conv.updated_at = datetime.utcnow()
+            s.add(conv)
+            s.commit()
+            s.refresh(reply_msg)
+            _log_ai_response(s, client_id, conv.id, "answered", retrieval_meta=retrieval_meta, llm_meta=meta, message_id=reply_msg.id)
+            try:
+                products = retrieve_products(s, client_id, message)
+            except LLMUnavailableError:
+                products = []
+            yield _sse({"type": "done", "conversation_id": conv.id, "message_id": reply_msg.id, "products": products})
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 @app.post("/chat")
 def chat_endpoint(
     visitor_id: str = Body(...),
@@ -433,14 +598,7 @@ def chat_endpoint(
     retrieval_meta: list[dict] = []
     try:
         context, retrieval_meta = retrieve_with_meta(session, client.id, message)
-        system = (
-            "You are a customer support assistant. Handle greetings and small talk yourself, "
-            "normally, without calling any tool. For substantive questions, answer only using "
-            "the context below. Call escalate_to_human ONLY when: the answer to a substantive "
-            "question isn't in the context, or the request needs human authority (refunds, "
-            "complaints, account changes). Do not escalate greetings or vague messages — ask "
-            "the user to clarify instead.\n\nContext:\n" + "\n---\n".join(context)
-        )
+        system = _build_system(context)
         result = llm_chat(system, history, message)
     except LLMUnavailableError as exc:
         # model provider unreachable after retries — hand off instead of failing the request
