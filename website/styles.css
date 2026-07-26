@@ -128,6 +128,8 @@ a { color: inherit; text-decoration: none; }
 .bubble.user { align-self: flex-end; background: var(--brand); color: #fff; border-bottom-right-radius: 4px; }
 .bubble.bot { align-self: flex-start; background: #fff; border: 1px solid var(--line); border-bottom-left-radius: 4px; }
 .bubble.sys { align-self: center; background: #fff3d6; color: #8a5a00; font-size: 0.85rem; text-align: center; }
+.bubble.op { align-self: flex-start; background: #e7f6ec; border: 1px solid #c6e6c6; border-bottom-left-radius: 4px; }
+.bubble.typing { align-self: flex-start; color: #6c6c7c; font-size: 0.82rem; font-style: italic; padding: 4px 6px; }
 
 /* ---------- Trust ---------- */
 .trust { padding: 40px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); background: var(--bg-alt); text-align: center; }

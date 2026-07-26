@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>WP AIssistant — L'assistente AI per il tuo sito WordPress</title>
-  <meta name="description" content="Un assistente AI di supporto clienti per WordPress e WooCommerce: risponde ai visitatori con i contenuti del tuo sito e passa la parola a un operatore quando serve." />
+  <meta name="description" content="Assistente AI di supporto clienti per WordPress e WooCommerce: risponde in tempo reale con i contenuti del tuo sito, mostra i prodotti, e passa la parola a un operatore umano — con strumenti pro, notifiche email e statistiche." />
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🤖</text></svg>" />
   <link rel="stylesheet" href="styles.css" />
 </head>
@@ -50,6 +50,8 @@
             <div class="bubble bot">Sì! La spedizione è gratuita per ordini sopra i 49&nbsp;€. 🚚</div>
             <div class="bubble user">Vorrei un rimborso sull'ordine #1042</div>
             <div class="bubble sys">Ti metto in contatto con un operatore — ti risponde qui a breve.</div>
+            <div class="bubble typing">Giulia sta scrivendo…</div>
+            <div class="bubble op">Ciao, sono Giulia! Ho trovato l'ordine #1042, procedo subito con il rimborso. 👍</div>
           </div>
         </div>
       </div>
@@ -83,9 +85,9 @@
           <p>Motore RAG: l'AI risponde solo con le informazioni del tuo sito, senza inventare.</p>
         </article>
         <article class="card feature">
-          <div class="ic">🔄</div>
-          <h3>Sincronizzazione automatica</h3>
-          <p>Pagine, articoli e prodotti vengono indicizzati appena li pubblichi o li aggiorni.</p>
+          <div class="ic">⚡</div>
+          <h3>Risposte in tempo reale</h3>
+          <p>La risposta appare parola per parola, come una chat vera: niente attese a blocco.</p>
         </article>
         <article class="card feature">
           <div class="ic">🛍️</div>
@@ -95,27 +97,47 @@
         <article class="card feature">
           <div class="ic">🙋</div>
           <h3>Escalation a operatore</h3>
-          <p>Rimborsi, reclami o domande fuori contesto? Si apre un ticket e risponde una persona.</p>
+          <p>Rimborsi, reclami o domande fuori contesto? Si apre un ticket e risponde una persona — che vede tutto lo storico della chat.</p>
         </article>
         <article class="card feature">
-          <div class="ic">📊</div>
-          <h3>Dashboard operatori</h3>
-          <p>Conversazioni, ticket, knowledge base e statistiche in un pannello unico.</p>
+          <div class="ic">⌨️</div>
+          <h3>Presenza umana reale</h3>
+          <p>Quando risponde un operatore, il cliente vede "<em>Giulia sta scrivendo…</em>" e riceve la risposta anche via email.</p>
+        </article>
+        <article class="card feature">
+          <div class="ic">⚡</div>
+          <h3>Strumenti per l'operatore</h3>
+          <p>Risposte predefinite con un clic e campi info (nome cliente, n° ordine, problematica) salvati sulla conversazione.</p>
+        </article>
+        <article class="card feature">
+          <div class="ic">🧠</div>
+          <h3>Impara dalle tue risposte</h3>
+          <p>L'operatore può insegnare all'AI una nuova risposta o FAQ: entra subito nella knowledge base.</p>
+        </article>
+        <article class="card feature">
+          <div class="ic">🔄</div>
+          <h3>Sync in tempo reale</h3>
+          <p>Pagine, articoli e prodotti si indicizzano da soli alla pubblicazione — e vedi lo stato di ognuno mentre sincronizza.</p>
         </article>
         <article class="card feature">
           <div class="ic">📄</div>
           <h3>Knowledge base estesa</h3>
-          <p>Carica PDF, immagini (con OCR) e documenti per arricchire le risposte.</p>
+          <p>Carica PDF, immagini (con OCR) e documenti, o aggiungi testo libero per arricchire le risposte.</p>
+        </article>
+        <article class="card feature">
+          <div class="ic">📊</div>
+          <h3>Statistiche &amp; qualità</h3>
+          <p>Volume, quota mensile, % risolte dall'AI, latenza e feedback 👍/👎 dei clienti su ogni risposta.</p>
         </article>
         <article class="card feature">
           <div class="ic">🎨</div>
           <h3>Widget personalizzabile</h3>
-          <p>Titolo, avatar e stile del widget flottante adattabili al tuo brand.</p>
+          <p>Titolo, avatar e stile del widget flottante adattabili al tuo brand. Risponde in ogni lingua.</p>
         </article>
         <article class="card feature">
           <div class="ic">🔐</div>
-          <h3>Sicuro e multi-tenant</h3>
-          <p>Autenticazione, rate limiting e isolamento dei dati per ogni cliente.</p>
+          <h3>Sicuro, con quote chiare</h3>
+          <p>Dati isolati per cliente, quota mensile di messaggi trasparente: sai sempre quanto hai usato e quanto resta.</p>
         </article>
       </div>
     </div>
@@ -137,7 +159,7 @@
         <div class="step">
           <div class="step-n">2</div>
           <h3>Sincronizza i contenuti</h3>
-          <p>Con un clic invii pagine, articoli e prodotti: l'AI impara dal tuo sito.</p>
+          <p>Dal menu <em>AI Assistant</em> invii pagine, articoli e prodotti: l'AI impara dal tuo sito e vedi lo stato di ognuno in tempo reale.</p>
         </div>
         <div class="step">
           <div class="step-n">3</div>
@@ -178,10 +200,10 @@
             <a class="btn btn-outline block" data-link="register" href="#">Prova gratis</a>
             <ul class="ticks">
               <li>1 sito web</li>
-              <li>500 conversazioni / mese</li>
+              <li>500 messaggi / mese</li>
+              <li>Risposte in tempo reale</li>
               <li>Knowledge base fino a 200 pagine</li>
               <li>1 operatore</li>
-              <li>Widget personalizzabile</li>
               <li>Sync automatico dei contenuti</li>
             </ul>
           </article>
@@ -194,12 +216,13 @@
             <a class="btn btn-primary block" data-link="register" href="#">Prova gratis</a>
             <ul class="ticks">
               <li>3 siti web</li>
-              <li>2.000 conversazioni / mese</li>
+              <li>2.000 messaggi / mese</li>
               <li>Knowledge base illimitata</li>
               <li>5 operatori</li>
               <li>Card prodotto WooCommerce</li>
-              <li>Escalation e ticketing</li>
-              <li>Statistiche avanzate</li>
+              <li>Risposte predefinite &amp; campi info</li>
+              <li>Notifiche email al cliente</li>
+              <li>Statistiche &amp; feedback qualità</li>
             </ul>
           </article>
 
@@ -210,7 +233,7 @@
             <a class="btn btn-outline block" data-link="register" href="#">Prova gratis</a>
             <ul class="ticks">
               <li>Siti illimitati</li>
-              <li>10.000 conversazioni / mese</li>
+              <li>10.000 messaggi / mese</li>
               <li>Operatori illimitati</li>
               <li>Branding rimosso</li>
               <li>Priorità sui modelli AI</li>
