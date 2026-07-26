@@ -135,19 +135,25 @@ client, vedere conteggi d'uso (conversazioni/operatori/chunk/prodotti) per clien
 origin CORS, rigenerare api_key, aggiungere/rimuovere operatori, lanciare un re-embed globale,
 gestire i **piani** (prezzo, limiti chat/ingest) e assegnarli ai client.
 
-#### Billing: cosa c'è e cosa manca
+#### Billing
 
-Le fondamenta sono pronte e funzionanti **senza bisogno di chiavi Stripe**: modello `Plan`
-(nome, prezzo mostrato, limiti rate-limit per chat/ingest), ogni `Client` è sempre legato a
-un piano (di default "Free", seedato dalla migrazione `0005`), i rate limit su `/chat` e
-`/ingest/*` derivano dal piano del client invece che da un valore globale fisso, e il
-pannello superadmin permette di creare piani e assegnarli.
+Il billing è **integrato end-to-end con Stripe**. Fondamenta: modello `Plan` (nome, prezzo,
+limiti rate-limit per chat/ingest), ogni `Client` è legato a un piano (default "Free", seedato
+dalla migrazione `0005`) e i rate limit su `/chat` e `/ingest/*` derivano dal piano del client.
+Le fondamenta funzionano anche senza chiavi Stripe; per attivare pagamenti e self-service serve
+un account Stripe (anche solo di *test*) — setup in [`deploy/STRIPE.md`](deploy/STRIPE.md).
 
-**Non ancora fatto** (richiede un account Stripe, anche solo con chiavi di *test*): checkout
-per far scegliere/pagare un piano al cliente, webhook per aggiornare `billing_status` /
-`stripe_subscription_id` in automatico, fatturazione. I campi `stripe_customer_id`,
-`stripe_subscription_id` e `Plan.stripe_price_id` esistono già nello schema in previsione
-di questo, ma restano vuoti finché non c'è un'integrazione reale da collegarci.
+Con Stripe configurato (`STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, e lo `stripe_price_id` sui
+piani a pagamento):
+- **Registrazione self-service** (`POST /signup`): crea account + operatore e apre una Stripe
+  Checkout subscription con prova gratuita (`TRIAL_DAYS`) e cattura carta. Il nuovo operatore
+  **verifica l'email** prima di poter accedere (vedi sopra, email transazionali).
+- **Checkout upgrade** dal panel (`POST /billing/checkout`) per cambiare piano.
+- **Webhook** (`POST /billing/webhook`, firma verificata): sincronizza
+  `plan_id`/`billing_status`/`stripe_customer_id`/`stripe_subscription_id` sugli eventi
+  `checkout.session.completed` e `customer.subscription.created/updated/deleted`.
+- **Enforcement**: su `canceled` il client torna automaticamente al piano Free (i limiti per-piano
+  seguono); `past_due` mantiene il piano come periodo di grazia mentre Stripe ritenta.
 
 ### Plugin WP
 
