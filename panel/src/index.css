@@ -764,3 +764,18 @@ button.wpai-btn.danger:hover { background: #b91c1c; }
 .wpai-table-rows td, .wpai-table-rows th { padding-left: 16px; padding-right: 16px; }
 .wpai-row-click { cursor: pointer; transition: background 0.12s; }
 .wpai-row-click:hover { background: var(--surface-sunken); }
+
+/* ---- Ticket conversation thread ---- */
+.wpai-ticket-meta { display: flex; gap: 14px; margin: 2px 0 10px; font-size: 12.5px; }
+.wpai-ticket-meta a { display: inline-flex; align-items: center; gap: 4px; color: var(--primary); }
+
+.wpai-ticket-thread {
+  background: var(--surface-sunken); border-radius: var(--radius-sm);
+  padding: 10px 12px; margin: 4px 0 4px; max-height: 260px; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.wpai-tmsg { display: flex; flex-direction: column; gap: 2px; font-size: 13px; line-height: 1.4; }
+.wpai-tmsg-role { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; color: var(--text-faint); }
+.wpai-tmsg.user .wpai-tmsg-role { color: var(--primary); }
+.wpai-tmsg.operator .wpai-tmsg-role { color: var(--green); }
+.wpai-tmsg-text { white-space: pre-wrap; color: var(--text); }
