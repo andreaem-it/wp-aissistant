@@ -172,6 +172,27 @@ def _split_origins(raw: str) -> list[str]:
     return [o.strip() for o in (raw or "").split(",") if o.strip()]
 
 
+def _normalize_origins(raw: str) -> str:
+    """Reduce each comma-separated entry to a browser Origin (scheme://host[:port]), dropping
+    any path/query/fragment. A browser's Origin header never includes a path, so a value like
+    'https://site.it/shop' could never match and would silently 403 the widget. Tolerates a
+    missing scheme; leaves an unparseable entry as-is."""
+    from urllib.parse import urlparse
+
+    out: list[str] = []
+    for entry in _split_origins(raw):
+        parsed = urlparse(entry if "//" in entry else "//" + entry)
+        if parsed.scheme and parsed.netloc:
+            normalized = f"{parsed.scheme}://{parsed.netloc}"
+        elif parsed.netloc:
+            normalized = parsed.netloc  # host only (no scheme given)
+        else:
+            normalized = entry
+        if normalized not in out:
+            out.append(normalized)
+    return ",".join(out)
+
+
 def rebuild_allowed_origins(session: Session) -> None:
     """Recompute the browser-layer allowlist: panel origins + every client's widget origins."""
     origins = set(PANEL_ORIGINS)
@@ -1011,7 +1032,7 @@ def create_client(
     client = Client(
         name=name,
         api_key=secrets.token_urlsafe(32),
-        allowed_origins=allowed_origins,
+        allowed_origins=_normalize_origins(allowed_origins),
         plan_id=plan_id or _default_plan_id(session),
     )
     session.add(client)
@@ -1326,11 +1347,11 @@ def set_client_origins(client_id: int, allowed_origins: str = Body(..., embed=Tr
     client = session.get(Client, client_id)
     if not client:
         raise HTTPException(404, "client not found")
-    client.allowed_origins = allowed_origins
+    client.allowed_origins = _normalize_origins(allowed_origins)
     session.add(client)
     session.commit()
     rebuild_allowed_origins(session)
-    _audit(session, "admin", "admin", "client.set_origins", target=f"client:{client_id}", client_id=client_id, detail={"allowed_origins": allowed_origins})
+    _audit(session, "admin", "admin", "client.set_origins", target=f"client:{client_id}", client_id=client_id, detail={"allowed_origins": client.allowed_origins})
     return {"id": client.id, "name": client.name, "allowed_origins": client.allowed_origins}
 
 

@@ -69,6 +69,16 @@ def test_admin_test_email_sends_when_configured(client, monkeypatch):
     assert r["sent"] is True
 
 
+def test_client_origins_are_normalized(client):
+    # a full URL with a path can never match a browser Origin header -> strip to scheme://host
+    c = client.post("/admin/clients", headers=ADMIN,
+                    json={"name": "N", "allowed_origins": "https://site.it/shop"}).json()
+    assert c["allowed_origins"] == "https://site.it"
+    r = client.post(f"/admin/clients/{c['id']}/origins", headers=ADMIN,
+                    json={"allowed_origins": "https://a.com/x, https://b.com/"}).json()
+    assert r["allowed_origins"] == "https://a.com,https://b.com"
+
+
 def test_admin_problematic_lists_model_escalations(client, tenant, monkeypatch):
     # force the model to escalate so an 'escalated_model' turn is logged
     monkeypatch.setattr(main, "llm_chat", lambda system, history, message: {"escalate": "non lo so"})

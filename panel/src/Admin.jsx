@@ -254,6 +254,10 @@ function ClientDetail({ client, plans, onChanged }) {
             onChange={(e) => setOrigins(e.target.value)}
             placeholder="https://sito-cliente.it (vuoto = nessuna restrizione)"
           />
+          <p style={{ fontSize: 11.5, color: "var(--text-muted)", margin: "6px 0 0" }}>
+            Solo schema + dominio (es. <code>https://sito.it</code>), senza percorso. Eventuali path
+            vengono rimossi automaticamente.
+          </p>
         </div>
         <button className="wpai-btn" onClick={saveOrigins} disabled={savingOrigins}>
           {savingOrigins ? "Salvataggio…" : "Salva"}
