@@ -268,6 +268,22 @@ h1, h2, h3 { font-family: var(--font-display); letter-spacing: -0.01em; }
   margin: 0 0 14px;
 }
 
+.wpai-success {
+  background: #e7f6ec;
+  color: #067647;
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  margin: 0 0 14px;
+}
+
+.wpai-error a,
+.wpai-success a {
+  color: inherit;
+  text-decoration: underline;
+}
+
 /* ---- Form elements ---- */
 
 input, textarea, select {

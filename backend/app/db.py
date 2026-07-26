@@ -92,6 +92,24 @@ class Operator(SQLModel, table=True):
     client_id: int = Field(index=True, foreign_key="client.id")
     email: str = Field(index=True, unique=True)
     password_hash: str
+    # self-serve signups must confirm their email before they can log in; admin-provisioned
+    # operators are created already verified (see create_operator). Migration 0006 backfills
+    # every pre-existing operator to True so nobody gets locked out on upgrade.
+    email_verified: bool = False
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class AuthToken(SQLModel, table=True):
+    """Short-lived, single-use opaque token for email flows (password reset, email
+    verification). purpose distinguishes the flow; used_at is stamped once consumed so a
+    token can't be replayed. Expired/used tokens are simply rejected (no cleanup job needed
+    for the volumes involved; a periodic prune can be added later)."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    operator_id: int = Field(index=True, foreign_key="operator.id")
+    purpose: str = Field(index=True)  # reset | verify_email
+    token: str = Field(index=True, unique=True)
+    expires_at: datetime
+    used_at: Optional[datetime] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 

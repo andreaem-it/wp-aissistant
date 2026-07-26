@@ -6,6 +6,7 @@ import threading
 import time
 import uuid
 from contextlib import asynccontextmanager
+from datetime import datetime, timedelta
 
 import stripe
 from fastapi import Body, Depends, FastAPI, Header, HTTPException, Request, Response, UploadFile
@@ -15,6 +16,7 @@ from sqlmodel import Session, select
 from . import billing
 
 from .db import (
+    AuthToken,
     Chunk,
     Client,
     Conversation,
@@ -29,6 +31,7 @@ from .db import (
     get_session,
     init_db,
 )
+from . import email as email_service
 from .llm import LLMUnavailableError
 from .llm import chat as llm_chat
 from .llm import embed
@@ -132,6 +135,10 @@ def health():
 
 # admin token for client onboarding endpoints; unset => the /admin surface is disabled (fail closed)
 ADMIN_API_KEY = os.getenv("ADMIN_API_KEY")
+
+# TTLs for single-use email tokens (app/email.py sends the links)
+RESET_TOKEN_TTL = timedelta(hours=int(os.getenv("RESET_TOKEN_TTL_HOURS", "1")))
+VERIFY_TOKEN_TTL = timedelta(hours=int(os.getenv("VERIFY_TOKEN_TTL_HOURS", "48")))
 
 # /chat hits the LLM on every call, so it's the main abuse/cost surface — limit per client+IP.
 # Ingest is limited per client. Windows are 60s; override the counts via env.
@@ -735,6 +742,7 @@ def signup(
         existing.password_hash = hash_password(password)
         session.add(existing)
         session.commit()
+        operator = existing
     else:
         client = Client(
             name=company_name,
@@ -745,9 +753,17 @@ def signup(
         session.add(client)
         session.commit()
         session.refresh(client)
-        session.add(Operator(client_id=client.id, email=email, password_hash=hash_password(password)))
+        operator = Operator(client_id=client.id, email=email, password_hash=hash_password(password))
+        session.add(operator)
         session.commit()
+        session.refresh(operator)
         rebuild_allowed_origins(session)
+
+    # send the email-verification link (login stays blocked until confirmed). Best-effort:
+    # a mail hiccup must not lose the account/checkout — they can hit /auth/resend-verification.
+    if not operator.email_verified:
+        token = _issue_token(session, operator.id, "verify_email", VERIFY_TOKEN_TTL)
+        email_service.send_verification(operator.email, token)
 
     meta = {"client_id": str(client.id), "plan_id": str(plan.id)}
     checkout = stripe.checkout.Session.create(
@@ -813,7 +829,8 @@ def create_operator(client_id: int, email: str = Body(...), password: str = Body
         raise HTTPException(404, "client not found")
     if session.exec(select(Operator).where(Operator.email == email)).first():
         raise HTTPException(409, "email already registered")
-    operator = Operator(client_id=client_id, email=email, password_hash=hash_password(password))
+    # admin-provisioned by a trusted human => no email round-trip needed, log in right away
+    operator = Operator(client_id=client_id, email=email, password_hash=hash_password(password), email_verified=True)
     session.add(operator)
     session.commit()
     session.refresh(operator)
@@ -888,6 +905,104 @@ def rotate_own_key(operator: Operator = Depends(require_operator), session: Sess
     return {"api_key": client.api_key}
 
 
+# ---- Auth: email verification + password reset ----
+
+
+def _issue_token(session: Session, operator_id: int, purpose: str, ttl: timedelta) -> str:
+    """Create a single-use token for an email flow and return its opaque value. Any
+    outstanding unused token of the same purpose is invalidated first, so only the latest
+    link works (re-requesting a reset shouldn't leave older links live)."""
+    now = datetime.utcnow()
+    for old in session.exec(
+        select(AuthToken).where(
+            AuthToken.operator_id == operator_id,
+            AuthToken.purpose == purpose,
+            AuthToken.used_at.is_(None),
+        )
+    ).all():
+        old.used_at = now
+        session.add(old)
+    token = secrets.token_urlsafe(32)
+    session.add(AuthToken(operator_id=operator_id, purpose=purpose, token=token, expires_at=now + ttl))
+    session.commit()
+    return token
+
+
+def _consume_token(session: Session, token: str, purpose: str) -> Operator | None:
+    """Validate a token for the given purpose; if valid, mark it used and return the
+    operator. Returns None for unknown/expired/already-used/wrong-purpose tokens."""
+    row = session.exec(select(AuthToken).where(AuthToken.token == token)).first()
+    if not row or row.purpose != purpose or row.used_at is not None or row.expires_at < datetime.utcnow():
+        return None
+    row.used_at = datetime.utcnow()
+    session.add(row)
+    session.commit()
+    return session.get(Operator, row.operator_id)
+
+
+@app.post("/auth/verify-email")
+def verify_email(token: str = Body(..., embed=True), session: Session = Depends(get_session)):
+    """Confirm an operator's email from the link sent at signup. Idempotent-ish: a used or
+    expired token 400s, but an already-verified operator re-clicking simply succeeds again
+    only while the token is fresh — after that they can just log in."""
+    operator = _consume_token(session, token, "verify_email")
+    if not operator:
+        raise HTTPException(400, "invalid or expired token")
+    if not operator.email_verified:
+        operator.email_verified = True
+        session.add(operator)
+        session.commit()
+    log(logger, logging.INFO, "auth.email_verified", operator_id=operator.id)
+    return {"ok": True}
+
+
+@app.post("/auth/resend-verification")
+def resend_verification(email: str = Body(..., embed=True), session: Session = Depends(get_session)):
+    """Re-send the verification email. Like /auth/forgot, always returns ok to avoid leaking
+    which emails are registered; only actually sends for an existing, still-unverified account."""
+    operator = session.exec(select(Operator).where(Operator.email == email)).first()
+    if operator and not operator.email_verified:
+        token = _issue_token(session, operator.id, "verify_email", VERIFY_TOKEN_TTL)
+        email_service.send_verification(operator.email, token)
+    return {"ok": True}
+
+
+@app.post("/auth/forgot")
+def forgot_password(email: str = Body(..., embed=True), session: Session = Depends(get_session)):
+    """Start a password reset. Always returns ok (no user enumeration); when the email maps
+    to an operator, issue a single-use token and email the reset link."""
+    operator = session.exec(select(Operator).where(Operator.email == email)).first()
+    if operator:
+        token = _issue_token(session, operator.id, "reset", RESET_TOKEN_TTL)
+        email_service.send_password_reset(operator.email, token)
+        log(logger, logging.INFO, "auth.reset_requested", operator_id=operator.id)
+    return {"ok": True}
+
+
+@app.post("/auth/reset")
+def reset_password(
+    token: str = Body(...),
+    new_password: str = Body(...),
+    session: Session = Depends(get_session),
+):
+    """Complete a password reset. Consumes the token, sets the new password, and revokes all
+    of the operator's active sessions so a leaked/old login can't survive the reset."""
+    if len(new_password) < 8:
+        raise HTTPException(400, "new password must be at least 8 characters")
+    operator = _consume_token(session, token, "reset")
+    if not operator:
+        raise HTTPException(400, "invalid or expired token")
+    operator.password_hash = hash_password(new_password)
+    # a reset also confirms control of the mailbox, so treat the email as verified
+    operator.email_verified = True
+    session.add(operator)
+    for s in session.exec(select(OperatorSession).where(OperatorSession.operator_id == operator.id)).all():
+        session.delete(s)
+    session.commit()
+    log(logger, logging.INFO, "auth.reset_completed", operator_id=operator.id)
+    return {"ok": True}
+
+
 # ---- Operator auth (panel login) ----
 
 
@@ -896,6 +1011,10 @@ def operator_login(email: str = Body(...), password: str = Body(...), session: S
     operator = session.exec(select(Operator).where(Operator.email == email)).first()
     if not operator or not verify_password(password, operator.password_hash):
         raise HTTPException(401, "invalid credentials")
+    if not operator.email_verified:
+        # signup created the account but the mailbox was never confirmed; the panel maps this
+        # 403 to a "verify your email / resend" prompt
+        raise HTTPException(403, "email not verified")
     token = secrets.token_urlsafe(32)
     session.add(OperatorSession(operator_id=operator.id, client_id=operator.client_id, token=token))
     session.commit()

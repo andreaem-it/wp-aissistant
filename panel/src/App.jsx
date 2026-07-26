@@ -7,6 +7,7 @@ import Upload from "./Upload.jsx";
 import Stats from "./Stats.jsx";
 import Profile from "./Profile.jsx";
 import Signup from "./Signup.jsx";
+import { VerifyEmail, ResetPassword, ForgotPassword } from "./Auth.jsx";
 
 const TABS = [
   { key: "conversations", label: "Chat", Icon: MessageSquare, Component: Conversations },
@@ -36,7 +37,18 @@ export default function App() {
   const [authMode, setAuthMode] = useState(initialAuthMode);
   const [tab, setTab] = useState("conversations");
   const [error, setError] = useState("");
+  const [unverified, setUnverified] = useState("");   // email pending verification (login 403)
+  const [resent, setResent] = useState(false);
   const [openTickets, setOpenTickets] = useState(0);
+
+  // Token-carrying links (email verification / password reset) render a standalone screen
+  // regardless of any stored session. Read once on mount.
+  const [authLink] = useState(() => {
+    const p = new URLSearchParams(window.location.search);
+    if (p.get("verify")) return { kind: "verify", token: p.get("verify") };
+    if (p.get("reset")) return { kind: "reset", token: p.get("reset") };
+    return null;
+  });
 
   useEffect(() => {
     if (!token) return;
@@ -45,6 +57,17 @@ export default function App() {
     const id = setInterval(refresh, 30000);
     return () => clearInterval(id);
   }, [token, tab]);
+
+  // Standalone screens driven by a token in the URL — take precedence over login/session.
+  if (authLink) {
+    const backToLogin = () => { window.location.href = window.location.pathname; };
+    if (authLink.kind === "verify") return <VerifyEmail token={authLink.token} onDone={backToLogin} />;
+    if (authLink.kind === "reset") return <ResetPassword token={authLink.token} onDone={backToLogin} />;
+  }
+
+  if (!token && authMode === "forgot") {
+    return <ForgotPassword onBack={() => { setAuthMode("login"); setError(""); }} />;
+  }
 
   if (!token) {
     const isSignup = authMode === "signup";
@@ -73,12 +96,39 @@ export default function App() {
                     setEmail(email);
                     setTokenState(token);
                     setError("");
-                  } catch {
-                    setError("Credenziali non valide.");
+                    setUnverified("");
+                  } catch (err) {
+                    if (err.status === 403) {
+                      // account exists but the email was never confirmed
+                      setUnverified(email);
+                      setResent(false);
+                      setError("");
+                    } else {
+                      setError("Credenziali non valide.");
+                    }
                   }
                 }}
               >
                 {error && <div className="wpai-error">{error}</div>}
+                {unverified && (
+                  <div className="wpai-error">
+                    Email non ancora verificata. Controlla la posta.{" "}
+                    {resent ? (
+                      <span>Link inviato di nuovo.</span>
+                    ) : (
+                      <a
+                        href="#"
+                        onClick={async (e) => {
+                          e.preventDefault();
+                          await api.resendVerification(unverified).catch(() => {});
+                          setResent(true);
+                        }}
+                      >
+                        Rinvia il link
+                      </a>
+                    )}
+                  </div>
+                )}
                 <div className="wpai-field">
                   <label htmlFor="wpai-email">Email</label>
                   <input id="wpai-email" name="email" type="email" placeholder="operatore@azienda.it" autoFocus required />
@@ -90,6 +140,11 @@ export default function App() {
                 <button className="wpai-btn full" type="submit">Entra</button>
               </form>
               <p className="sub" style={{ marginTop: 14, textAlign: "center" }}>
+                <a href="#" onClick={(e) => { e.preventDefault(); setAuthMode("forgot"); setError(""); }}>
+                  Password dimenticata?
+                </a>
+              </p>
+              <p className="sub" style={{ marginTop: 4, textAlign: "center" }}>
                 Non hai un account?{" "}
                 <a href="#" onClick={(e) => { e.preventDefault(); setAuthMode("signup"); setError(""); }}>
                   Registrati

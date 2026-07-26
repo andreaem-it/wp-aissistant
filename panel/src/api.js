@@ -35,7 +35,12 @@ async function call(path, { method = "GET", params = {}, body, auth = true } = {
     clearToken();
     window.location.reload();
   }
-  if (!res.ok) throw new Error(`${method} ${path} -> ${res.status}`);
+  if (!res.ok) {
+    // preserve the HTTP status so callers can branch (e.g. 403 = email not verified)
+    const err = new Error(`${method} ${path} -> ${res.status}`);
+    err.status = res.status;
+    throw err;
+  }
   return res.json();
 }
 
@@ -44,6 +49,12 @@ export const api = {
     call("/operator/login", { method: "POST", body: { email, password }, auth: false }),
   publicPlans: () => call("/public/plans", { auth: false }),
   signup: (body) => call("/signup", { method: "POST", body, auth: false }),
+  forgotPassword: (email) => call("/auth/forgot", { method: "POST", body: { email }, auth: false }),
+  resetPassword: (token, new_password) =>
+    call("/auth/reset", { method: "POST", body: { token, new_password }, auth: false }),
+  verifyEmail: (token) => call("/auth/verify-email", { method: "POST", body: { token }, auth: false }),
+  resendVerification: (email) =>
+    call("/auth/resend-verification", { method: "POST", body: { email }, auth: false }),
   logout: () => call("/operator/logout", { method: "POST" }),
   conversations: () => call("/conversations"),
   messages: (id) => call(`/conversations/${id}/messages`),

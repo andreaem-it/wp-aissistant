@@ -233,6 +233,14 @@ docker compose -f docker-compose.prod.yml up -d
 | `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` | *(non impostati)* | Abilitano `/billing/*`; se assenti il billing è disattivato — setup in [`deploy/STRIPE.md`](deploy/STRIPE.md) |
 | `DOCS_ENABLED` | `false` | Espone `/docs`, `/redoc`, `/openapi.json` (off di default in prod) |
 | `METRICS_TOKEN` | *(non impostato)* | Se assente `/metrics` è disabilitato; se impostato richiede `Bearer <token>` |
+| `SMTP_HOST` | *(non impostato)* | Host SMTP per le email transazionali (verifica email, reset password). Se assente le email vengono solo loggate (dev) |
+| `SMTP_PORT` | `587` | Porta SMTP |
+| `SMTP_USER` / `SMTP_PASSWORD` | *(non impostati)* | Credenziali SMTP |
+| `SMTP_FROM` | *(= `SMTP_USER`)* | Indirizzo mittente |
+| `SMTP_TLS` | `true` | `true` = STARTTLS, `ssl` = SMTPS, `false` = nessuna cifratura |
+| `PANEL_PUBLIC_URL` | *(= primo `PANEL_ORIGINS`)* | URL pubblico del panel, usato per costruire i link nelle email (`/?verify=`, `/?reset=`) |
+| `VERIFY_TOKEN_TTL_HOURS` | `48` | Validità del link di verifica email |
+| `RESET_TOKEN_TTL_HOURS` | `1` | Validità del link di reset password |
 | `RETRIEVE_FETCH_K` | `20` | Pool di candidati recuperati prima del rerank MMR |
 | `MMR_LAMBDA` | `0.5` | Bilanciamento MMR: `1.0` = solo rilevanza, `0.0` = solo diversità |
 

@@ -50,14 +50,40 @@ def test_signup_starts_checkout_and_creates_incomplete_account(client, monkeypat
         assert c.plan_id != pro_id  # on Free until the subscription activates
 
 
-def test_signup_allows_login(client, monkeypatch):
+def _verify_token(email, purpose="verify_email"):
+    """Read the latest unused email token for an operator straight from the DB (in tests
+    SMTP is unset, so the link is only logged — we fetch the raw token instead)."""
+    with Session(db.engine) as session:
+        op = session.exec(select(db.Operator).where(db.Operator.email == email)).first()
+        row = session.exec(
+            select(db.AuthToken)
+            .where(db.AuthToken.operator_id == op.id, db.AuthToken.purpose == purpose,
+                   db.AuthToken.used_at.is_(None))
+            .order_by(db.AuthToken.id.desc())
+        ).first()
+        return row.token if row else None
+
+
+def test_signup_blocks_login_until_verified(client, monkeypatch):
     pro_id = _setup_plans(client)
     _mock_checkout(monkeypatch)
     client.post("/signup", json={
         "company_name": "Acme", "email": "log@acme.it", "password": "password1", "plan_id": pro_id,
     })
+    # unverified => login is refused
+    r = client.post("/operator/login", json={"email": "log@acme.it", "password": "password1"})
+    assert r.status_code == 403
+
+    # confirm the email with the token issued at signup, then login succeeds
+    token = _verify_token("log@acme.it")
+    assert token
+    assert client.post("/auth/verify-email", json={"token": token}).status_code == 200
     r = client.post("/operator/login", json={"email": "log@acme.it", "password": "password1"})
     assert r.status_code == 200
+
+
+def test_verify_email_rejects_bad_token(client):
+    assert client.post("/auth/verify-email", json={"token": "nope"}).status_code == 400
 
 
 def test_signup_duplicate_active_email_rejected(client, monkeypatch):
