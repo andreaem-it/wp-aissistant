@@ -238,7 +238,7 @@ export default function Profile() {
   if (!me) return <p style={{ color: "var(--text-muted)" }}>Caricamento…</p>;
 
   return (
-    <div>
+    <div style={{ maxWidth: 720 }}>
       <h1 className="wpai-page-title">Profilo</h1>
       <p style={{ color: "var(--text-muted)", fontSize: 13.5, marginTop: -14, marginBottom: 20 }}>{me.email}</p>
       <NameCard me={me} />
