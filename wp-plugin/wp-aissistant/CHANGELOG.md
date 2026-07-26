@@ -2,6 +2,18 @@
 
 Tutte le modifiche rilevanti del plugin WP AIssistant.
 
+## [0.7.0] - 2026-07-26
+
+- Overhaul admin: menu top-level "AI Assistant" (`add_menu_page`, fuori da Impostazioni)
+  con due sottopagine — **Impostazioni** (API Key, widget, + **piano e uso mensile** via
+  `GET /usage`) e **Sincronizzazione**.
+- Sync in tempo reale: la pagina Sincronizzazione ora è guidata via AJAX
+  (`assets/admin-sync.js`), item-by-item. Nuovi handler `wp_ajax_wpai_sync_list`,
+  `wpai_sync_item` (push bloccante → job_id), `wpai_job_status` (proxy a
+  `/ingest/jobs/{id}`). Ogni riga mostra invio → elaborazione → sincronizzato.
+- Refactor `wpai_backend_post($path,$payload,$blocking)`; l'auto-sync su `save_post`
+  resta fire-and-forget.
+
 ## [0.6.1] - 2026-07-26
 
 - Nuovo: gestione dello stato/evento `quota_exceeded` — il widget mostra un messaggio

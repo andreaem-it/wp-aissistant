@@ -3,7 +3,7 @@ Tags: ai, chatbot, customer-support, woocommerce, rag
 Requires at least: 5.8
 Tested up to: 6.5
 Requires PHP: 7.4
-Stable tag: 0.6.1
+Stable tag: 0.7.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -32,10 +32,17 @@ Richiede un'istanza del backend WP AIssistant raggiungibile e una API Key del cl
 1. Carica la cartella `wp-aissistant` in `/wp-content/plugins/` (o installa lo zip da
    *Plugin → Aggiungi nuovo → Carica plugin*).
 2. Attiva il plugin dalla schermata *Plugin*.
-3. In *Impostazioni → WP AIssistant* imposta la tua **API Key**.
-4. Usa **Sincronizza ora** per il primo caricamento della knowledge base.
+3. Nel menu *AI Assistant → Impostazioni* imposta la tua **API Key** (lì vedi anche piano e uso).
+4. In *AI Assistant → Sincronizzazione* usa **Sincronizza ora** per il primo caricamento.
 
 == Changelog ==
+
+= 0.7.0 =
+* Nuovo: menu dedicato "AI Assistant" (fuori da Impostazioni), con pagine separate
+  Impostazioni e Sincronizzazione.
+* Nuovo: in Impostazioni ora si vede il piano e l'uso mensile (messaggi usati / limite).
+* Nuovo: sincronizzazione in tempo reale — ogni contenuto/prodotto mostra il proprio
+  stato (invio → elaborazione → sincronizzato) man mano che procede.
 
 = 0.6.1 =
 * Nuovo: messaggio chiaro nel widget quando viene raggiunto il limite mensile di

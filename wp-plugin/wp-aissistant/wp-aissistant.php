@@ -2,13 +2,13 @@
 /**
  * Plugin Name: WP AIssistant
  * Description: Floating AI chat widget backed by a RAG backend, with automatic site content sync.
- * Version: 0.6.1
+ * Version: 0.7.0
  */
 
 if (!defined('ABSPATH')) exit;
 
 define('WPAI_OPTION', 'wpai_settings');
-define('WPAI_VERSION', '0.6.1'); // keep in sync with the "Version:" header above
+define('WPAI_VERSION', '0.7.0'); // keep in sync with the "Version:" header above
 
 // The backend is a single hosted service (not something each site owner runs), so its URL
 // isn't a setting — it's hardcoded here. Override only for local/staging testing by defining
@@ -17,29 +17,74 @@ if (!defined('WPAI_BACKEND_URL')) {
     define('WPAI_BACKEND_URL', 'https://wp-aissistant-production.up.railway.app');
 }
 
-// ---- Settings ----
+function wpai_opt($key) {
+    $opts = get_option(WPAI_OPTION, []);
+    return $opts[$key] ?? '';
+}
+
+function wpai_widget_title() {
+    return wpai_opt('widget_title') ?: 'AI Assistant';
+}
+
+function wpai_widget_image() {
+    return wpai_opt('widget_image') ?: plugins_url('assets/default-avatar.svg', __FILE__);
+}
+
+// ---- Admin menu: top-level "AI Assistant" with Impostazioni + Sincronizzazione ----
 
 add_action('admin_menu', function () {
-    add_options_page('WP AIssistant', 'WP AIssistant', 'manage_options', 'wp-aissistant', 'wpai_settings_page');
+    add_menu_page('AI Assistant', 'AI Assistant', 'manage_options', 'wp-aissistant', 'wpai_settings_page', 'dashicons-format-chat', 58);
+    add_submenu_page('wp-aissistant', 'Impostazioni', 'Impostazioni', 'manage_options', 'wp-aissistant', 'wpai_settings_page');
+    add_submenu_page('wp-aissistant', 'Sincronizzazione', 'Sincronizzazione', 'manage_options', 'wp-aissistant-sync', 'wpai_sync_page');
 });
 
 add_action('admin_init', function () {
     register_setting('wpai', WPAI_OPTION);
 });
 
+// Fetch the current plan + monthly usage from the backend (best-effort; returns null on error).
+function wpai_fetch_usage() {
+    $key = wpai_opt('api_key');
+    if (!$key) return null;
+    $res = wp_remote_get(WPAI_BACKEND_URL . '/usage', [
+        'timeout' => 8,
+        'headers' => ['Authorization' => 'Bearer ' . $key],
+    ]);
+    if (is_wp_error($res) || wp_remote_retrieve_response_code($res) !== 200) return null;
+    return json_decode(wp_remote_retrieve_body($res), true);
+}
+
 function wpai_settings_page() {
     $opts = get_option(WPAI_OPTION, []);
     $image = $opts['widget_image'] ?? '';
+    $usage = wpai_fetch_usage();
     ?>
     <div class="wrap">
-        <h1>WP AIssistant</h1>
+        <h1>AI Assistant — Impostazioni</h1>
+
+        <?php if ($usage) : ?>
+            <div class="wpai-admin-card">
+                <h2>Piano — <?php echo esc_html($usage['plan'] ?: '—'); ?></h2>
+                <?php if (!empty($usage['limit'])) : $pct = min(100, round($usage['used'] / $usage['limit'] * 100)); ?>
+                    <p><strong><?php echo (int) $usage['used']; ?></strong> / <?php echo (int) $usage['limit']; ?> messaggi questo mese
+                       <span style="color:#666;">(<?php echo (int) $usage['remaining']; ?> rimanenti)</span></p>
+                    <div class="wpai-bar"><div class="wpai-bar-fill" style="width:<?php echo $pct; ?>%;<?php echo $pct >= 100 ? 'background:#d97706;' : ''; ?>"></div></div>
+                <?php else : ?>
+                    <p><strong><?php echo (int) $usage['used']; ?></strong> messaggi questo mese (nessun limite)</p>
+                <?php endif; ?>
+            </div>
+        <?php elseif (wpai_opt('api_key')) : ?>
+            <div class="wpai-admin-card"><p>Impossibile recuperare il piano dal backend. Verifica l'API Key.</p></div>
+        <?php endif; ?>
+
         <form method="post" action="options.php">
             <?php settings_fields('wpai'); ?>
             <table class="form-table">
                 <tr>
                     <th><label for="api_key">API Key</label></th>
                     <td><input type="text" id="api_key" name="<?php echo WPAI_OPTION; ?>[api_key]"
-                               value="<?php echo esc_attr($opts['api_key'] ?? ''); ?>" class="regular-text" /></td>
+                               value="<?php echo esc_attr($opts['api_key'] ?? ''); ?>" class="regular-text" />
+                        <p class="description">La trovi nel pannello operatore → Profilo.</p></td>
                 </tr>
                 <tr>
                     <th><label for="widget_title">Titolo widget</label></th>
@@ -57,18 +102,6 @@ function wpai_settings_page() {
                 </tr>
             </table>
             <?php submit_button(); ?>
-        </form>
-
-        <hr />
-        <h2>Sincronizzazione contenuti</h2>
-        <p>Invia al backend tutti i contenuti pubblicati (pagine, articoli<?php echo function_exists('WC') ? ', prodotti' : ''; ?>) e le informazioni generali del sito (nome, contatti<?php echo function_exists('WC') ? ', indirizzo negozio' : ''; ?>). I nuovi contenuti vengono comunque sincronizzati automaticamente alla pubblicazione: usa questo pulsante per il primo caricamento o per un re-sync completo.</p>
-        <?php if (isset($_GET['synced'])) : ?>
-            <p><strong><?php echo (int) $_GET['synced']; ?> elementi inviati al backend.</strong> L'elaborazione (embedding) avviene in background sul server.</p>
-        <?php endif; ?>
-        <form method="post" action="<?php echo admin_url('admin-post.php'); ?>">
-            <input type="hidden" name="action" value="wpai_sync_now" />
-            <?php wp_nonce_field('wpai_sync_now'); ?>
-            <?php submit_button('Sincronizza ora', 'secondary'); ?>
         </form>
     </div>
     <script>
@@ -97,22 +130,53 @@ function wpai_settings_page() {
     <?php
 }
 
+function wpai_sync_page() {
+    ?>
+    <div class="wrap">
+        <h1>AI Assistant — Sincronizzazione</h1>
+        <p>Invia al backend i contenuti del sito (pagine, articoli<?php echo function_exists('WC') ? ', prodotti' : ''; ?>) e le informazioni generali. I nuovi contenuti vengono comunque sincronizzati in automatico alla pubblicazione; usa questo per il primo caricamento o un re-sync completo.</p>
+        <?php if (!wpai_opt('api_key')) : ?>
+            <div class="wpai-admin-card"><p>Imposta prima l'<strong>API Key</strong> in Impostazioni.</p></div>
+        <?php else : ?>
+            <p><button class="button button-primary" id="wpai-sync-start">Sincronizza ora</button>
+               <span id="wpai-sync-progress" style="margin-left:12px;color:#666;"></span></p>
+            <div id="wpai-sync-list" class="wpai-sync-list"></div>
+        <?php endif; ?>
+    </div>
+    <?php
+}
+
 add_action('admin_enqueue_scripts', function ($hook) {
-    if ($hook === 'settings_page_wp-aissistant') wp_enqueue_media();
+    // settings page needs the media picker
+    if ($hook === 'toplevel_page_wp-aissistant') {
+        wp_enqueue_media();
+    }
+    // sync page needs the realtime sync script
+    if ($hook === 'ai-assistant_page_wp-aissistant-sync') {
+        wp_enqueue_script('wpai-admin-sync', plugins_url('assets/admin-sync.js', __FILE__), ['jquery'], WPAI_VERSION, true);
+        wp_localize_script('wpai-admin-sync', 'WPAI_SYNC', [
+            'ajaxUrl' => admin_url('admin-ajax.php'),
+            'nonce' => wp_create_nonce('wpai_sync'),
+        ]);
+    }
+    // small shared admin CSS on our pages
+    if (strpos((string) $hook, 'wp-aissistant') !== false) {
+        wp_register_style('wpai-admin', false);
+        wp_enqueue_style('wpai-admin');
+        wp_add_inline_style('wpai-admin', '
+            .wpai-admin-card{background:#fff;border:1px solid #dcdcde;border-radius:6px;padding:14px 16px;margin:14px 0;max-width:640px;}
+            .wpai-bar{height:8px;background:#f0f0f1;border-radius:999px;overflow:hidden;max-width:420px;}
+            .wpai-bar-fill{height:100%;background:#2271b1;}
+            .wpai-sync-list{margin-top:14px;max-width:640px;}
+            .wpai-sync-row{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 12px;border:1px solid #e0e0e0;border-radius:6px;margin-bottom:6px;background:#fff;font-size:13px;}
+            .wpai-sync-row .status{font-size:12px;color:#666;white-space:nowrap;}
+            .wpai-sync-row.done{border-color:#c6e6c6;}
+            .wpai-sync-row.done .status{color:#1e7e34;}
+            .wpai-sync-row.error{border-color:#f0c0c0;}
+            .wpai-sync-row.error .status{color:#b32d2e;}
+        ');
+    }
 });
-
-function wpai_opt($key) {
-    $opts = get_option(WPAI_OPTION, []);
-    return $opts[$key] ?? '';
-}
-
-function wpai_widget_title() {
-    return wpai_opt('widget_title') ?: 'AI Assistant';
-}
-
-function wpai_widget_image() {
-    return wpai_opt('widget_image') ?: plugins_url('assets/default-avatar.svg', __FILE__);
-}
 
 // ---- Floating chat widget ----
 
@@ -128,7 +192,7 @@ add_action('wp_enqueue_scripts', function () {
     ]);
 });
 
-// ---- Content sync: push page/post/product content and general site info to the backend ----
+// ---- Content builders ----
 
 function wpai_build_post_content($post) {
     $text = $post->post_title . "\n\n" . wp_strip_all_tags($post->post_content);
@@ -172,41 +236,44 @@ function wpai_build_site_info_content() {
     return implode("\n", array_filter($lines));
 }
 
-function wpai_push_content($url, $text) {
-    if (!wpai_opt('api_key') || !trim($text)) return;
-    return wp_remote_post(WPAI_BACKEND_URL . '/ingest/site-page', [
-        'timeout' => 15,
-        'blocking' => false,
+// POST to the backend. Non-blocking by default (fire-and-forget on publish); blocking mode
+// waits for the response and returns the decoded body (incl. job_id) for the realtime sync.
+function wpai_backend_post($path, $payload, $blocking = false) {
+    $key = wpai_opt('api_key');
+    if (!$key) return null;
+    $res = wp_remote_post(WPAI_BACKEND_URL . $path, [
+        'timeout' => $blocking ? 20 : 15,
+        'blocking' => $blocking,
         'headers' => [
             'Content-Type' => 'application/json',
-            'Authorization' => 'Bearer ' . wpai_opt('api_key'),
+            'Authorization' => 'Bearer ' . $key,
         ],
-        'body' => wp_json_encode(['url' => $url, 'text' => $text]),
+        'body' => wp_json_encode($payload),
     ]);
+    if (!$blocking) return null;
+    if (is_wp_error($res)) return ['error' => $res->get_error_message()];
+    return json_decode(wp_remote_retrieve_body($res), true);
 }
 
-function wpai_push_product($post) {
-    if (!wpai_opt('api_key') || !function_exists('wc_get_product')) return;
+function wpai_push_content($url, $text, $blocking = false) {
+    if (!trim($text)) return null;
+    return wpai_backend_post('/ingest/site-page', ['url' => $url, 'text' => $text], $blocking);
+}
+
+function wpai_push_product($post, $blocking = false) {
+    if (!function_exists('wc_get_product')) return null;
     $product = wc_get_product($post->ID);
-    if (!$product) return;
-
-    wp_remote_post(WPAI_BACKEND_URL . '/ingest/product', [
-        'timeout' => 15,
-        'blocking' => false,
-        'headers' => [
-            'Content-Type' => 'application/json',
-            'Authorization' => 'Bearer ' . wpai_opt('api_key'),
-        ],
-        'body' => wp_json_encode([
-            'url' => get_permalink($post->ID),
-            'title' => $post->post_title,
-            'price' => (string) $product->get_price(),
-            'image_url' => wp_get_attachment_url($product->get_image_id()) ?: '',
-            'description' => wp_strip_all_tags($product->get_short_description() ?: $post->post_content),
-        ]),
-    ]);
+    if (!$product) return null;
+    return wpai_backend_post('/ingest/product', [
+        'url' => get_permalink($post->ID),
+        'title' => $post->post_title,
+        'price' => (string) $product->get_price(),
+        'image_url' => wp_get_attachment_url($product->get_image_id()) ?: '',
+        'description' => wp_strip_all_tags($product->get_short_description() ?: $post->post_content),
+    ], $blocking);
 }
 
+// Auto-sync on publish/update (fire-and-forget).
 add_action('save_post', function ($post_id) {
     if (wp_is_post_revision($post_id) || wp_is_post_autosave($post_id)) return;
 
@@ -218,30 +285,63 @@ add_action('save_post', function ($post_id) {
     if ($post->post_type === 'product') wpai_push_product($post);
 }, 20, 1);
 
-// ---- Bulk sync: pushes all existing published content, for initial setup or re-sync ----
+// ---- AJAX: realtime item-by-item sync (drives the Sincronizzazione page) ----
 
-add_action('admin_post_wpai_sync_now', function () {
-    if (!current_user_can('manage_options')) wp_die('forbidden', 403);
-    check_admin_referer('wpai_sync_now');
+function wpai_sync_check() {
+    if (!current_user_can('manage_options')) wp_send_json_error('forbidden', 403);
+    check_ajax_referer('wpai_sync');
+}
 
-    $count = 0;
-    wpai_push_content(home_url() . '/#site-info', wpai_build_site_info_content());
-    $count++;
+// Return the list of items to sync (site-info + published posts/pages/products).
+add_action('wp_ajax_wpai_sync_list', function () {
+    wpai_sync_check();
+    $items = [['type' => 'site-info', 'id' => 0, 'title' => 'Informazioni del sito']];
 
     $post_types = ['post', 'page'];
     if (function_exists('WC')) $post_types[] = 'product';
-
-    $posts = get_posts([
-        'post_type' => $post_types,
-        'post_status' => 'publish',
-        'numberposts' => -1,
-    ]);
+    $posts = get_posts(['post_type' => $post_types, 'post_status' => 'publish', 'numberposts' => -1]);
     foreach ($posts as $post) {
-        wpai_push_content(get_permalink($post->ID), wpai_build_post_content($post));
-        if ($post->post_type === 'product') wpai_push_product($post);
-        $count++;
+        $items[] = ['type' => $post->post_type, 'id' => $post->ID, 'title' => $post->post_title ?: '(senza titolo)'];
     }
+    wp_send_json_success($items);
+});
 
-    wp_redirect(add_query_arg(['page' => 'wp-aissistant', 'synced' => $count], admin_url('options-general.php')));
-    exit;
+// Push one item to the backend (blocking) and return its ingest job_id.
+add_action('wp_ajax_wpai_sync_item', function () {
+    wpai_sync_check();
+    $type = sanitize_text_field($_POST['type'] ?? '');
+    $id = (int) ($_POST['id'] ?? 0);
+
+    if ($type === 'site-info') {
+        $res = wpai_push_content(home_url() . '/#site-info', wpai_build_site_info_content(), true);
+    } else {
+        $post = get_post($id);
+        if (!$post) wp_send_json_error('post not found', 404);
+        if ($type === 'product') {
+            $res = wpai_push_product($post, true);                                    // tracked job = product card
+            wpai_push_content(get_permalink($id), wpai_build_post_content($post));     // + RAG text (fire-and-forget)
+        } else {
+            $res = wpai_push_content(get_permalink($id), wpai_build_post_content($post), true);
+        }
+    }
+    if (!is_array($res) || empty($res['job_id'])) {
+        wp_send_json_error($res['error'] ?? 'ingest failed', 502);
+    }
+    wp_send_json_success(['job_id' => (int) $res['job_id'], 'status' => $res['status'] ?? 'queued']);
+});
+
+// Proxy the backend job status (queued | processing | done | error).
+add_action('wp_ajax_wpai_job_status', function () {
+    wpai_sync_check();
+    $job_id = (int) ($_REQUEST['job_id'] ?? 0);
+    $key = wpai_opt('api_key');
+    if (!$job_id || !$key) wp_send_json_error('bad request', 400);
+    $res = wp_remote_get(WPAI_BACKEND_URL . '/ingest/jobs/' . $job_id, [
+        'timeout' => 8,
+        'headers' => ['Authorization' => 'Bearer ' . $key],
+    ]);
+    if (is_wp_error($res) || wp_remote_retrieve_response_code($res) !== 200) {
+        wp_send_json_error('status unavailable', 502);
+    }
+    wp_send_json_success(json_decode(wp_remote_retrieve_body($res), true));
 });
