@@ -483,7 +483,31 @@ def chat_endpoint(
         products = retrieve_products(session, client.id, message)
     except LLMUnavailableError:
         products = []  # reply already succeeded; don't lose it over a second embedding call
-    return {"conversation_id": conv.id, "status": "open", "reply": result["reply"], "products": products}
+    return {"conversation_id": conv.id, "status": "open", "reply": result["reply"], "products": products, "message_id": reply_msg.id}
+
+
+@app.post("/chat/feedback")
+def chat_feedback(
+    conversation_id: int = Body(...),
+    message_id: int = Body(...),
+    value: str = Body(...),  # "up" | "down"
+    client: Client = Depends(require_client),
+    session: Session = Depends(get_session),
+):
+    """Visitor rates an assistant reply (👍/👎). Scoped by the client api_key + conversation
+    ownership; only assistant messages can be rated. Idempotent — re-voting overwrites."""
+    if value not in ("up", "down"):
+        raise HTTPException(400, "value must be 'up' or 'down'")
+    conv = session.get(Conversation, conversation_id)
+    if not conv or conv.client_id != client.id:
+        raise HTTPException(404, "conversation not found")
+    msg = session.get(Message, message_id)
+    if not msg or msg.conversation_id != conversation_id or msg.role != "assistant":
+        raise HTTPException(404, "message not found")
+    msg.feedback = 1 if value == "up" else -1
+    session.add(msg)
+    session.commit()
+    return {"ok": True}
 
 
 @app.get("/conversations/{conversation_id}/messages")
@@ -597,6 +621,17 @@ def _avg_latency_ms(session: Session, client_id: int | None) -> int:
     return int(val) if val is not None else 0
 
 
+def _feedback_counts(session: Session, client_id: int | None) -> dict:
+    q = select(Message.feedback, func.count()).where(Message.feedback.is_not(None))
+    if client_id is not None:
+        q = q.join(Conversation, Message.conversation_id == Conversation.id).where(
+            Conversation.client_id == client_id
+        )
+    rows = session.exec(q.group_by(Message.feedback)).all()
+    counts = {int(val): int(n) for val, n in rows}
+    return {"positive": counts.get(1, 0), "negative": counts.get(-1, 0)}
+
+
 def _daily_volume(session: Session, client_id: int | None, days: int = 14) -> list[dict]:
     since = datetime.utcnow() - timedelta(days=days)
     day = func.date(Conversation.created_at)
@@ -634,6 +669,7 @@ def _build_stats(session: Session, client_id: int | None) -> dict:
             "avg_latency_ms": _avg_latency_ms(session, client_id),
         },
         "escalations_by_trigger": {"keyword": esc_kw, "model": esc_model, "llm_down": esc_down},
+        "feedback": _feedback_counts(session, client_id),
         "volume_daily": _daily_volume(session, client_id),
     }
 

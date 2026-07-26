@@ -43,6 +43,36 @@
     container.scrollTop = container.scrollHeight;
   }
 
+  async function sendFeedback(conversationId, messageId, value, wrap) {
+    try {
+      await fetch(`${WPAI.backendUrl}/chat/feedback`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${WPAI.apiKey}` },
+        body: JSON.stringify({ conversation_id: Number(conversationId), message_id: messageId, value }),
+      });
+      wrap.setAttribute("data-voted", value); // CSS highlights the chosen button, hides the other
+    } catch (e) {
+      // feedback is best-effort — never disrupt the chat over it
+    }
+  }
+
+  function addFeedback(container, conversationId, messageId) {
+    if (!messageId) return;
+    const wrap = document.createElement("div");
+    wrap.className = "wpai-feedback";
+    for (const [value, label, aria] of [["up", "👍", "Risposta utile"], ["down", "👎", "Risposta non utile"]]) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "wpai-fb-btn wpai-fb-" + value;
+      btn.textContent = label;
+      btn.setAttribute("aria-label", aria);
+      btn.addEventListener("click", () => sendFeedback(conversationId, messageId, value, wrap));
+      wrap.appendChild(btn);
+    }
+    container.appendChild(wrap);
+    container.scrollTop = container.scrollHeight;
+  }
+
   function setTyping(container, on) {
     let el = container.querySelector("#wpai-typing");
     if (on) {
@@ -97,6 +127,7 @@
       localStorage.removeItem(ESCALATED_KEY);
       addMessage(messages, "assistant", data.reply);
       addProducts(messages, data.products);
+      addFeedback(messages, data.conversation_id, data.message_id);
     }
   }
 

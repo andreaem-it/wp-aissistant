@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { MessagesSquare, UserCheck, CheckCircle2, Bot, Timer, Percent } from "lucide-react";
+import { MessagesSquare, UserCheck, CheckCircle2, Bot, Timer, Percent, ThumbsUp, ThumbsDown } from "lucide-react";
 import { api } from "./api.js";
 import { MiniBars, Breakdown } from "./Charts.jsx";
 
@@ -25,6 +25,8 @@ export default function Stats() {
     { label: "Risposte AI", value: ai.answered, Icon: Bot },
     { label: "Risolte da AI", value: pct(ai.resolution_rate), Icon: Percent },
     { label: "Latenza media", value: ai.avg_latency_ms ? `${ai.avg_latency_ms} ms` : "—", Icon: Timer },
+    { label: "Feedback positivi", value: stats.feedback?.positive ?? 0, Icon: ThumbsUp },
+    { label: "Feedback negativi", value: stats.feedback?.negative ?? 0, Icon: ThumbsDown },
   ];
 
   const esc = stats.escalations_by_trigger;

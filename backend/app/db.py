@@ -80,6 +80,8 @@ class Message(SQLModel, table=True):
     role: str  # user | assistant | operator
     content: str
     created_at: datetime = Field(default_factory=datetime.utcnow)
+    # visitor rating on an assistant message: 1 = 👍, -1 = 👎, None = no vote. Feeds quality stats.
+    feedback: Optional[int] = None
 
 
 class Ticket(SQLModel, table=True):

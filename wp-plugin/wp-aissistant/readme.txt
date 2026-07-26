@@ -3,7 +3,7 @@ Tags: ai, chatbot, customer-support, woocommerce, rag
 Requires at least: 5.8
 Tested up to: 6.5
 Requires PHP: 7.4
-Stable tag: 0.2.1
+Stable tag: 0.3.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -36,6 +36,10 @@ Richiede un'istanza del backend WP AIssistant raggiungibile e una API Key del cl
 4. Usa **Sincronizza ora** per il primo caricamento della knowledge base.
 
 == Changelog ==
+
+= 0.3.0 =
+* Nuovo: valutazione 👍/👎 sotto ogni risposta dell'assistente AI, così i visitatori
+  possono segnalare se una risposta è stata utile (alimenta le statistiche di qualità).
 
 = 0.2.1 =
 * Fix: una risposta di errore dal backend (es. API Key non valida) veniva mostrata

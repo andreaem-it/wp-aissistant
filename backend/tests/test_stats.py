@@ -67,3 +67,36 @@ def test_admin_problematic_excludes_greetings_by_default(client, tenant):
     # ...unless ungrounded answers are explicitly requested
     withu = client.get("/admin/problematic", headers=ADMIN, params={"include_ungrounded": "true"}).json()
     assert any(i["kind"] == "answered_no_context" for i in withu)
+
+
+# ---- feedback 👍/👎 ----
+
+def test_chat_returns_message_id(client, tenant):
+    r = client.post("/chat", headers=tenant["key"], json={"visitor_id": "v1", "message": "ciao"}).json()
+    assert r["status"] == "open"
+    assert isinstance(r["message_id"], int)
+
+
+def test_feedback_records_and_shows_in_stats(client, tenant):
+    r = client.post("/chat", headers=tenant["key"], json={"visitor_id": "v1", "message": "ciao"}).json()
+    ok = client.post("/chat/feedback", headers=tenant["key"],
+                     json={"conversation_id": r["conversation_id"], "message_id": r["message_id"], "value": "up"})
+    assert ok.status_code == 200
+    s = client.get("/stats", headers=tenant["op"]).json()
+    assert s["feedback"]["positive"] == 1
+    assert s["feedback"]["negative"] == 0
+
+
+def test_feedback_rejects_bad_value(client, tenant):
+    r = client.post("/chat", headers=tenant["key"], json={"visitor_id": "v1", "message": "ciao"}).json()
+    bad = client.post("/chat/feedback", headers=tenant["key"],
+                      json={"conversation_id": r["conversation_id"], "message_id": r["message_id"], "value": "meh"})
+    assert bad.status_code == 400
+
+
+def test_feedback_scoped_to_client(client, tenant):
+    r = client.post("/chat", headers=tenant["key"], json={"visitor_id": "v1", "message": "ciao"}).json()
+    other = client.post("/admin/clients", headers=ADMIN, json={"name": "Other"}).json()
+    denied = client.post("/chat/feedback", headers={"Authorization": f"Bearer {other['api_key']}"},
+                         json={"conversation_id": r["conversation_id"], "message_id": r["message_id"], "value": "up"})
+    assert denied.status_code == 404  # not this client's conversation

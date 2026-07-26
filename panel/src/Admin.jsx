@@ -350,6 +350,7 @@ function OverviewView() {
     { label: "Conversazioni", value: s.conversations.total, Icon: MessageSquare },
     { label: "Risolte da AI", value: pct(s.ai.resolution_rate), Icon: Check },
     { label: "Latenza media", value: s.ai.avg_latency_ms ? `${s.ai.avg_latency_ms} ms` : "—", Icon: Activity },
+    { label: "Feedback", value: `👍 ${s.feedback?.positive ?? 0} · 👎 ${s.feedback?.negative ?? 0}`, Icon: Check },
   ];
   const esc = s.escalations_by_trigger;
   return (

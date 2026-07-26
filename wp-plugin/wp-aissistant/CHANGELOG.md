@@ -2,6 +2,12 @@
 
 Tutte le modifiche rilevanti del plugin WP AIssistant.
 
+## [0.3.0] - 2026-07-26
+
+- Nuovo: pulsanti di valutazione 👍/👎 sotto ogni risposta dell'assistente AI. Il
+  voto viene inviato a `POST /chat/feedback` (autenticato con l'API Key del client,
+  scoping per conversazione) e alimenta le statistiche di qualità nel pannello.
+
 ## [0.2.1] - 2026-07-24
 
 - Fix: `sendMessage` non controllava `res.ok` prima di processare la risposta —
