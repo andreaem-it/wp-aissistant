@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 
 import stripe
 from fastapi import Body, Depends, FastAPI, Header, HTTPException, Request, Response, UploadFile
-from sqlalchemy import func
+from sqlalchemy import and_, func, or_
 from sqlmodel import Session, select
 
 from . import billing
@@ -570,14 +570,184 @@ def list_knowledge_base(operator: Operator = Depends(require_operator), session:
     }
 
 
+# ---- Analytics helpers (shared by operator /stats and admin /admin/stats) ----
+
+
+def _status_counts(session: Session, client_id: int | None) -> dict:
+    q = select(Conversation.status, func.count()).group_by(Conversation.status)
+    if client_id is not None:
+        q = q.where(Conversation.client_id == client_id)
+    return {status: int(n) for status, n in session.exec(q).all()}
+
+
+def _ai_outcomes(session: Session, client_id: int | None) -> dict:
+    q = select(AiResponseLog.outcome, func.count()).group_by(AiResponseLog.outcome)
+    if client_id is not None:
+        q = q.where(AiResponseLog.client_id == client_id)
+    return {outcome: int(n) for outcome, n in session.exec(q).all()}
+
+
+def _avg_latency_ms(session: Session, client_id: int | None) -> int:
+    q = select(func.avg(AiResponseLog.latency_ms)).where(
+        AiResponseLog.outcome == "answered", AiResponseLog.latency_ms > 0
+    )
+    if client_id is not None:
+        q = q.where(AiResponseLog.client_id == client_id)
+    val = session.exec(q).one()
+    return int(val) if val is not None else 0
+
+
+def _daily_volume(session: Session, client_id: int | None, days: int = 14) -> list[dict]:
+    since = datetime.utcnow() - timedelta(days=days)
+    day = func.date(Conversation.created_at)
+    q = select(day, func.count()).where(Conversation.created_at >= since)
+    if client_id is not None:
+        q = q.where(Conversation.client_id == client_id)
+    rows = session.exec(q.group_by(day).order_by(day)).all()
+    return [{"date": str(d), "conversations": int(n)} for d, n in rows]
+
+
+def _build_stats(session: Session, client_id: int | None) -> dict:
+    """Aggregated analytics for one client (operator view) or the whole system (client_id=None,
+    admin view): conversation status split, AI resolution vs escalation, escalation triggers,
+    average answer latency, and a 14-day conversation-volume series."""
+    status = _status_counts(session, client_id)
+    outcomes = _ai_outcomes(session, client_id)
+    answered = outcomes.get("answered", 0)
+    esc_kw = outcomes.get("escalated_keyword", 0)
+    esc_model = outcomes.get("escalated_model", 0)
+    esc_down = outcomes.get("escalated_llm_down", 0)
+    ai_escalated = esc_kw + esc_model + esc_down
+    total_ai = answered + ai_escalated
+    return {
+        "conversations": {
+            "total": sum(status.values()),
+            "open": status.get("open", 0),
+            "escalated": status.get("escalated", 0),
+            "closed": status.get("closed", 0),
+        },
+        "ai": {
+            "answered": answered,
+            "escalated": ai_escalated,
+            # share of AI turns resolved without a human (null when there's no data yet)
+            "resolution_rate": round(answered / total_ai, 3) if total_ai else None,
+            "avg_latency_ms": _avg_latency_ms(session, client_id),
+        },
+        "escalations_by_trigger": {"keyword": esc_kw, "model": esc_model, "llm_down": esc_down},
+        "volume_daily": _daily_volume(session, client_id),
+    }
+
+
 @app.get("/stats")
 def stats(operator: Operator = Depends(require_operator), session: Session = Depends(get_session)):
-    convs = session.exec(select(Conversation).where(Conversation.client_id == operator.client_id)).all()
+    data = _build_stats(session, operator.client_id)
+    # keep the original flat keys so older panel builds keep working
+    data["total_conversations"] = data["conversations"]["total"]
+    data["escalated"] = data["conversations"]["escalated"]
+    data["closed"] = data["conversations"]["closed"]
+    return data
+
+
+@app.get("/admin/stats", dependencies=[Depends(require_admin)])
+def admin_stats(session: Session = Depends(get_session)):
+    """System-wide analytics for the superadmin dashboard: the same aggregates as /stats but
+    across every client, plus client counts by plan/billing status and the top clients by volume."""
+    data = _build_stats(session, None)
+    plans = {p.id: p.name for p in session.exec(select(Plan)).all()}
+    clients = session.exec(select(Client)).all()
+    by_plan: dict = {}
+    by_billing: dict = {}
+    for c in clients:
+        pname = plans.get(c.plan_id, "—")
+        by_plan[pname] = by_plan.get(pname, 0) + 1
+        by_billing[c.billing_status] = by_billing.get(c.billing_status, 0) + 1
+    names = {c.id: c.name for c in clients}
+    top_q = (
+        select(Conversation.client_id, func.count().label("n"))
+        .group_by(Conversation.client_id)
+        .order_by(func.count().desc())
+        .limit(5)
+    )
+    data["clients"] = {"total": len(clients), "by_plan": by_plan, "by_billing_status": by_billing}
+    data["top_clients"] = [
+        {"client_id": cid, "name": names.get(cid, "?"), "conversations": int(n)}
+        for cid, n in session.exec(top_q).all()
+    ]
+    return data
+
+
+@app.get("/admin/health", dependencies=[Depends(require_admin)])
+def admin_health(session: Session = Depends(get_session)):
+    """Operational snapshot for the superadmin: DB reachability, ingest queue depth (incl.
+    errored jobs), worker flag, applied migration, configured models, and app version."""
+    from .llm import CHAT_MODEL, EMBED_MODEL
+
+    db_ok = True
+    try:
+        session.exec(select(func.count()).select_from(Client)).one()
+    except Exception:  # noqa: BLE001
+        db_ok = False
+
+    queue = {"queued": 0, "processing": 0, "done": 0, "error": 0}
+    try:
+        for status, n in session.exec(select(IngestJob.status, func.count()).group_by(IngestJob.status)).all():
+            queue[status] = int(n)
+    except Exception:  # noqa: BLE001
+        pass
+
+    try:
+        row = session.connection().exec_driver_sql("SELECT version_num FROM alembic_version").fetchone()
+        migration = row[0] if row else None
+    except Exception:  # noqa: BLE001
+        migration = None  # e.g. dev DB created via DB_AUTO_CREATE without alembic
+
+    overall = "ok" if db_ok and queue["error"] == 0 else "degraded"
     return {
-        "total_conversations": len(convs),
-        "escalated": sum(1 for c in convs if c.status == "escalated"),
-        "closed": sum(1 for c in convs if c.status == "closed"),
+        "status": overall,
+        "db": "ok" if db_ok else "error",
+        "ingest_queue": queue,
+        "worker_enabled": os.getenv("INGEST_WORKER_ENABLED", "true").lower() == "true",
+        "migration": migration,
+        "models": {"chat": CHAT_MODEL, "embed": EMBED_MODEL},
+        "version": os.getenv("APP_VERSION", "dev"),
     }
+
+
+@app.get("/admin/problematic", dependencies=[Depends(require_admin)])
+def admin_problematic(
+    client_id: int | None = None,
+    limit: int = 50,
+    include_ungrounded: bool = False,
+    session: Session = Depends(get_session),
+):
+    """AI turns worth reviewing: model escalations (answer not in context) and LLM-down handoffs.
+    With include_ungrounded=true also flags answers produced with *no* retrieved context — useful
+    to catch ungrounded replies, but noisy (greetings are answered without context by design).
+    Feeds a KB-improvement queue; open /admin/conversations/{id}/debug for the full picture."""
+    problem_outcomes = ["escalated_model", "escalated_llm_down"]
+    if include_ungrounded:
+        condition = or_(
+            AiResponseLog.outcome.in_(problem_outcomes),
+            and_(AiResponseLog.outcome == "answered", AiResponseLog.retrieved == "[]"),
+        )
+    else:
+        condition = AiResponseLog.outcome.in_(problem_outcomes)
+    q = select(AiResponseLog).where(condition)
+    if client_id is not None:
+        q = q.where(AiResponseLog.client_id == client_id)
+    rows = session.exec(q.order_by(AiResponseLog.id.desc()).limit(min(limit, 200))).all()
+    result = []
+    for r in rows:
+        retrieved = json.loads(r.retrieved or "[]")
+        distances = [c["distance"] for c in retrieved if "distance" in c]
+        kind = r.outcome if r.outcome != "answered" else "answered_no_context"
+        result.append({
+            "id": r.id, "conversation_id": r.conversation_id, "client_id": r.client_id,
+            "kind": kind, "model": r.model, "retrieved_count": len(retrieved),
+            "best_distance": round(min(distances), 4) if distances else None,
+            "created_at": r.created_at,
+        })
+    return result
 
 
 # ---- Admin: client onboarding (guarded by ADMIN_API_KEY) ----

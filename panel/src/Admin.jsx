@@ -2,8 +2,10 @@ import { useEffect, useState } from "react";
 import {
   Shield, Building2, Plus, Eye, EyeOff, Copy, Check, RefreshCw,
   Trash2, MessageSquare, Users, FileText, Package, Sparkles, CreditCard,
+  LayoutDashboard, Activity, ScrollText, AlertTriangle, Search,
 } from "lucide-react";
 import { getAdminKey, setAdminKey, clearAdminKey, adminApi } from "./adminApi.js";
+import { MiniBars, Breakdown } from "./Charts.jsx";
 
 function formatPrice(cents, currency) {
   if (!cents) return "Gratis";
@@ -334,12 +336,266 @@ function PlansView({ plans, onChanged }) {
   );
 }
 
+function pct(x) {
+  return x === null || x === undefined ? "—" : `${Math.round(x * 100)}%`;
+}
+
+function OverviewView() {
+  const [s, setS] = useState(null);
+  useEffect(() => { adminApi.stats().then(setS); }, []);
+  if (!s) return <p style={{ color: "var(--text-muted)" }}>Caricamento…</p>;
+
+  const cards = [
+    { label: "Clienti", value: s.clients.total, Icon: Building2 },
+    { label: "Conversazioni", value: s.conversations.total, Icon: MessageSquare },
+    { label: "Risolte da AI", value: pct(s.ai.resolution_rate), Icon: Check },
+    { label: "Latenza media", value: s.ai.avg_latency_ms ? `${s.ai.avg_latency_ms} ms` : "—", Icon: Activity },
+  ];
+  const esc = s.escalations_by_trigger;
+  return (
+    <div>
+      <h2 style={{ marginTop: 0 }}>Panoramica</h2>
+      <div className="wpai-stat-grid">
+        {cards.map((c) => (
+          <div key={c.label} className="wpai-card wpai-stat-card">
+            <div className="icon"><c.Icon size={18} strokeWidth={2.25} /></div>
+            <div className="value">{c.value}</div>
+            <div className="label">{c.label}</div>
+          </div>
+        ))}
+      </div>
+      <div className="wpai-two-col">
+        <div className="wpai-card">
+          <div className="wpai-card-title">Conversazioni (ultimi 14 giorni)</div>
+          <MiniBars data={s.volume_daily} xKey="date" yKey="conversations" />
+        </div>
+        <div className="wpai-card">
+          <div className="wpai-card-title">Motivi di escalation</div>
+          <Breakdown items={[
+            { label: "Parola chiave", value: esc.keyword },
+            { label: "Decisione AI", value: esc.model },
+            { label: "AI non disponibile", value: esc.llm_down },
+          ]} />
+        </div>
+      </div>
+      <div className="wpai-two-col">
+        <div className="wpai-card">
+          <div className="wpai-card-title">Clienti per piano</div>
+          <Breakdown items={Object.entries(s.clients.by_plan).map(([label, value]) => ({ label, value }))} />
+        </div>
+        <div className="wpai-card">
+          <div className="wpai-card-title">Top clienti per volume</div>
+          <table className="wpai-table">
+            <tbody>
+              {s.top_clients.map((t) => (
+                <tr key={t.client_id}><td>{t.name}</td><td style={{ textAlign: "right" }}>{t.conversations}</td></tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function HealthView() {
+  const [h, setH] = useState(null);
+  const load = () => adminApi.health().then(setH);
+  useEffect(() => { load(); }, []);
+  if (!h) return <p style={{ color: "var(--text-muted)" }}>Caricamento…</p>;
+
+  const rows = [
+    ["Stato generale", h.status],
+    ["Database", h.db],
+    ["Worker ingest", h.worker_enabled ? "attivo" : "disattivo"],
+    ["Coda ingest", `queued ${h.ingest_queue.queued} · processing ${h.ingest_queue.processing} · error ${h.ingest_queue.error}`],
+    ["Migrazione", h.migration || "—"],
+    ["Modello chat", h.models.chat],
+    ["Modello embed", h.models.embed],
+    ["Versione", h.version],
+  ];
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <h2 style={{ marginTop: 0 }}>Stato del sistema</h2>
+        <span className={"wpai-badge " + (h.status === "ok" ? "ok" : "warn")}>{h.status}</span>
+        <button className="wpai-icon-btn" onClick={load} title="Aggiorna"><RefreshCw size={15} /></button>
+      </div>
+      <div className="wpai-card">
+        <table className="wpai-table">
+          <tbody>
+            {rows.map(([k, v]) => (
+              <tr key={k}><td style={{ color: "var(--text-muted)" }}>{k}</td><td>{v}</td></tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function AuditView() {
+  const [rows, setRows] = useState(null);
+  useEffect(() => { adminApi.audit().then(setRows); }, []);
+  if (!rows) return <p style={{ color: "var(--text-muted)" }}>Caricamento…</p>;
+  return (
+    <div>
+      <h2 style={{ marginTop: 0 }}>Log azioni</h2>
+      <div className="wpai-card">
+        <table className="wpai-table">
+          <thead><tr><th>Quando</th><th>Chi</th><th>Azione</th><th>Target</th></tr></thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.id}>
+                <td style={{ whiteSpace: "nowrap", color: "var(--text-muted)" }}>{new Date(r.created_at).toLocaleString("it-IT")}</td>
+                <td>{r.actor_type}: {r.actor_id}</td>
+                <td>{r.action}</td>
+                <td>{r.target}</td>
+              </tr>
+            ))}
+            {rows.length === 0 && <tr><td colSpan={4} style={{ color: "var(--text-muted)" }}>Nessuna azione registrata.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function ProblematicView({ onOpenDebug }) {
+  const [rows, setRows] = useState(null);
+  const [ungrounded, setUngrounded] = useState(false);
+  const load = (u) => adminApi.problematic(u).then(setRows);
+  useEffect(() => { load(ungrounded); }, [ungrounded]);
+
+  const KIND_LABEL = {
+    escalated_model: "AI non ha trovato risposta nel contesto",
+    escalated_llm_down: "AI non disponibile",
+    answered_no_context: "Risposta senza contesto",
+  };
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <h2 style={{ marginTop: 0 }}>Risposte problematiche</h2>
+        <label style={{ fontSize: 12.5, color: "var(--text-muted)", display: "flex", gap: 6, alignItems: "center" }}>
+          <input type="checkbox" checked={ungrounded} onChange={(e) => setUngrounded(e.target.checked)} />
+          includi risposte senza contesto
+        </label>
+      </div>
+      <div className="wpai-card">
+        <table className="wpai-table">
+          <thead><tr><th>Quando</th><th>Tipo</th><th>Chunk</th><th>Miglior distanza</th><th></th></tr></thead>
+          <tbody>
+            {rows?.map((r) => (
+              <tr key={r.id}>
+                <td style={{ whiteSpace: "nowrap", color: "var(--text-muted)" }}>{new Date(r.created_at).toLocaleString("it-IT")}</td>
+                <td>{KIND_LABEL[r.kind] || r.kind}</td>
+                <td>{r.retrieved_count}</td>
+                <td>{r.best_distance ?? "—"}</td>
+                <td><button className="wpai-btn ghost" onClick={() => onOpenDebug(r.conversation_id)}><Search size={13} /> Debug</button></td>
+              </tr>
+            ))}
+            {rows?.length === 0 && <tr><td colSpan={5} style={{ color: "var(--text-muted)" }}>Nessuna risposta problematica.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function DebugView({ initialId }) {
+  const [id, setId] = useState(initialId || "");
+  const [data, setData] = useState(null);
+  const [error, setError] = useState("");
+
+  const load = async (convId) => {
+    setError(""); setData(null);
+    try {
+      setData(await adminApi.conversationDebug(convId));
+    } catch {
+      setError("Conversazione non trovata.");
+    }
+  };
+  useEffect(() => { if (initialId) load(initialId); }, [initialId]);
+
+  return (
+    <div>
+      <h2 style={{ marginTop: 0 }}>Debug conversazione</h2>
+      <form
+        onSubmit={(e) => { e.preventDefault(); if (id) load(id); }}
+        className="wpai-card"
+        style={{ display: "flex", gap: 10, alignItems: "flex-end" }}
+      >
+        <div className="wpai-field" style={{ flex: 1, margin: 0 }}>
+          <label>ID conversazione</label>
+          <input value={id} onChange={(e) => setId(e.target.value)} placeholder="es. 42" />
+        </div>
+        <button className="wpai-btn" type="submit"><Search size={14} /> Apri</button>
+      </form>
+
+      {error && <div className="wpai-error" style={{ marginTop: 14 }}>{error}</div>}
+
+      {data && (
+        <div style={{ marginTop: 18 }}>
+          <div className="wpai-card">
+            <div className="wpai-card-title">
+              Conversazione #{data.conversation.id} · stato {data.conversation.status} · cliente {data.conversation.client_id}
+            </div>
+            <div className="wpai-thread">
+              {data.messages.map((m) => (
+                <div key={m.id} className={"wpai-msg wpai-msg-" + m.role}>
+                  <span className="wpai-msg-role">{m.role}</span>
+                  <span>{m.content}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="wpai-card" style={{ marginTop: 16 }}>
+            <div className="wpai-card-title">Turni AI</div>
+            {data.ai_turns.length === 0 && <p style={{ color: "var(--text-muted)" }}>Nessun turno AI.</p>}
+            {data.ai_turns.map((t) => (
+              <div key={t.id} className="wpai-ai-turn">
+                <div className="wpai-ai-turn-head">
+                  <span className={"wpai-badge " + (t.outcome === "answered" ? "ok" : "warn")}>{t.outcome}</span>
+                  <span className="dim">{t.model || "—"}</span>
+                  <span className="dim">{t.latency_ms} ms</span>
+                  <span className="dim">{t.tokens_prompt}+{t.tokens_completion} token</span>
+                </div>
+                {t.retrieved.length > 0 ? (
+                  <table className="wpai-table" style={{ marginTop: 8 }}>
+                    <thead><tr><th>Fonte</th><th>Riferimento</th><th>Distanza</th><th>Usato</th></tr></thead>
+                    <tbody>
+                      {t.retrieved.map((c, i) => (
+                        <tr key={i} style={{ opacity: c.selected ? 1 : 0.5 }}>
+                          <td>{c.source}</td>
+                          <td style={{ maxWidth: 320, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.source_ref}</td>
+                          <td>{c.distance}</td>
+                          <td>{c.selected ? "✓" : ""}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                ) : (
+                  <p style={{ color: "var(--text-muted)", fontSize: 12.5, marginTop: 6 }}>Nessun contesto recuperato.</p>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Dashboard() {
   const [clients, setClients] = useState(null);
   const [plans, setPlans] = useState(null);
   const [selected, setSelected] = useState(null);
-  const [view, setView] = useState("clients"); // "clients" | "plans"
+  const [view, setView] = useState("overview"); // overview | clients | plans | health | audit | problematic | debug
+  const [debugId, setDebugId] = useState(null);
   const [reembedResult, setReembedResult] = useState(null);
+
+  const openDebug = (convId) => { setDebugId(convId); setView("debug"); };
 
   const load = () => adminApi.clients().then((list) => {
     setClients(list);
@@ -366,11 +622,26 @@ function Dashboard() {
           <div className="wpai-brand-name"><Shield size={13} style={{ verticalAlign: -2, marginRight: 4 }} />Superadmin</div>
         </div>
         <div className="wpai-nav">
+          <button className={"wpai-nav-item" + (view === "overview" ? " active" : "")} onClick={() => setView("overview")}>
+            <LayoutDashboard size={16} strokeWidth={2.25} /> Panoramica
+          </button>
           <button className={"wpai-nav-item" + (view === "clients" ? " active" : "")} onClick={() => setView("clients")}>
             <Building2 size={16} strokeWidth={2.25} /> Clienti
           </button>
           <button className={"wpai-nav-item" + (view === "plans" ? " active" : "")} onClick={() => setView("plans")}>
             <CreditCard size={16} strokeWidth={2.25} /> Piani
+          </button>
+          <button className={"wpai-nav-item" + (view === "problematic" ? " active" : "")} onClick={() => setView("problematic")}>
+            <AlertTriangle size={16} strokeWidth={2.25} /> Problematiche
+          </button>
+          <button className={"wpai-nav-item" + (view === "debug" ? " active" : "")} onClick={() => setView("debug")}>
+            <Search size={16} strokeWidth={2.25} /> Debug
+          </button>
+          <button className={"wpai-nav-item" + (view === "audit" ? " active" : "")} onClick={() => setView("audit")}>
+            <ScrollText size={16} strokeWidth={2.25} /> Log azioni
+          </button>
+          <button className={"wpai-nav-item" + (view === "health" ? " active" : "")} onClick={() => setView("health")}>
+            <Activity size={16} strokeWidth={2.25} /> Sistema
           </button>
         </div>
         {view === "clients" && (
@@ -402,7 +673,8 @@ function Dashboard() {
         </div>
       </nav>
       <main className="wpai-main">
-        {view === "clients" ? (
+        {view === "overview" && <OverviewView />}
+        {view === "clients" && (
           <>
             <NewClientForm onCreated={load} />
             <div style={{ marginTop: 20 }}>
@@ -416,9 +688,12 @@ function Dashboard() {
               )}
             </div>
           </>
-        ) : (
-          <PlansView plans={plans} onChanged={loadPlans} />
         )}
+        {view === "plans" && <PlansView plans={plans} onChanged={loadPlans} />}
+        {view === "problematic" && <ProblematicView onOpenDebug={openDebug} />}
+        {view === "debug" && <DebugView initialId={debugId} />}
+        {view === "audit" && <AuditView />}
+        {view === "health" && <HealthView />}
       </main>
     </div>
   );

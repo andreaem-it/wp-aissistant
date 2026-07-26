@@ -43,4 +43,11 @@ export const adminApi = {
   plans: () => call("/admin/plans"),
   createPlan: (plan) => call("/admin/plans", { method: "POST", body: plan }),
   setClientPlan: (clientId, plan_id) => call(`/admin/clients/${clientId}/plan`, { method: "POST", body: { plan_id } }),
+  // observability (Fase 3b/3c)
+  stats: () => call("/admin/stats"),
+  health: () => call("/admin/health"),
+  audit: (clientId) => call(`/admin/audit${clientId ? `?client_id=${clientId}` : ""}`),
+  problematic: (includeUngrounded) =>
+    call(`/admin/problematic${includeUngrounded ? "?include_ungrounded=true" : ""}`),
+  conversationDebug: (id) => call(`/admin/conversations/${id}/debug`),
 };

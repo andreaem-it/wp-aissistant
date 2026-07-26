@@ -133,7 +133,11 @@ storage/token). Accesso con `ADMIN_API_KEY` come "password" — tenuta in `sessi
 non `localStorage`, così non resta su disco oltre la chiusura della scheda. Da lì: creare
 client, vedere conteggi d'uso (conversazioni/operatori/chunk/prodotti) per client, gestire
 origin CORS, rigenerare api_key, aggiungere/rimuovere operatori, lanciare un re-embed globale,
-gestire i **piani** (prezzo, limiti chat/ingest) e assegnarli ai client.
+gestire i **piani** (prezzo, limiti chat/ingest) e assegnarli ai client. Più le viste di
+osservabilità: **Panoramica** (statistiche globali: volume, % risolte da AI, latenza, top
+client), **Problematiche** (turni AI da rivedere → apri il debug), **Debug conversazione**
+(per ogni turno: contesto recuperato con distanze e selezione, modello, latenza, token),
+**Log azioni** (audit) e **Sistema** (stato DB, coda ingest, migrazione, modelli, versione).
 
 #### Billing
 
