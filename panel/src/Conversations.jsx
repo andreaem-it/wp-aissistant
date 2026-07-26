@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Inbox, MessageCircle } from "lucide-react";
+import { Inbox, MessageCircle, Send } from "lucide-react";
 import { api } from "./api.js";
 
 function initialsOf(visitorId) {
@@ -10,15 +10,33 @@ export default function Conversations() {
   const [items, setItems] = useState([]);
   const [selected, setSelected] = useState(null);
   const [messages, setMessages] = useState([]);
+  const [draft, setDraft] = useState("");
+  const [sending, setSending] = useState(false);
 
-  useEffect(() => {
-    api.conversations().then(setItems);
-  }, []);
+  const loadList = () => api.conversations().then(setItems);
+  const loadMessages = (id) => api.messages(id).then((d) => setMessages(d.messages));
+
+  useEffect(() => { loadList(); }, []);
 
   useEffect(() => {
     if (!selected) return;
-    api.messages(selected).then((d) => setMessages(d.messages));
+    loadMessages(selected);
+    setDraft("");
   }, [selected]);
+
+  const send = async () => {
+    const text = draft.trim();
+    if (!text || !selected) return;
+    setSending(true);
+    try {
+      await api.replyConversation(selected, text);
+      setDraft("");
+      await loadMessages(selected);
+      loadList(); // status may have changed (escalated -> open)
+    } finally {
+      setSending(false);
+    }
+  };
 
   return (
     <div>
@@ -47,18 +65,42 @@ export default function Conversations() {
             </button>
           ))}
         </div>
-        <div className="wpai-card wpai-thread">
-          {!selected && (
-            <div className="wpai-empty" style={{ margin: "auto" }}>
-              <MessageCircle size={28} strokeWidth={1.5} />
-              <p>Seleziona una conversazione per leggerla.</p>
+        <div className="wpai-conv-panel">
+          {!selected ? (
+            <div className="wpai-card wpai-thread">
+              <div className="wpai-empty" style={{ margin: "auto" }}>
+                <MessageCircle size={28} strokeWidth={1.5} />
+                <p>Seleziona una conversazione per leggerla.</p>
+              </div>
             </div>
+          ) : (
+            <>
+              <div className="wpai-card wpai-thread">
+                {messages.map((m) => (
+                  <div key={m.id} className={`wpai-bubble ${m.role}`}>
+                    {m.content}
+                  </div>
+                ))}
+              </div>
+              <form
+                className="wpai-reply-bar"
+                onSubmit={(e) => { e.preventDefault(); send(); }}
+              >
+                <textarea
+                  rows={1}
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
+                  }}
+                  placeholder="Rispondi come operatore… (Invio per inviare, Shift+Invio a capo)"
+                />
+                <button className="wpai-btn" type="submit" disabled={sending || !draft.trim()}>
+                  <Send size={15} /> {sending ? "Invio…" : "Invia"}
+                </button>
+              </form>
+            </>
           )}
-          {messages.map((m) => (
-            <div key={m.id} className={`wpai-bubble ${m.role}`}>
-              {m.content}
-            </div>
-          ))}
         </div>
       </div>
     </div>

@@ -60,6 +60,7 @@ export const api = {
   messages: (id) => call(`/conversations/${id}/messages`),
   tickets: (status = "open") => call("/tickets", { params: { status } }),
   replyTicket: (id, reply) => call(`/tickets/${id}/reply`, { method: "POST", params: { reply } }),
+  replyConversation: (id, reply) => call(`/conversations/${id}/reply`, { method: "POST", body: { reply } }),
   stats: () => call("/stats"),
   knowledgeBase: () => call("/knowledge-base"),
   uploadDocument: (file) => {

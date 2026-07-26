@@ -288,7 +288,8 @@ Auth via header `Authorization: Bearer <token>`. La colonna *Auth* indica quale 
 | `/conversations` | GET | 👤 | Lista conversazioni del client |
 | `/conversations/{id}/messages` | GET | 🔀 | Messaggi (polling widget + lettura panel) |
 | `/tickets` | GET | 👤 | Ticket per stato |
-| `/tickets/{id}/reply` | POST | 👤 | Risposta operatore |
+| `/tickets/{id}/reply` | POST | 👤 | Risposta operatore (via ticket) |
+| `/conversations/{id}/reply` | POST | 👤 | Risposta operatore diretta dalla conversazione (chiude eventuali ticket aperti, notifica il visitatore) |
 | `/stats` | GET | 👤 | Contatori conversazioni |
 | `/knowledge-base` | GET | 👤 | Documenti/pagine (raggruppati, con conteggio chunk) e prodotti sincronizzati |
 | `/me` | GET | 👤 | Profilo operatore: email, nome client, api_key del widget |

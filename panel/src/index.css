@@ -779,3 +779,13 @@ button.wpai-btn.danger:hover { background: #b91c1c; }
 .wpai-tmsg.user .wpai-tmsg-role { color: var(--primary); }
 .wpai-tmsg.operator .wpai-tmsg-role { color: var(--green); }
 .wpai-tmsg-text { white-space: pre-wrap; color: var(--text); }
+
+/* ---- Conversation panel: thread + operator reply bar ---- */
+.wpai-conv-panel { flex: 1; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.wpai-reply-bar { display: flex; gap: 10px; align-items: flex-end; }
+.wpai-reply-bar textarea {
+  flex: 1; resize: none; min-height: 42px; max-height: 140px;
+  padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  font: inherit; font-size: 13.5px; line-height: 1.4;
+}
+.wpai-reply-bar .wpai-btn { white-space: nowrap; }

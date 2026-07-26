@@ -53,3 +53,22 @@ def test_operator_reply_without_contact_sends_nothing(client, tenant, monkeypatc
     tid = client.get("/tickets", headers=tenant["op"]).json()[0]["ticket"]["id"]
     client.post(f"/tickets/{tid}/reply", headers=tenant["op"], params={"reply": "ok"})
     assert sent == []  # no email captured => no notification
+
+
+def test_conversation_reply_adds_message_and_closes_ticket(client, tenant):
+    conv_id = _escalated_conversation(client, tenant)
+    r = client.post(f"/conversations/{conv_id}/reply", headers=tenant["op"], json={"reply": "ci penso io"})
+    assert r.status_code == 200
+    msgs = client.get(f"/conversations/{conv_id}/messages", headers=tenant["op"]).json()["messages"]
+    assert any(m["role"] == "operator" and m["content"] == "ci penso io" for m in msgs)
+    # the open ticket for this conversation is now answered => no longer in the open list
+    assert client.get("/tickets", headers=tenant["op"]).json() == []
+
+
+def test_conversation_reply_scoped_to_client(client, tenant):
+    conv_id = _escalated_conversation(client, tenant)
+    other = client.post("/admin/clients", headers=ADMIN, json={"name": "Other"}).json()
+    client.post(f"/admin/clients/{other['id']}/operators", headers=ADMIN, json={"email": "o2@x.it", "password": "password1"})
+    tok = client.post("/operator/login", json={"email": "o2@x.it", "password": "password1"}).json()["token"]
+    denied = client.post(f"/conversations/{conv_id}/reply", headers={"Authorization": f"Bearer {tok}"}, json={"reply": "x"})
+    assert denied.status_code == 404

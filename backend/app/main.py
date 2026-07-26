@@ -765,10 +765,44 @@ def reply_ticket(ticket_id: int, reply: str, operator: Operator = Depends(requir
     session.add(conv)
     session.commit()
     _audit(session, "operator", operator.email, "ticket.reply", target=f"ticket:{ticket_id}", client_id=operator.client_id)
-    # notify the visitor by email if they left one (best-effort: a mail failure never blocks the reply)
+    _notify_visitor_reply(session, operator.client_id, conv)
+    return {"ok": True}
+
+
+def _notify_visitor_reply(session, client_id, conv):
+    """Best-effort visitor email notification on an operator reply (never blocks the reply)."""
     if conv.visitor_email:
-        client = session.get(Client, operator.client_id)
+        client = session.get(Client, client_id)
         email_service.send_visitor_reply(conv.visitor_email, client.name if client else "il supporto", conv.visitor_url)
+
+
+@app.post("/conversations/{conversation_id}/reply")
+def reply_conversation(
+    conversation_id: int,
+    reply: str = Body(..., embed=True),
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
+    """Operator replies directly from the Conversations view (works for any conversation, not
+    just ticketed ones). Adds the operator message, reopens the conversation, closes any open
+    ticket on it, and notifies the visitor by email if they left one."""
+    conv = session.get(Conversation, conversation_id)
+    if not conv or conv.client_id != operator.client_id:
+        raise HTTPException(404, "conversation not found")
+    session.add(Message(conversation_id=conversation_id, role="operator", content=reply))
+    now = datetime.utcnow()
+    conv.status = "open"
+    conv.updated_at = now
+    session.add(conv)
+    for t in session.exec(
+        select(Ticket).where(Ticket.conversation_id == conversation_id, Ticket.status == "open")
+    ).all():
+        t.status = "answered"
+        t.updated_at = now
+        session.add(t)
+    session.commit()
+    _audit(session, "operator", operator.email, "conversation.reply", target=f"conversation:{conversation_id}", client_id=operator.client_id)
+    _notify_visitor_reply(session, operator.client_id, conv)
     return {"ok": True}
 
 
