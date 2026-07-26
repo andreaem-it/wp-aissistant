@@ -18,15 +18,22 @@ raises, and the callers decide how to react (e.g. still return 200 on /auth/forg
 avoid user enumeration, but surface a 502 when a verification resend genuinely fails).
 """
 
+import json
 import logging
 import os
 import smtplib
 import ssl
+import urllib.error
+import urllib.request
 from email.message import EmailMessage
 
 from .logging_config import log
 
 logger = logging.getLogger("wpai.email")
+
+# Provider: "smtp" (default) or "brevo_api". On hosts that block outbound SMTP ports (e.g.
+# Railway blocks 25/465/587/2525), use "brevo_api" to send over HTTPS/443 instead.
+EMAIL_PROVIDER = os.getenv("EMAIL_PROVIDER", "smtp").lower()
 
 SMTP_HOST = os.getenv("SMTP_HOST", "")
 SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
@@ -36,10 +43,17 @@ SMTP_FROM = os.getenv("SMTP_FROM", "") or SMTP_USER or "no-reply@wp-aissistant.l
 SMTP_TLS = os.getenv("SMTP_TLS", "true").lower()  # "true" (STARTTLS) | "ssl" | "false"
 EMAIL_TIMEOUT_SECONDS = float(os.getenv("EMAIL_TIMEOUT_SECONDS", "10"))
 
+# Brevo transactional API (HTTPS) — used when EMAIL_PROVIDER=brevo_api
+BREVO_API_KEY = os.getenv("BREVO_API_KEY", "")
+BREVO_API_URL = "https://api.brevo.com/v3/smtp/email"
+EMAIL_FROM_NAME = os.getenv("EMAIL_FROM_NAME", "WP AIssistant")
+
 
 def enabled() -> bool:
-    """True when SMTP is configured enough to actually send. When False, send_email()
-    logs the message instead — handy in dev, but real deployments must set SMTP_HOST."""
+    """True when the selected provider is configured enough to actually send. When False,
+    send_email() logs the message instead — handy in dev, but prod must configure a provider."""
+    if EMAIL_PROVIDER == "brevo_api":
+        return bool(BREVO_API_KEY)
     return bool(SMTP_HOST)
 
 
@@ -53,13 +67,18 @@ def panel_url() -> str:
 
 
 def send_email(to: str, subject: str, body: str) -> bool:
-    """Send a plain-text email. Returns True on success (or when logged-only in dev),
-    False on a delivery failure. Never raises — auth callers branch on the bool."""
+    """Send a plain-text email via the configured provider. Returns True on success (or when
+    logged-only in dev), False on a delivery failure. Never raises — callers branch on the bool."""
     if not enabled():
-        # dev/staging fallback: make the link readable without a configured mailbox
+        # dev/staging fallback: make the link readable without a configured provider
         log(logger, logging.INFO, "email.not_configured_logged", to=to, subject=subject, body=body)
         return True
+    if EMAIL_PROVIDER == "brevo_api":
+        return _send_brevo_api(to, subject, body)
+    return _send_smtp(to, subject, body)
 
+
+def _send_smtp(to: str, subject: str, body: str) -> bool:
     msg = EmailMessage()
     msg["From"] = SMTP_FROM
     msg["To"] = to
@@ -80,10 +99,40 @@ def send_email(to: str, subject: str, body: str) -> bool:
                 if SMTP_USER:
                     smtp.login(SMTP_USER, SMTP_PASSWORD)
                 smtp.send_message(msg)
-        log(logger, logging.INFO, "email.sent", to=to, subject=subject)
+        log(logger, logging.INFO, "email.sent", provider="smtp", to=to, subject=subject)
         return True
     except Exception as exc:  # noqa: BLE001 — report failure via the return value, never crash
-        log(logger, logging.ERROR, "email.send_failed", to=to, subject=subject, error=str(exc))
+        log(logger, logging.ERROR, "email.send_failed", provider="smtp", to=to, subject=subject, error=str(exc))
+        return False
+
+
+def _send_brevo_api(to: str, subject: str, body: str) -> bool:
+    """Send over Brevo's transactional API (HTTPS/443) — works where outbound SMTP is blocked."""
+    payload = {
+        "sender": {"email": SMTP_FROM, "name": EMAIL_FROM_NAME},
+        "to": [{"email": to}],
+        "subject": subject,
+        "textContent": body,
+    }
+    req = urllib.request.Request(
+        BREVO_API_URL,
+        data=json.dumps(payload).encode(),
+        headers={"api-key": BREVO_API_KEY, "Content-Type": "application/json", "Accept": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=EMAIL_TIMEOUT_SECONDS) as resp:
+            resp.read()
+        log(logger, logging.INFO, "email.sent", provider="brevo_api", to=to, subject=subject)
+        return True
+    except Exception as exc:  # noqa: BLE001
+        detail = str(exc)
+        if isinstance(exc, urllib.error.HTTPError):
+            try:
+                detail = f"{exc.code} {exc.read().decode()[:300]}"  # surface Brevo's error body
+            except Exception:  # noqa: BLE001
+                pass
+        log(logger, logging.ERROR, "email.send_failed", provider="brevo_api", to=to, subject=subject, error=detail)
         return False
 
 
@@ -122,5 +171,6 @@ def send_test(to: str) -> bool:
 
 
 def config_status() -> dict:
-    """Non-secret SMTP config summary for the admin health/panel (never exposes the password)."""
-    return {"configured": enabled(), "host": SMTP_HOST, "from": SMTP_FROM, "tls": SMTP_TLS}
+    """Non-secret email config summary for the admin health/panel (never exposes secrets)."""
+    host = BREVO_API_URL if EMAIL_PROVIDER == "brevo_api" else SMTP_HOST
+    return {"configured": enabled(), "provider": EMAIL_PROVIDER, "host": host, "from": SMTP_FROM}

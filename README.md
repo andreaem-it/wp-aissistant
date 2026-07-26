@@ -245,7 +245,10 @@ docker compose -f docker-compose.prod.yml up -d
 | `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` | *(non impostati)* | Abilitano `/billing/*`; se assenti il billing è disattivato — setup in [`deploy/STRIPE.md`](deploy/STRIPE.md) |
 | `DOCS_ENABLED` | `false` | Espone `/docs`, `/redoc`, `/openapi.json` (off di default in prod) |
 | `METRICS_TOKEN` | *(non impostato)* | Se assente `/metrics` è disabilitato; se impostato richiede `Bearer <token>` |
-| `SMTP_HOST` | *(non impostato)* | Host SMTP per le email transazionali (verifica email, reset password). Se assente le email vengono solo loggate (dev) |
+| `EMAIL_PROVIDER` | `smtp` | `smtp` o `brevo_api`. Usa `brevo_api` (invio via HTTPS) su host che bloccano le porte SMTP in uscita (es. Railway) |
+| `BREVO_API_KEY` | *(non impostato)* | Chiave API v3 di Brevo (richiesta con `EMAIL_PROVIDER=brevo_api`) |
+| `EMAIL_FROM_NAME` | `WP AIssistant` | Nome mittente mostrato nelle email |
+| `SMTP_HOST` | *(non impostato)* | Host SMTP per le email transazionali (verifica email, reset password). Se assente (e provider `smtp`) le email vengono solo loggate (dev) |
 | `SMTP_PORT` | `587` | Porta SMTP |
 | `SMTP_USER` / `SMTP_PASSWORD` | *(non impostati)* | Credenziali SMTP |
 | `SMTP_FROM` | *(= `SMTP_USER`)* | Indirizzo mittente |

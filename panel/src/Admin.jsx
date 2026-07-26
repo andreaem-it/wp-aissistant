@@ -415,7 +415,7 @@ function HealthView() {
     ["Migrazione", h.migration || "—"],
     ["Modello chat", h.models.chat],
     ["Modello embed", h.models.embed],
-    ["Email (SMTP)", email.configured ? `configurato (${email.host}, from ${email.from})` : "NON configurato"],
+    ["Email", email.configured ? `configurato · ${email.provider} · from ${email.from}` : "NON configurato"],
     ["Versione", h.version],
   ];
   return (
