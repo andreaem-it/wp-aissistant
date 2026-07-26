@@ -271,7 +271,7 @@ function ClientDetail({ client, plans, onChanged }) {
 }
 
 function PlansView({ plans, onChanged }) {
-  const [form, setForm] = useState({ name: "", price_cents: 0, chat_rate_limit: 30, ingest_rate_limit: 60 });
+  const [form, setForm] = useState({ name: "", price_cents: 0, chat_rate_limit: 30, ingest_rate_limit: 60, monthly_message_limit: 0 });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -281,7 +281,7 @@ function PlansView({ plans, onChanged }) {
     setError("");
     try {
       await adminApi.createPlan(form);
-      setForm({ name: "", price_cents: 0, chat_rate_limit: 30, ingest_rate_limit: 60 });
+      setForm({ name: "", price_cents: 0, chat_rate_limit: 30, ingest_rate_limit: 60, monthly_message_limit: 0 });
       onChanged();
     } catch {
       setError("Nome piano già in uso.");
@@ -299,7 +299,7 @@ function PlansView({ plans, onChanged }) {
             <span className="wpai-kb-label">{p.name}</span>
             <span className="wpai-kb-count">{formatPrice(p.price_cents, p.currency)}/mese</span>
             <span className="wpai-kb-count">{p.chat_rate_limit} chat/min</span>
-            <span className="wpai-kb-count">{p.ingest_rate_limit} ingest/min</span>
+            <span className="wpai-kb-count">{p.monthly_message_limit ? `${p.monthly_message_limit} msg/mese` : "msg illimitati"}</span>
           </div>
         ))}
       </div>
@@ -331,6 +331,13 @@ function PlansView({ plans, onChanged }) {
             <input
               type="number" min={1} value={form.ingest_rate_limit}
               onChange={(e) => setForm((f) => ({ ...f, ingest_rate_limit: Number(e.target.value) }))}
+            />
+          </div>
+          <div className="wpai-field">
+            <label>Quota mensile messaggi (0 = illimitato)</label>
+            <input
+              type="number" min={0} value={form.monthly_message_limit}
+              onChange={(e) => setForm((f) => ({ ...f, monthly_message_limit: Number(e.target.value) }))}
             />
           </div>
           <button className="wpai-btn" type="submit" disabled={saving}>{saving ? "Creazione…" : "Crea piano"}</button>

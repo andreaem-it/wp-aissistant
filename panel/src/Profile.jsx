@@ -40,9 +40,11 @@ function NameCard({ me }) {
 function BillingCard({ me }) {
   const [plans, setPlans] = useState([]);
   const [busy, setBusy] = useState(null);
+  const [usage, setUsage] = useState(null);
 
   useEffect(() => {
     api.plans().then(setPlans).catch(() => setPlans([]));
+    api.usage().then(setUsage).catch(() => setUsage(null));
   }, []);
 
   const upgrade = async (planId) => {
@@ -67,6 +69,24 @@ function BillingCard({ me }) {
           <div className="wpai-card-sub">Stato abbonamento: {me.billing_status || "—"}</div>
         </div>
       </div>
+
+      {usage && (
+        <div style={{ marginTop: 12 }}>
+          {usage.limit ? (
+            <>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 6 }}>
+                <span>Messaggi questo mese</span>
+                <span><b>{usage.used}</b> / {usage.limit} <span style={{ color: "var(--text-muted)" }}>({usage.remaining} rimasti)</span></span>
+              </div>
+              <div className="wpai-breakdown-track">
+                <div className="wpai-breakdown-fill" style={{ width: `${Math.min(100, (usage.used / usage.limit) * 100)}%`, background: usage.used >= usage.limit ? "var(--amber)" : "var(--primary)" }} />
+              </div>
+            </>
+          ) : (
+            <div style={{ fontSize: 13, color: "var(--text-muted)" }}>Messaggi questo mese: <b>{usage.used}</b> (nessun limite)</div>
+          )}
+        </div>
+      )}
 
       {others.length === 0 ? (
         <p style={{ color: "var(--text-muted)", fontSize: 13.5, marginTop: 6 }}>

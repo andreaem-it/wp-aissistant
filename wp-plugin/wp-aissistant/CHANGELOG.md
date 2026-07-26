@@ -2,6 +2,11 @@
 
 Tutte le modifiche rilevanti del plugin WP AIssistant.
 
+## [0.6.1] - 2026-07-26
+
+- Nuovo: gestione dello stato/evento `quota_exceeded` — il widget mostra un messaggio
+  quando è stata raggiunta la quota mensile di messaggi del piano.
+
 ## [0.6.0] - 2026-07-26
 
 - Nuovo: indicatore "<nome operatore> sta scrivendo…" nel widget (dal polling di

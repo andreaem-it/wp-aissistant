@@ -178,6 +178,8 @@
         addMessage(messages, "system", "La tua richiesta è stata inoltrata a un operatore, ti risponderemo qui appena possibile.");
         addContactForm(messages, data.conversation_id);
       }
+    } else if (data.status === "quota_exceeded") {
+      addMessage(messages, "system", "Il limite di messaggi è stato raggiunto. Riprova più tardi o contatta il supporto.");
     } else {
       localStorage.removeItem(ESCALATED_KEY);
       addMessage(messages, "assistant", data.reply);
@@ -242,6 +244,9 @@
           addMessage(messages, "system", "La tua richiesta è stata inoltrata a un operatore, ti risponderemo qui appena possibile.");
           addContactForm(messages, convId);
         }
+      } else if (evt.type === "quota_exceeded") {
+        setTyping(messages, false);
+        addMessage(messages, "system", "Il limite di messaggi è stato raggiunto. Riprova più tardi o contatta il supporto.");
       } else if (evt.type === "done") {
         setTyping(messages, false);
         localStorage.removeItem(ESCALATED_KEY);

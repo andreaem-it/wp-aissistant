@@ -21,6 +21,9 @@ class Plan(SQLModel, table=True):
     currency: str = "eur"
     chat_rate_limit: int = 30
     ingest_rate_limit: int = 60
+    # monthly chat-message quota (visitor messages that reach the AI); 0 = unlimited.
+    # Counted per calendar month; over quota the AI stops answering (see enforcement in /chat).
+    monthly_message_limit: int = 0
     stripe_price_id: str = ""
     created_at: datetime = Field(default_factory=datetime.utcnow)
 

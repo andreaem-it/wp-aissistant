@@ -466,6 +466,41 @@ def _sse(payload: dict) -> str:
     return f"data: {json.dumps(payload)}\n\n"
 
 
+def _month_start() -> datetime:
+    now = datetime.utcnow()
+    return datetime(now.year, now.month, 1)
+
+
+def _monthly_message_count(session: Session, client_id: int) -> int:
+    """Visitor chat messages this calendar month for the client — the monthly-quota unit."""
+    return session.exec(
+        select(func.count()).select_from(Message)
+        .join(Conversation, Message.conversation_id == Conversation.id)
+        .where(Conversation.client_id == client_id, Message.role == "user", Message.created_at >= _month_start())
+    ).one()
+
+
+def _usage(session: Session, client_id: int) -> dict:
+    client = session.get(Client, client_id)
+    plan = session.get(Plan, client.plan_id) if client and client.plan_id else None
+    limit = plan.monthly_message_limit if plan else 0
+    used = _monthly_message_count(session, client_id)
+    return {
+        "plan": plan.name if plan else None,
+        "period": _month_start().strftime("%Y-%m"),
+        "limit": limit,  # 0 = unlimited
+        "used": used,
+        "remaining": max(limit - used, 0) if limit else None,
+    }
+
+
+def _over_quota(session: Session, client_id: int) -> bool:
+    client = session.get(Client, client_id)
+    plan = session.get(Plan, client.plan_id) if client and client.plan_id else None
+    limit = plan.monthly_message_limit if plan else 0
+    return bool(limit) and _monthly_message_count(session, client_id) > limit
+
+
 @app.post("/chat/stream")
 def chat_stream_endpoint(
     visitor_id: str = Body(...),
@@ -524,6 +559,10 @@ def chat_stream_endpoint(
                 reason = f"richiede intervento umano ({keyword_hit})"
                 _escalate(s, client_id, client_name, conv, reason, outcome="escalated_keyword", trigger="keyword")
                 yield _sse({"type": "escalated", "conversation_id": conv.id})
+                return
+
+            if _over_quota(s, client_id):
+                yield _sse({"type": "quota_exceeded", "conversation_id": conv.id})
                 return
 
             retrieval_meta: list[dict] = []
@@ -637,6 +676,10 @@ def chat_endpoint(
         _log_ai_response(session, client.id, conv.id, "escalated_keyword")
         notify_new_ticket(client.name, conv.id, ticket.id, reason)
         return {"conversation_id": conv.id, "status": "escalated", "reply": None}
+
+    # monthly message quota: block only the (paid) AI path — human handoffs above still go through
+    if _over_quota(session, client.id):
+        return {"conversation_id": conv.id, "status": "quota_exceeded", "reply": None}
 
     retrieval_meta: list[dict] = []
     try:
@@ -753,6 +796,13 @@ def operator_typing(conversation_id: int, operator: Operator = Depends(require_o
         raise HTTPException(404, "conversation not found")
     _operator_typing[conversation_id] = (_operator_name(operator), time.monotonic())
     return {"ok": True}
+
+
+@app.get("/usage")
+def usage(client_id: int = Depends(resolve_client_id), session: Session = Depends(get_session)):
+    """Current month's chat-message usage vs the plan quota. Dual auth: the WP plugin (client
+    api_key) and the panel (operator token) both read it. remaining=null means unlimited."""
+    return _usage(session, client_id)
 
 
 @app.get("/conversations/{conversation_id}/messages")
@@ -1347,6 +1397,7 @@ def create_plan(
     currency: str = Body("eur"),
     chat_rate_limit: int = Body(30),
     ingest_rate_limit: int = Body(60),
+    monthly_message_limit: int = Body(0),
     stripe_price_id: str = Body(""),
     session: Session = Depends(get_session),
 ):
@@ -1355,6 +1406,7 @@ def create_plan(
     plan = Plan(
         name=name, price_cents=price_cents, currency=currency,
         chat_rate_limit=chat_rate_limit, ingest_rate_limit=ingest_rate_limit,
+        monthly_message_limit=monthly_message_limit,
         stripe_price_id=stripe_price_id,
     )
     session.add(plan)
@@ -1364,12 +1416,20 @@ def create_plan(
 
 
 @app.post("/admin/plans/{plan_id}", dependencies=[Depends(require_admin)])
-def update_plan(plan_id: int, stripe_price_id: str = Body(..., embed=True), session: Session = Depends(get_session)):
-    """Set the Stripe price id for a plan (needed before checkout can use it)."""
+def update_plan(
+    plan_id: int,
+    stripe_price_id: str | None = Body(None),
+    monthly_message_limit: int | None = Body(None),
+    session: Session = Depends(get_session),
+):
+    """Update a plan's Stripe price id and/or monthly message quota (only the fields provided)."""
     plan = session.get(Plan, plan_id)
     if not plan:
         raise HTTPException(404, "plan not found")
-    plan.stripe_price_id = stripe_price_id
+    if stripe_price_id is not None:
+        plan.stripe_price_id = stripe_price_id
+    if monthly_message_limit is not None:
+        plan.monthly_message_limit = monthly_message_limit
     session.add(plan)
     session.commit()
     session.refresh(plan)

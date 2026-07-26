@@ -291,6 +291,7 @@ Auth via header `Authorization: Bearer <token>`. La colonna *Auth* indica quale 
 | `/tickets/{id}/reply` | POST | 👤 | Risposta operatore (via ticket) |
 | `/conversations/{id}/reply` | POST | 👤 | Risposta operatore diretta dalla conversazione (chiude eventuali ticket aperti, notifica il visitatore) |
 | `/stats` | GET | 👤 | Contatori conversazioni |
+| `/usage` | GET | 🔑/👤 | Uso messaggi del mese vs quota del piano (usato/limite/rimanenti) — per plugin e panel |
 | `/knowledge-base` | GET | 👤 | Documenti/pagine (raggruppati, con conteggio chunk) e prodotti sincronizzati |
 | `/me` | GET | 👤 | Profilo operatore: email, nome client, api_key del widget |
 | `/me/password` | POST | 👤 | Cambia la propria password |
