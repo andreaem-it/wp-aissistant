@@ -134,10 +134,15 @@
   let lastMessageId = 0;
   let pollTimer = null;
 
+  // once handed to an operator, no AI is answering — don't show "AI sta scrivendo"
+  function isEscalated(conversationId) {
+    return conversationId && localStorage.getItem(ESCALATED_KEY) === String(conversationId);
+  }
+
   async function sendMessage(message, messages, retried) {
     // on a retry, ignore the stored conversation id (it was stale) and start fresh
     const conversationId = retried ? null : localStorage.getItem(CONV_KEY);
-    setTyping(messages, true);
+    if (!isEscalated(conversationId)) setTyping(messages, true);
     let res;
     try {
       res = await fetch(`${WPAI.backendUrl}/chat`, {
@@ -187,7 +192,7 @@
   async function sendMessageStream(message, messages, retried) {
     // on a retry, ignore the stored conversation id (it was stale) and start fresh
     const conversationId = retried ? null : localStorage.getItem(CONV_KEY);
-    setTyping(messages, true);
+    if (!isEscalated(conversationId)) setTyping(messages, true);
     let res;
     try {
       res = await fetch(`${WPAI.backendUrl}/chat/stream`, {

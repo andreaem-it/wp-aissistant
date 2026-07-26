@@ -13,15 +13,23 @@ export default function Conversations() {
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
 
-  const loadList = () => api.conversations().then(setItems);
-  const loadMessages = (id) => api.messages(id).then((d) => setMessages(d.messages));
+  const loadList = () => api.conversations().then(setItems).catch(() => {});
+  const loadMessages = (id) => api.messages(id).then((d) => setMessages(d.messages)).catch(() => {});
 
-  useEffect(() => { loadList(); }, []);
+  // keep the list fresh (new/updated conversations) without a manual reload
+  useEffect(() => {
+    loadList();
+    const id = setInterval(loadList, 10000);
+    return () => clearInterval(id);
+  }, []);
 
+  // poll the open conversation so operator replies / new visitor messages appear live
   useEffect(() => {
     if (!selected) return;
-    loadMessages(selected);
     setDraft("");
+    loadMessages(selected);
+    const id = setInterval(() => loadMessages(selected), 4000);
+    return () => clearInterval(id);
   }, [selected]);
 
   const send = async () => {

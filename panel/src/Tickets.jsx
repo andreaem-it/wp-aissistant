@@ -4,7 +4,7 @@ import { api } from "./api.js";
 
 const ROLE_LABEL = { user: "Visitatore", assistant: "AI", operator: "Operatore" };
 
-function TicketCard({ ticket, conversation, draft, setDraft, onReply }) {
+function TicketCard({ ticket, conversation, draft, setDraft, onReply, sending }) {
   const [messages, setMessages] = useState(null);
 
   useEffect(() => {
@@ -47,7 +47,9 @@ function TicketCard({ ticket, conversation, draft, setDraft, onReply }) {
         onChange={(e) => setDraft(e.target.value)}
         placeholder="Scrivi la risposta per il cliente..."
       />
-      <button className="wpai-btn" onClick={() => onReply(ticket.id)}>Rispondi</button>
+      <button className="wpai-btn" onClick={() => onReply(ticket.id)} disabled={sending || !(draft || "").trim()}>
+        {sending ? "Invio…" : "Rispondi"}
+      </button>
     </div>
   );
 }
@@ -55,14 +57,25 @@ function TicketCard({ ticket, conversation, draft, setDraft, onReply }) {
 export default function Tickets() {
   const [items, setItems] = useState([]);
   const [drafts, setDrafts] = useState({});
+  const [sendingId, setSendingId] = useState(null);
 
-  const load = () => api.tickets("open").then(setItems);
-  useEffect(() => { load(); }, []);
+  const load = () => api.tickets("open").then(setItems).catch(() => {});
+  useEffect(() => {
+    load();
+    const id = setInterval(load, 10000); // surface new tickets without a manual reload
+    return () => clearInterval(id);
+  }, []);
 
   const send = async (id) => {
-    await api.replyTicket(id, drafts[id] || "");
-    setDrafts((d) => ({ ...d, [id]: "" }));
-    load();
+    if (sendingId) return; // guard against double-submit -> duplicate replies
+    setSendingId(id);
+    try {
+      await api.replyTicket(id, drafts[id] || "");
+      setDrafts((d) => ({ ...d, [id]: "" }));
+      load();
+    } finally {
+      setSendingId(null);
+    }
   };
 
   return (
@@ -83,6 +96,7 @@ export default function Tickets() {
             draft={drafts[ticket.id]}
             setDraft={(v) => setDrafts((d) => ({ ...d, [ticket.id]: v }))}
             onReply={send}
+            sending={sendingId === ticket.id}
           />
         ))}
       </div>

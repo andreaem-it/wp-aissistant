@@ -2,6 +2,12 @@
 
 Tutte le modifiche rilevanti del plugin WP AIssistant.
 
+## [0.5.2] - 2026-07-26
+
+- Fix: nessun indicatore "sta scrivendo" quando la conversazione è escalata a un
+  operatore (helper `isEscalated`); il messaggio del cliente va all'operatore senza
+  fingere una risposta AI.
+
 ## [0.5.1] - 2026-07-26
 
 - Fix: auto-recovery su 404. Un `wpai_conversation_id` in localStorage non più valido
