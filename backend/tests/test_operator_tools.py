@@ -50,6 +50,19 @@ def test_operator_name_and_typing_indicator(client, tenant):
     assert poll["operator_typing"] == "Giulia"
 
 
+def test_teach_knowledge_enqueues_and_ingests(client, tenant, drain):
+    r = client.post("/knowledge/teach", headers=tenant["op"],
+                    json={"title": "Resi", "content": "I resi sono accettati entro 30 giorni."})
+    assert r.status_code == 200 and r.json()["job_id"]
+    drain()  # run the ingest worker synchronously
+    kb = client.get("/knowledge-base", headers=tenant["op"]).json()
+    assert any("kb-manuale" in d["source_ref"] for d in kb["documents"])
+
+
+def test_teach_knowledge_requires_content(client, tenant):
+    assert client.post("/knowledge/teach", headers=tenant["op"], json={"content": "  "}).status_code == 400
+
+
 def test_conversation_info_not_leaked_to_widget(client, tenant):
     # the visitor-facing /messages endpoint must not expose operator info fields
     conv_id = client.post("/chat", headers=tenant["key"], json={"visitor_id": "v", "message": "ciao"}).json()["conversation_id"]

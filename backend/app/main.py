@@ -338,6 +338,25 @@ async def ingest_document(file: UploadFile, operator: Operator = Depends(require
     return {"ok": True, "job_id": job.id, "status": job.status, "chars": len(text)}
 
 
+@app.post("/knowledge/teach")
+def teach_knowledge(
+    content: str = Body(...),
+    title: str = Body(""),
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
+    """Human-in-the-loop KB learning: the operator adds free text (e.g. a FAQ answer learned in
+    chat) that goes through the same ingest pipeline (chunk + embed). Labeled 'kb-manuale' so it
+    shows up in the knowledge base list and can be re-synced/removed like any other source."""
+    if not content.strip():
+        raise HTTPException(400, "content required")
+    text = f"{title.strip()}\n\n{content}" if title.strip() else content
+    ref = f"kb-manuale: {title.strip()}" if title.strip() else "kb-manuale"
+    job = _enqueue(session, operator.client_id, "document", {"source_ref": ref, "text": text})
+    _audit(session, "operator", operator.email, "knowledge.teach", target=ref, client_id=operator.client_id)
+    return {"ok": True, "job_id": job.id, "status": job.status}
+
+
 @app.post("/ingest/site-page")
 def ingest_site_page(url: str = Body(...), text: str = Body(...), client: Client = Depends(rate_limit_ingest), session: Session = Depends(get_session)):
     """Called by the WP plugin on publish/update to push page/product content. The worker

@@ -76,6 +76,7 @@ export const api = {
     form.append("file", file);
     return call("/ingest/document", { method: "POST", body: form });
   },
+  teachKnowledge: (title, content) => call("/knowledge/teach", { method: "POST", body: { title, content } }),
   me: () => call("/me"),
   setName: (name) => call("/me/name", { method: "POST", body: { name } }),
   typing: (id) => call(`/conversations/${id}/typing`, { method: "POST" }),

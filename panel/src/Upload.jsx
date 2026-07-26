@@ -1,6 +1,48 @@
 import { useEffect, useState } from "react";
-import { UploadCloud, CheckCircle2, XCircle, Loader2, FileText, Globe, Package, Inbox } from "lucide-react";
+import { UploadCloud, CheckCircle2, XCircle, Loader2, FileText, Globe, Package, Inbox, GraduationCap } from "lucide-react";
 import { api } from "./api.js";
+
+function TeachCard({ onTaught }) {
+  const [form, setForm] = useState({ title: "", content: "" });
+  const [status, setStatus] = useState(null);
+  const [saving, setSaving] = useState(false);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    if (!form.content.trim()) return;
+    setSaving(true);
+    setStatus(null);
+    try {
+      await api.teachKnowledge(form.title.trim(), form.content.trim());
+      setForm({ title: "", content: "" });
+      setStatus("ok");
+      onTaught();
+    } catch {
+      setStatus("error");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="wpai-card" style={{ marginTop: 20 }}>
+      <div className="wpai-card-title"><GraduationCap size={15} /> Insegna una conoscenza</div>
+      <p style={{ fontSize: 12.5, color: "var(--text-muted)", margin: "6px 0 12px" }}>
+        Aggiungi testo (es. una risposta imparata in chat) alla knowledge base. Viene digerito
+        dall'AI come i contenuti sincronizzati.
+      </p>
+      <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <input value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} placeholder="Titolo (opzionale), es. Politica di reso" />
+        <textarea rows={4} value={form.content} onChange={(e) => setForm((f) => ({ ...f, content: e.target.value }))} placeholder="Es. I resi sono accettati entro 30 giorni dall'acquisto, con scontrino…" />
+        <button className="wpai-btn" type="submit" disabled={saving || !form.content.trim()} style={{ alignSelf: "flex-start" }}>
+          {saving ? "Aggiunta…" : "Aggiungi alla knowledge base"}
+        </button>
+      </form>
+      {status === "ok" && <div className="wpai-success" style={{ marginTop: 10, marginBottom: 0 }}>Aggiunto — sarà disponibile tra pochi secondi (embedding in corso).</div>}
+      {status === "error" && <div className="wpai-error" style={{ marginTop: 10, marginBottom: 0 }}>Errore, riprova.</div>}
+    </div>
+  );
+}
 
 function sourceLabel(source, ref) {
   if (source === "document") return ref;
@@ -50,6 +92,8 @@ export default function Upload() {
           {state.kind === "loading" ? "Caricamento in corso…" : state.text}
         </div>
       )}
+
+      <TeachCard onTaught={() => { loadKb(); setTimeout(loadKb, 3000); }} />
 
       {kb && (kb.documents.length > 0 || kb.products.length > 0) ? (
         <>
