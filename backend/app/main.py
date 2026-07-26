@@ -668,6 +668,29 @@ def chat_feedback(
     return {"ok": True}
 
 
+@app.post("/chat/contact")
+def chat_contact(
+    conversation_id: int = Body(...),
+    email: str = Body(...),
+    url: str | None = Body(None),
+    client: Client = Depends(require_client),
+    session: Session = Depends(get_session),
+):
+    """The visitor leaves an email (typically after escalation) to be notified when an operator
+    replies. `url` is the page they're on, used as the return link in the notification email."""
+    if "@" not in email:
+        raise HTTPException(400, "invalid email")
+    conv = session.get(Conversation, conversation_id)
+    if not conv or conv.client_id != client.id:
+        raise HTTPException(404, "conversation not found")
+    conv.visitor_email = email.strip()[:255]
+    if url:
+        conv.visitor_url = url[:1000]
+    session.add(conv)
+    session.commit()
+    return {"ok": True}
+
+
 @app.get("/conversations/{conversation_id}/messages")
 def conversation_messages(conversation_id: int, after_id: int = 0, client_id: int = Depends(resolve_client_id), session: Session = Depends(get_session)):
     """Polled by the chat widget (client api_key) and read by the panel (operator token)."""
@@ -721,6 +744,10 @@ def reply_ticket(ticket_id: int, reply: str, operator: Operator = Depends(requir
     session.add(conv)
     session.commit()
     _audit(session, "operator", operator.email, "ticket.reply", target=f"ticket:{ticket_id}", client_id=operator.client_id)
+    # notify the visitor by email if they left one (best-effort: a mail failure never blocks the reply)
+    if conv.visitor_email:
+        client = session.get(Client, operator.client_id)
+        email_service.send_visitor_reply(conv.visitor_email, client.name if client else "il supporto", conv.visitor_url)
     return {"ok": True}
 
 

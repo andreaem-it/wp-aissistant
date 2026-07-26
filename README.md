@@ -280,6 +280,7 @@ Auth via header `Authorization: Bearer <token>`. La colonna *Auth* indica quale 
 | `/chat` | POST | 🔑 | Messaggio visitatore → risposta o escalation (ritorna `message_id`) |
 | `/chat/stream` | POST | 🔑 | Come `/chat` ma in streaming SSE (token progressivi); il widget lo usa con fallback su `/chat` |
 | `/chat/feedback` | POST | 🔑 | Valutazione 👍/👎 su una risposta AI (scoping per conversazione) |
+| `/chat/contact` | POST | 🔑 | Il visitatore lascia l'email (all'escalation) per essere notificato alla risposta operatore |
 | `/ingest/site-page` | POST | 🔑 | Push contenuto pagina/articolo (dal plugin) |
 | `/ingest/product` | POST | 🔑 | Push prodotto WooCommerce (dal plugin) |
 | `/ingest/document` | POST | 👤 | Upload documento (PDF/immagine/testo) dal panel |

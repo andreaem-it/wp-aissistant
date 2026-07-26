@@ -66,6 +66,10 @@ class Conversation(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     client_id: int = Field(index=True, foreign_key="client.id")
     visitor_id: str
+    # optional: the visitor can leave an email (on escalation) to be notified when an operator
+    # replies; visitor_url is the page they chatted from, used as the link back in that email.
+    visitor_email: Optional[str] = None
+    visitor_url: Optional[str] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
     # updated_at is touched on every new message / status change; closed_at is stamped when a
     # conversation is closed. Together they let the stats compute response times & durations.

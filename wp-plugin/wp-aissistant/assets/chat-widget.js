@@ -2,6 +2,7 @@
   const VISITOR_KEY = "wpai_visitor_id";
   const CONV_KEY = "wpai_conversation_id";
   const ESCALATED_KEY = "wpai_escalated_shown";
+  const CONTACT_KEY = "wpai_contact_given";
 
   function visitorId() {
     let id = localStorage.getItem(VISITOR_KEY);
@@ -73,6 +74,47 @@
     container.scrollTop = container.scrollHeight;
   }
 
+  // On escalation, let the visitor leave an email to be notified when an operator replies.
+  // Shown once per conversation; posts the email + current page URL to /chat/contact.
+  function addContactForm(container, conversationId) {
+    if (!conversationId || localStorage.getItem(CONTACT_KEY) === String(conversationId)) return;
+    const wrap = document.createElement("div");
+    wrap.className = "wpai-contact";
+    const label = document.createElement("div");
+    label.className = "wpai-contact-label";
+    label.textContent = "Lascia la tua email per essere avvisato della risposta:";
+    const form = document.createElement("form");
+    form.className = "wpai-contact-form";
+    const input = document.createElement("input");
+    input.type = "email";
+    input.required = true;
+    input.placeholder = "tua@email.it";
+    const btn = document.createElement("button");
+    btn.type = "submit";
+    btn.textContent = "Avvisami";
+    form.appendChild(input);
+    form.appendChild(btn);
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      try {
+        await fetch(`${WPAI.backendUrl}/chat/contact`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${WPAI.apiKey}` },
+          body: JSON.stringify({ conversation_id: Number(conversationId), email: input.value, url: window.location.href }),
+        });
+        localStorage.setItem(CONTACT_KEY, String(conversationId));
+        wrap.textContent = "✓ Ti avviseremo via email appena rispondiamo.";
+        wrap.className = "wpai-contact done";
+      } catch (e2) {
+        // best-effort: don't block the chat if the contact save fails
+      }
+    });
+    wrap.appendChild(label);
+    wrap.appendChild(form);
+    container.appendChild(wrap);
+    container.scrollTop = container.scrollHeight;
+  }
+
   function setTyping(container, on) {
     let el = container.querySelector("#wpai-typing");
     if (on) {
@@ -122,6 +164,7 @@
       if (localStorage.getItem(ESCALATED_KEY) !== String(data.conversation_id)) {
         localStorage.setItem(ESCALATED_KEY, String(data.conversation_id));
         addMessage(messages, "system", "La tua richiesta è stata inoltrata a un operatore, ti risponderemo qui appena possibile.");
+        addContactForm(messages, data.conversation_id);
       }
     } else {
       localStorage.removeItem(ESCALATED_KEY);
@@ -178,6 +221,7 @@
         if (localStorage.getItem(ESCALATED_KEY) !== String(convId)) {
           localStorage.setItem(ESCALATED_KEY, String(convId));
           addMessage(messages, "system", "La tua richiesta è stata inoltrata a un operatore, ti risponderemo qui appena possibile.");
+          addContactForm(messages, convId);
         }
       } else if (evt.type === "done") {
         setTyping(messages, false);

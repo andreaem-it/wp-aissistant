@@ -161,6 +161,16 @@ def send_password_reset(to: str, token: str) -> bool:
     return send_email(to, "Reimposta la password — WP AIssistant", body)
 
 
+def send_visitor_reply(to: str, client_name: str, page_url: str | None) -> bool:
+    """Notify a visitor that a human operator replied to their conversation."""
+    if page_url:
+        cta = f"Riapri la chat per leggerla e continuare la conversazione:\n{page_url}\n\n"
+    else:
+        cta = "Torna sul sito e riapri la chat per leggerla.\n\n"
+    body = f"Hai ricevuto una risposta dal supporto di {client_name}.\n\n{cta}Grazie!\n"
+    return send_email(to, f"Nuova risposta dal supporto — {client_name}", body)
+
+
 def send_test(to: str) -> bool:
     """Send a diagnostic email so an admin can confirm SMTP works end-to-end."""
     return send_email(

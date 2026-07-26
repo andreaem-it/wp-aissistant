@@ -2,6 +2,12 @@
 
 Tutte le modifiche rilevanti del plugin WP AIssistant.
 
+## [0.5.0] - 2026-07-26
+
+- Nuovo: alla escalation il widget mostra un campo email; il visitatore può lasciarla
+  (`POST /chat/contact`, con l'URL della pagina) per ricevere una notifica via email
+  quando l'operatore risponde. Mostrato una volta per conversazione.
+
 ## [0.4.0] - 2026-07-26
 
 - Nuovo: streaming delle risposte AI via SSE (`POST /chat/stream`). Il widget renderizza
