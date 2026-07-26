@@ -110,3 +110,17 @@ def send_password_reset(to: str, token: str) -> bool:
         "Se non sei stato tu, ignora questa email: la password non verrà cambiata.\n"
     )
     return send_email(to, "Reimposta la password — WP AIssistant", body)
+
+
+def send_test(to: str) -> bool:
+    """Send a diagnostic email so an admin can confirm SMTP works end-to-end."""
+    return send_email(
+        to,
+        "Email di test — WP AIssistant",
+        "Se leggi questo messaggio, la configurazione SMTP di WP AIssistant funziona. 🎉\n",
+    )
+
+
+def config_status() -> dict:
+    """Non-secret SMTP config summary for the admin health/panel (never exposes the password)."""
+    return {"configured": enabled(), "host": SMTP_HOST, "from": SMTP_FROM, "tls": SMTP_TLS}

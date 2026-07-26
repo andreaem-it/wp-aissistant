@@ -50,6 +50,23 @@ def test_admin_health(client):
     assert h["status"] in ("ok", "degraded")
     assert set(h["ingest_queue"]) == {"queued", "processing", "done", "error"}
     assert "chat" in h["models"]
+    assert "configured" in h["email"]  # SMTP status surfaced
+
+
+def test_admin_test_email_reports_not_configured(client):
+    # no SMTP in tests => the endpoint says so instead of pretending it sent
+    r = client.post("/admin/test-email", headers=ADMIN, json={"to": "x@y.it"}).json()
+    assert r["configured"] is False
+    assert r["sent"] is False
+
+
+def test_admin_test_email_sends_when_configured(client, monkeypatch):
+    from app import email as email_service
+    monkeypatch.setattr(email_service, "enabled", lambda: True)
+    monkeypatch.setattr(email_service, "send_test", lambda to: True)
+    r = client.post("/admin/test-email", headers=ADMIN, json={"to": "x@y.it"}).json()
+    assert r["configured"] is True
+    assert r["sent"] is True
 
 
 def test_admin_problematic_lists_model_escalations(client, tenant, monkeypatch):

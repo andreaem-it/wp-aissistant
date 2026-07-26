@@ -903,8 +903,19 @@ def admin_health(session: Session = Depends(get_session)):
         "worker_enabled": os.getenv("INGEST_WORKER_ENABLED", "true").lower() == "true",
         "migration": migration,
         "models": {"chat": CHAT_MODEL, "embed": EMBED_MODEL},
+        "email": email_service.config_status(),
         "version": os.getenv("APP_VERSION", "dev"),
     }
+
+
+@app.post("/admin/test-email", dependencies=[Depends(require_admin)])
+def admin_test_email(to: str = Body(..., embed=True)):
+    """Send a diagnostic email to verify SMTP end-to-end. Reports whether SMTP is configured
+    and whether the send succeeded (never exposes credentials)."""
+    if not email_service.enabled():
+        return {"configured": False, "sent": False, "detail": "SMTP non configurato (imposta SMTP_HOST)"}
+    sent = email_service.send_test(to)
+    return {"configured": True, "sent": sent, "detail": "Inviata" if sent else "Invio fallito — controlla le credenziali SMTP"}
 
 
 @app.get("/admin/problematic", dependencies=[Depends(require_admin)])

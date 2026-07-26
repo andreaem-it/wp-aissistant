@@ -401,10 +401,12 @@ function OverviewView() {
 
 function HealthView() {
   const [h, setH] = useState(null);
+  const [emailResult, setEmailResult] = useState("");
   const load = () => adminApi.health().then(setH);
   useEffect(() => { load(); }, []);
   if (!h) return <p style={{ color: "var(--text-muted)" }}>Caricamento…</p>;
 
+  const email = h.email || {};
   const rows = [
     ["Stato generale", h.status],
     ["Database", h.db],
@@ -413,6 +415,7 @@ function HealthView() {
     ["Migrazione", h.migration || "—"],
     ["Modello chat", h.models.chat],
     ["Modello embed", h.models.embed],
+    ["Email (SMTP)", email.configured ? `configurato (${email.host}, from ${email.from})` : "NON configurato"],
     ["Versione", h.version],
   ];
   return (
@@ -430,6 +433,33 @@ function HealthView() {
             ))}
           </tbody>
         </table>
+      </div>
+
+      <div className="wpai-card" style={{ marginTop: 16 }}>
+        <div className="wpai-card-title" style={{ marginBottom: 10 }}>Verifica email SMTP</div>
+        <form
+          onSubmit={async (e) => {
+            e.preventDefault();
+            const to = new FormData(e.target).get("to");
+            setEmailResult("Invio in corso…");
+            try {
+              const r = await adminApi.testEmail(to);
+              setEmailResult(r.sent ? `✓ ${r.detail} a ${to}` : `✗ ${r.detail}`);
+            } catch {
+              setEmailResult("✗ Errore nella richiesta.");
+            }
+          }}
+          style={{ display: "flex", gap: 10, alignItems: "flex-end" }}
+        >
+          <div className="wpai-field" style={{ flex: 1, margin: 0 }}>
+            <label>Invia un'email di test a</label>
+            <input name="to" type="email" placeholder="tua@email.it" required />
+          </div>
+          <button className="wpai-btn" type="submit" disabled={!email.configured} title={email.configured ? "" : "Configura prima SMTP su Railway"}>
+            Invia test
+          </button>
+        </form>
+        {emailResult && <p style={{ fontSize: 12.5, color: "var(--text-muted)", margin: "10px 0 0" }}>{emailResult}</p>}
       </div>
     </div>
   );

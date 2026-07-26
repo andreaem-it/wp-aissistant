@@ -46,6 +46,7 @@ export const adminApi = {
   // observability (Fase 3b/3c)
   stats: () => call("/admin/stats"),
   health: () => call("/admin/health"),
+  testEmail: (to) => call("/admin/test-email", { method: "POST", body: { to } }),
   audit: (clientId) => call(`/admin/audit${clientId ? `?client_id=${clientId}` : ""}`),
   problematic: (includeUngrounded) =>
     call(`/admin/problematic${includeUngrounded ? "?include_ungrounded=true" : ""}`),
