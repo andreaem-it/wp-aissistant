@@ -22,8 +22,9 @@ if _api_base:
 LLM_TIMEOUT = float(os.getenv("LLM_TIMEOUT_SECONDS", "30"))
 LLM_RETRIES = int(os.getenv("LLM_RETRIES", "2"))
 # request token usage in streamed responses (so streamed replies log real token counts).
-# Auto-disabled at runtime if the provider rejects stream_options; force off via env if needed.
-_stream_usage_supported = os.getenv("STREAM_INCLUDE_USAGE", "true").lower() == "true"
+# Opt-in (default off) because it touches the live chat path: enable once you've confirmed your
+# provider accepts stream_options. Auto-disabled at runtime anyway if the provider rejects it.
+_stream_usage_supported = os.getenv("STREAM_INCLUDE_USAGE", "false").lower() == "true"
 
 ESCALATE_PREFIX = "ESCALATE:"
 ORDER_LOOKUP_PREFIX = "ORDER_LOOKUP:"
