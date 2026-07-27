@@ -100,3 +100,44 @@ def test_embed_cloudflare_raises_llm_unavailable_on_api_error(monkeypatch):
     monkeypatch.setattr(llm.urllib.request, "urlopen", _fake_urlopen)
     with pytest.raises(llm.LLMUnavailableError):
         llm.embed("ciao")
+
+
+def _fake_stream_chunks(text, with_usage):
+    """A fake streaming response: content chunks, plus a final usage chunk if requested."""
+    for tok in text:
+        delta = types.SimpleNamespace(content=tok)
+        yield types.SimpleNamespace(model="m", usage=None, choices=[types.SimpleNamespace(delta=delta)])
+    if with_usage:
+        yield types.SimpleNamespace(model="m", usage=types.SimpleNamespace(prompt_tokens=7, completion_tokens=3), choices=[])
+
+
+def test_stream_captures_token_usage(monkeypatch):
+    monkeypatch.setattr(llm, "_stream_usage_supported", True)
+
+    def _completion(model, messages, **kwargs):
+        # provider supports stream_options -> emits usage
+        assert kwargs.get("stream_options") == {"include_usage": True}
+        return _fake_stream_chunks("ok", with_usage=True)
+
+    monkeypatch.setattr(llm.litellm, "completion", _completion)
+    events = list(llm.chat_stream("sys", [], "ciao"))
+    meta = events[-1][1]
+    assert meta["tokens_prompt"] == 7 and meta["tokens_completion"] == 3
+
+
+def test_stream_falls_back_when_provider_rejects_stream_options(monkeypatch):
+    monkeypatch.setattr(llm, "_stream_usage_supported", True)
+    calls = {"with_opts": 0, "without": 0}
+
+    def _completion(model, messages, **kwargs):
+        if "stream_options" in kwargs:
+            calls["with_opts"] += 1
+            raise TypeError("provider rejects stream_options")
+        calls["without"] += 1
+        return _fake_stream_chunks("ok", with_usage=False)
+
+    monkeypatch.setattr(llm.litellm, "completion", _completion)
+    events = list(llm.chat_stream("sys", [], "ciao"))
+    assert events[-1][0] == "meta"                 # streamed successfully via the fallback
+    assert calls["with_opts"] == 1 and calls["without"] == 1
+    assert llm._stream_usage_supported is False    # remembered: don't retry with options again

@@ -21,6 +21,9 @@ if _api_base:
 # knobs so a slow/unreachable Ollama fails fast instead of hanging a request indefinitely.
 LLM_TIMEOUT = float(os.getenv("LLM_TIMEOUT_SECONDS", "30"))
 LLM_RETRIES = int(os.getenv("LLM_RETRIES", "2"))
+# request token usage in streamed responses (so streamed replies log real token counts).
+# Auto-disabled at runtime if the provider rejects stream_options; force off via env if needed.
+_stream_usage_supported = os.getenv("STREAM_INCLUDE_USAGE", "true").lower() == "true"
 
 ESCALATE_PREFIX = "ESCALATE:"
 ORDER_LOOKUP_PREFIX = "ORDER_LOOKUP:"
@@ -127,16 +130,25 @@ def chat_stream(system: str, history: list[dict], user_message: str):
     LLMUnavailableError if the provider is unreachable (before or mid-stream)."""
     messages = [{"role": "system", "content": _chat_instructions(system)}, *history, {"role": "user", "content": user_message}]
     start = time.monotonic()
+    kwargs = dict(model=CHAT_MODEL, messages=messages, timeout=LLM_TIMEOUT, num_retries=LLM_RETRIES, stream=True)
+    # Ask for token usage in the stream so streamed replies aren't logged with tokens=0. Not
+    # every provider (e.g. Cloudflare Workers AI via litellm) accepts stream_options; if it's
+    # rejected we retry once without it and remember, so we never pay the double call again.
+    global _stream_usage_supported
     try:
-        # NB: no stream_options={"include_usage":...} — not every provider (e.g. Cloudflare
-        # Workers AI via litellm) accepts it, and a rejected param would fail every stream and
-        # escalate every message. Cost of omitting it: token counts are 0 for streamed replies.
-        stream = litellm.completion(
-            model=CHAT_MODEL, messages=messages, timeout=LLM_TIMEOUT, num_retries=LLM_RETRIES,
-            stream=True,
-        )
-    except Exception as exc:
-        raise LLMUnavailableError(str(exc)) from exc
+        if _stream_usage_supported:
+            stream = litellm.completion(**kwargs, stream_options={"include_usage": True})
+        else:
+            stream = litellm.completion(**kwargs)
+    except Exception as first:
+        if _stream_usage_supported:
+            try:
+                stream = litellm.completion(**kwargs)  # provider likely rejected stream_options
+                _stream_usage_supported = False
+            except Exception as exc:
+                raise LLMUnavailableError(str(exc)) from exc
+        else:
+            raise LLMUnavailableError(str(first)) from first
 
     model = CHAT_MODEL
     usage = None
