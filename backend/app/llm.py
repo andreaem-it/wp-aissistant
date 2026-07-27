@@ -24,10 +24,12 @@ LLM_RETRIES = int(os.getenv("LLM_RETRIES", "2"))
 
 ESCALATE_PREFIX = "ESCALATE:"
 ORDER_LOOKUP_PREFIX = "ORDER_LOOKUP:"
-# ponytail: the model doesn't reliably reproduce ORDER_LOOKUP_PREFIX verbatim (seen emitting
-# "ORDERS_LOOKUP:" instead) — match any single leading "...LOOKUP...:" token instead of an
-# exact string, so a close variant still gets parsed instead of leaking to the visitor as text.
-ORDER_LOOKUP_RE = re.compile(r"^\s*[A-Z_ ]*LOOKUP[A-Z_ ]*:\s*(.+)", re.I)
+# ponytail: the model doesn't reliably reproduce the marker word itself — seen "ORDERS_LOOKUP:"
+# and even a fully hallucinated "ORDINELISTO:". Matching on the word is a losing game, so match
+# the marker's *shape* instead: a single short label, a colon, an order number, a pipe, an
+# identifier. That "N | text" shape essentially never occurs in an ordinary reply, so it's a
+# safe anchor even when the label itself is unpredictable.
+ORDER_LOOKUP_RE = re.compile(r"^\s*[A-Za-z_]{3,30}:\s*(\d{2,})\s*\|\s*([^\n]+)", re.I)
 
 
 class LLMUnavailableError(Exception):
@@ -96,7 +98,7 @@ def chat(system: str, history: list[dict], user_message: str) -> dict:
         return {"escalate": text[len(ESCALATE_PREFIX):].strip() or "unspecified", **meta}
     lookup_match = ORDER_LOOKUP_RE.match(text)
     if lookup_match:
-        return {"order_lookup": lookup_match.group(1).strip(), **meta}
+        return {"order_lookup": f"{lookup_match.group(1)} | {lookup_match.group(2).strip()}", **meta}
     return {"reply": text, **meta}
 
 

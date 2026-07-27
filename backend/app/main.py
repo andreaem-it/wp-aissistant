@@ -696,7 +696,8 @@ def chat_stream_endpoint(
                 return
 
             if is_order_lookup:
-                order_number, _, identifier = ORDER_LOOKUP_RE.match(full).group(1).partition("|")
+                lookup_match = ORDER_LOOKUP_RE.match(full)
+                order_number, identifier = lookup_match.group(1), lookup_match.group(2)
                 origin = site_url or request.headers.get("origin") or request.headers.get("referer") or ""
                 data = _order_lookup(origin, client.api_key, order_number.strip(), identifier.strip(), wp_user_token)
                 reply_text = _format_order_reply(data)
