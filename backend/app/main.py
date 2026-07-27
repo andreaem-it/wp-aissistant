@@ -164,20 +164,37 @@ ALWAYS_ESCALATE_KEYWORDS = [
 ]
 
 # ponytail: same deterministic-safety-net pattern as ALWAYS_ESCALATE_KEYWORDS — the small model
-# doesn't reliably emit ORDER_LOOKUP_PREFIX even once it has both slots, and answering an order
-# question straight from the LLM risks hallucinated order data. When a message plainly contains
-# an order number + email, skip the LLM turn entirely and go straight to the plugin lookup.
+# doesn't reliably combine "order number" (turn 1) and "identifier" (turn 2) into a single
+# ORDER_LOOKUP marker across turns, and answering an order question straight from the LLM risks
+# hallucinated order data. Scan the *whole* conversation (not just the latest message) so the
+# two slots can land in different turns, same as a human support agent would track them.
 _ORDER_NUMBER_RE = re.compile(r"ordine\D{0,15}(\d{2,})|order\D{0,15}#?\s*(\d{2,})|#(\d{2,})", re.I)
 _EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
+_ASKED_IDENTIFIER_RE = re.compile(r"cognome|email|e-mail", re.I)
+# a bare identifier turn (e.g. "Prova Prova" answering "what's your surname?") — short, no
+# digits, no obvious question — not a strict name validator, just "doesn't look like something
+# else". Reused for the last user message, not run against normal free-text messages.
+_BARE_IDENTIFIER_RE = re.compile(r"^[^\d@?]{2,40}$")
 
 
-def _detect_order_lookup(message: str) -> tuple[str, str] | None:
-    order_match = _ORDER_NUMBER_RE.search(message)
-    email_match = _EMAIL_RE.search(message)
-    if not order_match or not email_match:
+def _detect_order_lookup(history: list[dict], message: str) -> tuple[str, str] | None:
+    full_text = "\n".join(h["content"] for h in history) + "\n" + message
+    order_match = _ORDER_NUMBER_RE.search(full_text)
+    if not order_match:
         return None
     order_number = next(g for g in order_match.groups() if g)
-    return order_number, email_match.group(0)
+
+    email_match = _EMAIL_RE.search(full_text)
+    if email_match:
+        return order_number, email_match.group(0)
+
+    # no email anywhere yet — accept a bare surname-shaped reply, but only right after the
+    # assistant itself asked for one (avoids treating an unrelated short message as an identifier)
+    last_assistant = next((h["content"] for h in reversed(history) if h["role"] == "assistant"), "")
+    if _ASKED_IDENTIFIER_RE.search(last_assistant) and _BARE_IDENTIFIER_RE.match(message.strip()):
+        return order_number, message.strip()
+
+    return None
 
 # ---- Dynamic CORS ----
 # CORS preflight (OPTIONS) doesn't carry the api_key, so it can't be scoped per-client at the
@@ -629,7 +646,7 @@ def chat_stream_endpoint(
                 yield _sse({"type": "quota_exceeded", "conversation_id": conv.id})
                 return
 
-            detected = _detect_order_lookup(message)
+            detected = _detect_order_lookup(history, message)
             if detected:
                 origin = site_url or request.headers.get("origin") or request.headers.get("referer") or ""
                 data = _order_lookup(origin, client.api_key, detected[0], detected[1], wp_user_token)
@@ -787,7 +804,7 @@ def chat_endpoint(
     if _over_quota(session, client.id):
         return {"conversation_id": conv.id, "status": "quota_exceeded", "reply": None}
 
-    detected = _detect_order_lookup(message)
+    detected = _detect_order_lookup(history, message)
     if detected:
         origin = site_url or request.headers.get("origin") or request.headers.get("referer") or ""
         data = _order_lookup(origin, client.api_key, detected[0], detected[1], wp_user_token)
