@@ -3,7 +3,7 @@ Tags: ai, chatbot, customer-support, woocommerce, rag
 Requires at least: 5.8
 Tested up to: 6.5
 Requires PHP: 7.4
-Stable tag: 0.7.1
+Stable tag: 0.8.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -36,6 +36,12 @@ Richiede un'istanza del backend WP AIssistant raggiungibile e una API Key del cl
 4. In *AI Assistant → Sincronizzazione* usa **Sincronizza ora** per il primo caricamento.
 
 == Changelog ==
+
+= 0.8.0 =
+* Nuovo: l'assistente può rispondere a domande sullo stato di un ordine WooCommerce
+  direttamente in chat. Chiede numero d'ordine + email/cognome per verificare l'identità
+  (visitatori anonimi vedono solo stato e data di spedizione); gli utenti loggati, se
+  proprietari dell'ordine, vedono i dettagli completi.
 
 = 0.7.1 =
 * Sostituite le emoji con icone reali (Font Awesome) nel widget e nelle pagine di

@@ -2,6 +2,18 @@
 
 Tutte le modifiche rilevanti del plugin WP AIssistant.
 
+## [0.8.0] - 2026-07-27
+
+- Nuovo: lookup ordine WooCommerce in chat. Nuova rotta REST `wpai/v1/order-lookup`
+  (autenticata con l'api_key del client, riusata come segreto condiviso col backend) che
+  restituisce stato + data spedizione per un visitatore anonimo verificato (numero ordine +
+  email/cognome), o i dettagli completi se il visitatore è loggato e proprietario
+  dell'ordine (token firmato HMAC a scadenza breve, `wp_ajax_wpai_user_token`).
+- Backend: nuovo marcatore testuale `ORDER_LOOKUP:` (stesso pattern di `ESCALATE:`) — il
+  modello raccoglie numero ordine + identificativo conversando, poi il backend richiama il
+  plugin e genera la risposta da template deterministico (mai una seconda chiamata al
+  modello per i dati dell'ordine, per evitare allucinazioni su dati finanziari).
+
 ## [0.7.1] - 2026-07-27
 
 - Sostituite tutte le emoji con icone reali (Font Awesome Free, via CDN cdnjs con SRI):

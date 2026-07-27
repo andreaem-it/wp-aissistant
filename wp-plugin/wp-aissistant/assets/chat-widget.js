@@ -13,6 +13,25 @@
     return id;
   }
 
+  // Logged-in WP users get a short-lived signed token proving their identity, so the backend
+  // can offer full order data instead of the basic status-only tier. Fetched once and cached
+  // for the page's lifetime (it's valid 5 minutes, plenty for a chat session).
+  let userTokenPromise = null;
+  function userToken() {
+    if (!WPAI.loggedIn) return Promise.resolve(null);
+    if (!userTokenPromise) {
+      userTokenPromise = fetch(WPAI.ajaxUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ action: "wpai_user_token" }),
+      })
+        .then((r) => r.json())
+        .then((res) => (res && res.success ? res.data.token : null))
+        .catch(() => null);
+    }
+    return userTokenPromise;
+  }
+
   function addMessage(container, role, text) {
     const el = document.createElement("div");
     el.className = "wpai-msg " + role;
@@ -155,6 +174,7 @@
           visitor_id: visitorId(),
           message,
           conversation_id: conversationId ? Number(conversationId) : null,
+          wp_user_token: await userToken(),
         }),
       });
     } finally {
@@ -204,6 +224,7 @@
           visitor_id: visitorId(),
           message,
           conversation_id: conversationId ? Number(conversationId) : null,
+          wp_user_token: await userToken(),
         }),
       });
     } catch (e) {

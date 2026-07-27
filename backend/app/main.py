@@ -39,7 +39,10 @@ from .db import (
 from . import email as email_service
 from fastapi.responses import StreamingResponse
 
-from .llm import ESCALATE_PREFIX, LLMUnavailableError
+import urllib.error
+import urllib.request
+
+from .llm import ESCALATE_PREFIX, ORDER_LOOKUP_PREFIX, LLMUnavailableError
 from .llm import chat as llm_chat
 from .llm import chat_stream as llm_chat_stream
 from .llm import embed
@@ -159,6 +162,22 @@ ALWAYS_ESCALATE_KEYWORDS = [
     "rimborso", "refund", "reclamo", "complaint", "denuncia",
     "cambio password account", "eliminare il mio account", "delete my account",
 ]
+
+# ponytail: same deterministic-safety-net pattern as ALWAYS_ESCALATE_KEYWORDS — the small model
+# doesn't reliably emit ORDER_LOOKUP_PREFIX even once it has both slots, and answering an order
+# question straight from the LLM risks hallucinated order data. When a message plainly contains
+# an order number + email, skip the LLM turn entirely and go straight to the plugin lookup.
+_ORDER_NUMBER_RE = re.compile(r"ordine\D{0,15}(\d{2,})|order\D{0,15}#?\s*(\d{2,})|#(\d{2,})", re.I)
+_EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
+
+
+def _detect_order_lookup(message: str) -> tuple[str, str] | None:
+    order_match = _ORDER_NUMBER_RE.search(message)
+    email_match = _EMAIL_RE.search(message)
+    if not order_match or not email_match:
+        return None
+    order_number = next(g for g in order_match.groups() if g)
+    return order_number, email_match.group(0)
 
 # ---- Dynamic CORS ----
 # CORS preflight (OPTIONS) doesn't carry the api_key, so it can't be scoped per-client at the
@@ -439,6 +458,48 @@ def _build_system(context: list[str]) -> str:
     )
 
 
+def _order_lookup(origin: str, api_key: str, order_number: str, identifier: str, user_token: str | None) -> dict:
+    """Calls the WP plugin's dedicated order-lookup REST route (the plugin's own api_key is
+    reused as the shared secret — no new credential to provision). `origin` is the widget
+    page's Origin header, i.e. the WP site's own base URL."""
+    req = urllib.request.Request(
+        origin.rstrip("/") + "/wp-json/wpai/v1/order-lookup",
+        data=json.dumps({"order_number": order_number, "identifier": identifier, "user_token": user_token}).encode(),
+        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            return json.loads(resp.read())
+    except urllib.error.HTTPError as exc:
+        try:
+            return json.loads(exc.read())
+        except Exception:  # noqa: BLE001
+            return {"error": str(exc)}
+    except Exception as exc:  # noqa: BLE001
+        return {"error": str(exc)}
+
+
+def _format_order_reply(data: dict) -> str:
+    """Deterministic templating from the plugin's structured response — never a second LLM
+    round-trip, so order/financial facts can't be hallucinated."""
+    if not data.get("verified"):
+        return ("Non sono riuscito a verificare l'ordine con i dati forniti. Controlla il "
+                "numero d'ordine e riprova, oppure chiedimi di parlare con un operatore.")
+    status = data.get("status") or "non disponibile"
+    shipping = data.get("shipping_date")
+    lines = [f"Stato dell'ordine: {status}."]
+    lines.append(f"Data di spedizione: {shipping}." if shipping else "Non è ancora stata registrata una data di spedizione.")
+    if data.get("verified") == "full":
+        if data.get("total"):
+            lines.append(f"Totale: {data['total']}.")
+        if data.get("items"):
+            lines.append("Articoli: " + ", ".join(data["items"]) + ".")
+        if data.get("shipping_address"):
+            lines.append(f"Indirizzo di spedizione: {data['shipping_address']}.")
+    return " ".join(lines)
+
+
 def _escalate(session, client_id, client_name, conv, reason, *, outcome, trigger,
               retrieval_meta=None, llm_meta=None, error=None):
     """Shared escalation: mark the conversation escalated, open a ticket, log + count the
@@ -503,9 +564,11 @@ def _over_quota(session: Session, client_id: int) -> bool:
 
 @app.post("/chat/stream")
 def chat_stream_endpoint(
+    request: Request,
     visitor_id: str = Body(...),
     message: str = Body(...),
     conversation_id: int | None = Body(None),
+    wp_user_token: str | None = Body(None),
     client: Client = Depends(rate_limit_chat),
     session: Session = Depends(get_session),
 ):
@@ -565,12 +628,30 @@ def chat_stream_endpoint(
                 yield _sse({"type": "quota_exceeded", "conversation_id": conv.id})
                 return
 
+            detected = _detect_order_lookup(message)
+            if detected:
+                origin = request.headers.get("origin") or request.headers.get("referer") or ""
+                data = _order_lookup(origin, client.api_key, detected[0], detected[1], wp_user_token)
+                reply_text = _format_order_reply(data)
+                reply_msg = Message(conversation_id=conv.id, role="assistant", content=reply_text)
+                s.add(reply_msg)
+                conv.updated_at = datetime.utcnow()
+                s.add(conv)
+                s.commit()
+                s.refresh(reply_msg)
+                _log_ai_response(s, client_id, conv.id, "order_lookup", message_id=reply_msg.id)
+                yield _sse({"type": "token", "text": reply_text})
+                yield _sse({"type": "done", "conversation_id": conv.id, "message_id": reply_msg.id, "products": []})
+                return
+
             retrieval_meta: list[dict] = []
             buffer = ""
             decided = False
             is_escalation = False
+            is_order_lookup = False
             full = ""
             meta: dict = {}
+            prefix_threshold = max(len(ESCALATE_PREFIX), len(ORDER_LOOKUP_PREFIX))
             try:
                 context, retrieval_meta = retrieve_with_meta(s, client_id, message)
                 system = _build_system(context)
@@ -581,13 +662,14 @@ def chat_stream_endpoint(
                     full += payload
                     if not decided:
                         buffer += payload
-                        # decide escalation only once enough has arrived to compare the prefix
-                        if len(buffer) >= len(ESCALATE_PREFIX) or "\n" in buffer:
+                        # decide the marker only once enough has arrived to compare both prefixes
+                        if len(buffer) >= prefix_threshold or "\n" in buffer:
                             decided = True
                             is_escalation = buffer.startswith(ESCALATE_PREFIX)
-                            if not is_escalation and buffer:
+                            is_order_lookup = buffer.startswith(ORDER_LOOKUP_PREFIX)
+                            if not is_escalation and not is_order_lookup and buffer:
                                 yield _sse({"type": "token", "text": buffer})
-                    elif not is_escalation:
+                    elif not is_escalation and not is_order_lookup:
                         yield _sse({"type": "token", "text": payload})
             except LLMUnavailableError as exc:
                 reason = "assistente AI non disponibile al momento"
@@ -599,7 +681,8 @@ def chat_stream_endpoint(
             # very short output that never reached the decision threshold
             if not decided:
                 is_escalation = full.startswith(ESCALATE_PREFIX)
-                if not is_escalation and full:
+                is_order_lookup = full.startswith(ORDER_LOOKUP_PREFIX)
+                if not is_escalation and not is_order_lookup and full:
                     yield _sse({"type": "token", "text": full})
 
             if is_escalation:
@@ -607,6 +690,22 @@ def chat_stream_endpoint(
                 _escalate(s, client_id, client_name, conv, reason, outcome="escalated_model",
                           trigger="model", retrieval_meta=retrieval_meta, llm_meta=meta)
                 yield _sse({"type": "escalated", "conversation_id": conv.id})
+                return
+
+            if is_order_lookup:
+                order_number, _, identifier = full[len(ORDER_LOOKUP_PREFIX):].partition("|")
+                origin = request.headers.get("origin") or request.headers.get("referer") or ""
+                data = _order_lookup(origin, client.api_key, order_number.strip(), identifier.strip(), wp_user_token)
+                reply_text = _format_order_reply(data)
+                reply_msg = Message(conversation_id=conv.id, role="assistant", content=reply_text)
+                s.add(reply_msg)
+                conv.updated_at = datetime.utcnow()
+                s.add(conv)
+                s.commit()
+                s.refresh(reply_msg)
+                _log_ai_response(s, client_id, conv.id, "order_lookup", retrieval_meta=retrieval_meta, llm_meta=meta, message_id=reply_msg.id)
+                yield _sse({"type": "token", "text": reply_text})
+                yield _sse({"type": "done", "conversation_id": conv.id, "message_id": reply_msg.id, "products": []})
                 return
 
             reply_msg = Message(conversation_id=conv.id, role="assistant", content=full)
@@ -631,9 +730,11 @@ def chat_stream_endpoint(
 
 @app.post("/chat")
 def chat_endpoint(
+    request: Request,
     visitor_id: str = Body(...),
     message: str = Body(...),
     conversation_id: int | None = Body(None),
+    wp_user_token: str | None = Body(None),
     client: Client = Depends(rate_limit_chat),
     session: Session = Depends(get_session),
 ):
@@ -681,6 +782,20 @@ def chat_endpoint(
     if _over_quota(session, client.id):
         return {"conversation_id": conv.id, "status": "quota_exceeded", "reply": None}
 
+    detected = _detect_order_lookup(message)
+    if detected:
+        origin = request.headers.get("origin") or request.headers.get("referer") or ""
+        data = _order_lookup(origin, client.api_key, detected[0], detected[1], wp_user_token)
+        reply_text = _format_order_reply(data)
+        reply_msg = Message(conversation_id=conv.id, role="assistant", content=reply_text)
+        session.add(reply_msg)
+        conv.updated_at = datetime.utcnow()
+        session.add(conv)
+        session.commit()
+        session.refresh(reply_msg)
+        _log_ai_response(session, client.id, conv.id, "order_lookup", message_id=reply_msg.id)
+        return {"conversation_id": conv.id, "status": "open", "reply": reply_text, "products": [], "message_id": reply_msg.id}
+
     retrieval_meta: list[dict] = []
     try:
         context, retrieval_meta = retrieve_with_meta(session, client.id, message)
@@ -715,6 +830,20 @@ def chat_endpoint(
         _log_ai_response(session, client.id, conv.id, "escalated_model", retrieval_meta=retrieval_meta, llm_meta=result)
         notify_new_ticket(client.name, conv.id, ticket.id, result["escalate"])
         return {"conversation_id": conv.id, "status": "escalated", "reply": None}
+
+    if "order_lookup" in result:
+        order_number, _, identifier = result["order_lookup"].partition("|")
+        origin = request.headers.get("origin") or request.headers.get("referer") or ""
+        data = _order_lookup(origin, client.api_key, order_number.strip(), identifier.strip(), wp_user_token)
+        reply_text = _format_order_reply(data)
+        reply_msg = Message(conversation_id=conv.id, role="assistant", content=reply_text)
+        session.add(reply_msg)
+        conv.updated_at = datetime.utcnow()
+        session.add(conv)
+        session.commit()
+        session.refresh(reply_msg)
+        _log_ai_response(session, client.id, conv.id, "order_lookup", retrieval_meta=retrieval_meta, llm_meta=result, message_id=reply_msg.id)
+        return {"conversation_id": conv.id, "status": "open", "reply": reply_text, "products": [], "message_id": reply_msg.id}
 
     reply_msg = Message(conversation_id=conv.id, role="assistant", content=result["reply"])
     session.add(reply_msg)

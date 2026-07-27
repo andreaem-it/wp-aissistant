@@ -22,6 +22,7 @@ LLM_TIMEOUT = float(os.getenv("LLM_TIMEOUT_SECONDS", "30"))
 LLM_RETRIES = int(os.getenv("LLM_RETRIES", "2"))
 
 ESCALATE_PREFIX = "ESCALATE:"
+ORDER_LOOKUP_PREFIX = "ORDER_LOOKUP:"
 
 
 class LLMUnavailableError(Exception):
@@ -70,14 +71,7 @@ def chat(system: str, history: list[dict], user_message: str) -> dict:
     schema instead of respecting it, so a text convention is more reliable and also
     works unchanged across OpenAI/Claude/Perplexity once those are wired in.
     """
-    instructions = (
-        f"{system}\n\nIf you cannot answer from the context above, or the request needs "
-        f"human authority (refunds, complaints, account changes, order-specific issues), "
-        f'you MUST respond with EXACTLY one line: "{ESCALATE_PREFIX} <short reason>" and '
-        f"nothing else — do not ask clarifying questions first, do not explain, do not "
-        f"apologize, just escalate immediately. Otherwise answer normally."
-    )
-    messages = [{"role": "system", "content": instructions}, *history, {"role": "user", "content": user_message}]
+    messages = [{"role": "system", "content": _chat_instructions(system)}, *history, {"role": "user", "content": user_message}]
     start = time.monotonic()
     try:
         resp = litellm.completion(
@@ -95,16 +89,24 @@ def chat(system: str, history: list[dict], user_message: str) -> dict:
     text = (resp.choices[0].message.content or "").strip()
     if text.startswith(ESCALATE_PREFIX):
         return {"escalate": text[len(ESCALATE_PREFIX):].strip() or "unspecified", **meta}
+    if text.startswith(ORDER_LOOKUP_PREFIX):
+        return {"order_lookup": text[len(ORDER_LOOKUP_PREFIX):].strip(), **meta}
     return {"reply": text, **meta}
 
 
 def _chat_instructions(system: str) -> str:
     return (
         f"{system}\n\nIf you cannot answer from the context above, or the request needs "
-        f"human authority (refunds, complaints, account changes, order-specific issues), "
-        f'you MUST respond with EXACTLY one line: "{ESCALATE_PREFIX} <short reason>" and '
-        f"nothing else — do not ask clarifying questions first, do not explain, do not "
-        f"apologize, just escalate immediately. Otherwise answer normally."
+        f"human authority (refunds, complaints, account changes), you MUST respond with "
+        f'EXACTLY one line: "{ESCALATE_PREFIX} <short reason>" and nothing else — do not ask '
+        f"clarifying questions first, do not explain, do not apologize, just escalate "
+        f"immediately. Otherwise answer normally.\n\n"
+        f"If the visitor asks about the status of an order, first ask them (in the same "
+        f"message, conversationally) for their order number and, to verify their identity, "
+        f"either their email address or their surname used on the order. Once you have BOTH "
+        f'the order number and that identifier in the conversation, respond with EXACTLY one '
+        f'line: "{ORDER_LOOKUP_PREFIX} <order number> | <email or surname>" and nothing else — '
+        f"no extra words, do not guess or make up order data yourself."
     )
 
 
