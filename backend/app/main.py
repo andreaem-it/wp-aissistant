@@ -624,6 +624,9 @@ def chat_stream_endpoint(
             ]
             s.add(Message(conversation_id=conv.id, role="user", content=message))
             conv.updated_at = datetime.utcnow()
+            if conv.status == "closed":
+                conv.status = "open"  # new visitor activity reopens a closed conversation
+                conv.closed_at = None
             s.add(conv)
             s.commit()
             metrics.chat_messages_total.inc()
@@ -776,6 +779,9 @@ def chat_endpoint(
     ]
     session.add(Message(conversation_id=conv.id, role="user", content=message))
     conv.updated_at = datetime.utcnow()
+    if conv.status == "closed":
+        conv.status = "open"  # new visitor activity reopens a closed conversation
+        conv.closed_at = None
     session.add(conv)
     session.commit()
     metrics.chat_messages_total.inc()
@@ -1054,6 +1060,30 @@ def reply_conversation(
     _audit(session, "operator", operator.email, "conversation.reply", target=f"conversation:{conversation_id}", client_id=operator.client_id)
     _notify_visitor_reply(session, operator.client_id, conv)
     return {"ok": True}
+
+
+@app.post("/conversations/{conversation_id}/status")
+def set_conversation_status(
+    conversation_id: int,
+    status: str = Body(..., embed=True),  # "closed" | "open"
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
+    """Operator marks a conversation as closed (resolved/archived) or reopens it. A new visitor
+    message auto-reopens a closed conversation."""
+    if status not in ("open", "closed"):
+        raise HTTPException(400, "status must be 'open' or 'closed'")
+    conv = session.get(Conversation, conversation_id)
+    if not conv or conv.client_id != operator.client_id:
+        raise HTTPException(404, "conversation not found")
+    now = datetime.utcnow()
+    conv.status = status
+    conv.updated_at = now
+    conv.closed_at = now if status == "closed" else None
+    session.add(conv)
+    session.commit()
+    _audit(session, "operator", operator.email, f"conversation.{status}", target=f"conversation:{conversation_id}", client_id=operator.client_id)
+    return {"ok": True, "status": status}
 
 
 # ---- Operator tools: canned responses + info-field definitions (per client) ----

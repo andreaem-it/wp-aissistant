@@ -61,6 +61,7 @@ export const api = {
   tickets: (status = "open") => call("/tickets", { params: { status } }),
   replyTicket: (id, reply) => call(`/tickets/${id}/reply`, { method: "POST", params: { reply } }),
   replyConversation: (id, reply) => call(`/conversations/${id}/reply`, { method: "POST", body: { reply } }),
+  setConversationStatus: (id, status) => call(`/conversations/${id}/status`, { method: "POST", body: { status } }),
   conversationInfo: (id) => call(`/conversations/${id}/info`),
   setConversationInfo: (id, info) => call(`/conversations/${id}/info`, { method: "PUT", body: { info } }),
   cannedResponses: () => call("/canned-responses"),

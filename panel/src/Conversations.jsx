@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Inbox, MessageCircle, Send, Save } from "lucide-react";
+import { Inbox, MessageCircle, Send, Save, CheckCircle2, RotateCcw } from "lucide-react";
 import { api } from "./api.js";
 
 function initialsOf(visitorId) {
@@ -89,6 +89,13 @@ export default function Conversations() {
     }
   };
 
+  const selectedConv = items.find((x) => x.conversation.id === selected)?.conversation;
+  const changeStatus = async (status) => {
+    if (!selected) return;
+    await api.setConversationStatus(selected, status);
+    loadList();
+  };
+
   return (
     <div>
       <h1 className="wpai-page-title">Conversazioni</h1>
@@ -127,6 +134,18 @@ export default function Conversations() {
             </div>
           ) : (
             <>
+              <div className="wpai-conv-toolbar">
+                <span className={`wpai-badge ${selectedConv?.status || "open"}`}>{selectedConv?.status || "—"}</span>
+                {selectedConv?.status === "closed" ? (
+                  <button className="wpai-btn ghost" onClick={() => changeStatus("open")}>
+                    <RotateCcw size={14} /> Riapri
+                  </button>
+                ) : (
+                  <button className="wpai-btn ghost" onClick={() => changeStatus("closed")}>
+                    <CheckCircle2 size={14} /> Chiudi
+                  </button>
+                )}
+              </div>
               <div className="wpai-card wpai-thread">
                 {messages.map((m) => (
                   <div key={m.id} className={`wpai-bubble ${m.role}`}>{m.content}</div>

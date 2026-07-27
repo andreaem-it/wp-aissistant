@@ -2,6 +2,12 @@
 
 Tutte le modifiche rilevanti del plugin WP AIssistant.
 
+## [0.8.1] - 2026-07-27
+
+- Fix (sicurezza): le card prodotto nel widget sono costruite via DOM (`textContent`)
+  invece di `innerHTML` — elimina un possibile XSS se titolo/prezzo di un prodotto
+  contenessero HTML. Gli URL di prodotto/immagine sono limitati a http(s).
+
 ## [0.8.0] - 2026-07-27
 
 - Nuovo: lookup ordine WooCommerce in chat. Nuova rotta REST `wpai/v1/order-lookup`

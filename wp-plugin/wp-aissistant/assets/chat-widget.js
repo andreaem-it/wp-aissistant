@@ -40,6 +40,12 @@
     container.scrollTop = container.scrollHeight;
   }
 
+  // build cards via the DOM (textContent), never innerHTML: product title/price/url come from
+  // the backend but could contain HTML — interpolating them would be an XSS vector.
+  function safeHttpUrl(url) {
+    return /^https?:\/\//i.test(url || "") ? url : "#";
+  }
+
   function addProducts(container, products) {
     if (!products || !products.length) return;
     const wrap = document.createElement("div");
@@ -47,16 +53,28 @@
     for (const p of products) {
       const card = document.createElement("a");
       card.className = "wpai-product-card";
-      card.href = p.product_url;
+      card.href = safeHttpUrl(p.product_url);
       card.target = "_blank";
       card.rel = "noopener";
-      card.innerHTML = `
-        <img src="${p.image_url}" alt="" />
-        <div class="wpai-product-info">
-          <div class="wpai-product-title">${p.title}</div>
-          ${p.price ? `<div class="wpai-product-price">${p.price} €</div>` : ""}
-        </div>
-      `;
+      if (p.image_url) {
+        const img = document.createElement("img");
+        img.src = safeHttpUrl(p.image_url);
+        img.alt = "";
+        card.appendChild(img);
+      }
+      const info = document.createElement("div");
+      info.className = "wpai-product-info";
+      const title = document.createElement("div");
+      title.className = "wpai-product-title";
+      title.textContent = p.title || "";
+      info.appendChild(title);
+      if (p.price) {
+        const price = document.createElement("div");
+        price.className = "wpai-product-price";
+        price.textContent = p.price + " €";
+        info.appendChild(price);
+      }
+      card.appendChild(info);
       wrap.appendChild(card);
     }
     container.appendChild(wrap);
