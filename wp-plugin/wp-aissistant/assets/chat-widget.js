@@ -376,6 +376,21 @@
     `;
     document.body.appendChild(win);
 
+    // GDPR: privacy notice with a link to the site's policy, if configured (built via DOM)
+    if (WPAI.privacyUrl) {
+      const note = document.createElement("div");
+      note.className = "wpai-privacy";
+      note.appendChild(document.createTextNode("Continuando accetti la "));
+      const a = document.createElement("a");
+      a.href = /^https?:\/\//i.test(WPAI.privacyUrl) ? WPAI.privacyUrl : "#";
+      a.target = "_blank";
+      a.rel = "noopener";
+      a.textContent = "privacy policy";
+      note.appendChild(a);
+      note.appendChild(document.createTextNode("."));
+      win.appendChild(note);
+    }
+
     toggle.addEventListener("click", () => win.classList.toggle("open"));
 
     const messages = win.querySelector("#wpai-messages");

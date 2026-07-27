@@ -1,6 +1,44 @@
 import { useEffect, useState } from "react";
-import { Plus, Trash2, MessageSquareText, ListChecks } from "lucide-react";
+import { Plus, Trash2, MessageSquareText, ListChecks, ShieldX } from "lucide-react";
 import { api } from "./api.js";
+
+function GdprCard() {
+  const [email, setEmail] = useState("");
+  const [result, setResult] = useState(null);
+  const [busy, setBusy] = useState(false);
+
+  const erase = async (e) => {
+    e.preventDefault();
+    if (!email.trim()) return;
+    if (!window.confirm(`Eliminare definitivamente TUTTE le conversazioni lasciate da ${email}? Non è reversibile.`)) return;
+    setBusy(true);
+    setResult(null);
+    try {
+      const r = await api.gdprErase(email.trim());
+      setResult(`Eliminate ${r.deleted} conversazioni per ${email}.`);
+      setEmail("");
+    } catch {
+      setResult("Errore durante la cancellazione.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="wpai-card">
+      <div className="wpai-card-title"><ShieldX size={15} /> Cancellazione dati (GDPR)</div>
+      <p style={{ fontSize: 12.5, color: "var(--text-muted)", margin: "6px 0 12px" }}>
+        Diritto all'oblio: elimina tutte le conversazioni collegate a un'email (quella lasciata
+        dal visitatore all'escalation). Operazione irreversibile.
+      </p>
+      <form onSubmit={erase} style={{ display: "flex", gap: 8 }}>
+        <input type="email" value={email} onChange={(e) => { setEmail(e.target.value); setResult(null); }} placeholder="email@visitatore.it" style={{ flex: 1 }} />
+        <button className="wpai-btn danger" type="submit" disabled={busy}>{busy ? "Cancellazione…" : "Elimina"}</button>
+      </form>
+      {result && <p style={{ fontSize: 12.5, color: "var(--text-muted)", margin: "10px 0 0" }}>{result}</p>}
+    </div>
+  );
+}
 
 function InfoFieldsManager() {
   const [fields, setFields] = useState([]);
@@ -98,6 +136,9 @@ export default function Settings() {
       <div className="wpai-two-col">
         <InfoFieldsManager />
         <CannedManager />
+      </div>
+      <div style={{ marginTop: 16, maxWidth: 520 }}>
+        <GdprCard />
       </div>
     </div>
   );

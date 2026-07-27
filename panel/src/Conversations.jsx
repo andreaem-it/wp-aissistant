@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Inbox, MessageCircle, Send, Save, CheckCircle2, RotateCcw } from "lucide-react";
+import { Inbox, MessageCircle, Send, Save, CheckCircle2, RotateCcw, Trash2 } from "lucide-react";
 import { api } from "./api.js";
 
 function initialsOf(visitorId) {
@@ -95,6 +95,14 @@ export default function Conversations() {
     await api.setConversationStatus(selected, status);
     loadList();
   };
+  const deleteConv = async () => {
+    if (!selected) return;
+    if (!window.confirm("Eliminare definitivamente questa conversazione e tutti i suoi messaggi? L'operazione non è reversibile.")) return;
+    await api.deleteConversation(selected);
+    setSelected(null);
+    setMessages([]);
+    loadList();
+  };
 
   return (
     <div>
@@ -145,6 +153,9 @@ export default function Conversations() {
                     <CheckCircle2 size={14} /> Chiudi
                   </button>
                 )}
+                <button className="wpai-icon-btn" title="Elimina (GDPR)" onClick={deleteConv}>
+                  <Trash2 size={15} />
+                </button>
               </div>
               <div className="wpai-card wpai-thread">
                 {messages.map((m) => (

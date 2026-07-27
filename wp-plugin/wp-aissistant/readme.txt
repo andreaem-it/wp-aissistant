@@ -3,7 +3,7 @@ Tags: ai, chatbot, customer-support, woocommerce, rag
 Requires at least: 5.8
 Tested up to: 6.5
 Requires PHP: 7.4
-Stable tag: 0.8.1
+Stable tag: 0.9.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -36,6 +36,10 @@ Richiede un'istanza del backend WP AIssistant raggiungibile e una API Key del cl
 4. In *AI Assistant → Sincronizzazione* usa **Sincronizza ora** per il primo caricamento.
 
 == Changelog ==
+
+= 0.9.0 =
+* Nuovo (GDPR): campo "URL Privacy Policy" nelle impostazioni; se impostato il widget
+  mostra un avviso "Continuando accetti la privacy policy" con il link.
 
 = 0.8.1 =
 * Fix (sicurezza): card prodotto costruite via DOM invece di innerHTML (elimina un

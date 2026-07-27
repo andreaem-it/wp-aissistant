@@ -2,6 +2,12 @@
 
 Tutte le modifiche rilevanti del plugin WP AIssistant.
 
+## [0.9.0] - 2026-07-27
+
+- Nuovo (GDPR): impostazione "URL Privacy Policy". Se impostata, il widget mostra in
+  fondo un avviso "Continuando accetti la privacy policy" con link (costruito via DOM,
+  href limitato a http(s)). Passata al widget come `WPAI.privacyUrl`.
+
 ## [0.8.1] - 2026-07-27
 
 - Fix (sicurezza): le card prodotto nel widget sono costruite via DOM (`textContent`)

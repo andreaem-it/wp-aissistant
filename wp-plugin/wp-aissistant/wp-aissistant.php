@@ -2,13 +2,13 @@
 /**
  * Plugin Name: WP AIssistant
  * Description: Floating AI chat widget backed by a RAG backend, with automatic site content sync.
- * Version: 0.8.1
+ * Version: 0.9.0
  */
 
 if (!defined('ABSPATH')) exit;
 
 define('WPAI_OPTION', 'wpai_settings');
-define('WPAI_VERSION', '0.8.1'); // keep in sync with the "Version:" header above
+define('WPAI_VERSION', '0.9.0'); // keep in sync with the "Version:" header above
 
 // The backend is a single hosted service (not something each site owner runs), so its URL
 // isn't a setting — it's hardcoded here. Override only for local/staging testing by defining
@@ -97,6 +97,12 @@ function wpai_settings_page() {
                     <th><label for="widget_title">Titolo widget</label></th>
                     <td><input type="text" id="widget_title" name="<?php echo WPAI_OPTION; ?>[widget_title]"
                                value="<?php echo esc_attr($opts['widget_title'] ?? ''); ?>" class="regular-text" placeholder="AI Assistant" /></td>
+                </tr>
+                <tr>
+                    <th><label for="widget_privacy_url">URL Privacy Policy</label></th>
+                    <td><input type="url" id="widget_privacy_url" name="<?php echo WPAI_OPTION; ?>[widget_privacy_url]"
+                               value="<?php echo esc_attr($opts['widget_privacy_url'] ?? ''); ?>" class="regular-text" placeholder="https://tuosito.it/privacy" />
+                        <p class="description">Se impostato, il widget mostra un avviso "Continuando accetti la privacy policy" con il link (GDPR).</p></td>
                 </tr>
                 <tr>
                     <th><label for="widget_image">Immagine widget</label></th>
@@ -206,6 +212,7 @@ add_action('wp_enqueue_scripts', function () {
         'image' => wpai_widget_image(),
         'ajaxUrl' => admin_url('admin-ajax.php'),
         'loggedIn' => is_user_logged_in(),
+        'privacyUrl' => wpai_opt('widget_privacy_url'),
         // The Origin/Referer header the backend would otherwise fall back to never carries a
         // path, so a subdirectory install (e.g. example.com/shop/) would build a wrong
         // order-lookup callback URL. Send the real site URL explicitly instead.

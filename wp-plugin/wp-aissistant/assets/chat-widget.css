@@ -115,3 +115,7 @@
 .wpai-contact-form input { flex: 1; padding: 7px 9px; border: 1px solid #ddd; border-radius: 5px; font-size: 13px; }
 .wpai-contact-form button { padding: 7px 12px; border: none; border-radius: 5px; background: #2271b1; color: #fff; cursor: pointer; font-size: 13px; }
 .wpai-contact.done { font-size: 12.5px; color: #2e7d32; }
+
+/* GDPR privacy notice at the bottom of the widget window */
+.wpai-privacy { padding: 6px 12px; font-size: 11px; color: #888; text-align: center; border-top: 1px solid #eee; }
+.wpai-privacy a { color: #2271b1; }

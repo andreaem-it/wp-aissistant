@@ -78,6 +78,23 @@ if _sentry_dsn:
 
 _worker_stop = threading.Event()
 _worker_thread: threading.Thread | None = None
+_purge_thread: threading.Thread | None = None
+
+# GDPR data-minimization: auto-delete conversations older than this many days (0 = keep forever).
+DATA_RETENTION_DAYS = int(os.getenv("DATA_RETENTION_DAYS", "0"))
+
+
+def _run_purge(stop: threading.Event) -> None:
+    """Background loop: purge conversations past the retention window, once a day."""
+    while not stop.is_set():
+        try:
+            with Session(engine) as session:
+                n = purge_old_conversations(session, DATA_RETENTION_DAYS)
+                if n:
+                    log(logger, logging.INFO, "retention.purged", conversations=n, days=DATA_RETENTION_DAYS)
+        except Exception as exc:  # noqa: BLE001 — never let the purge loop crash the app
+            log(logger, logging.WARNING, "retention.purge_failed", error=str(exc))
+        stop.wait(24 * 3600)
 
 
 @asynccontextmanager
@@ -86,15 +103,20 @@ async def lifespan(app: FastAPI):
     with Session(engine) as session:
         rebuild_allowed_origins(session)
         requeue_stale(session)  # recover jobs left 'processing' by a previous crash
-    global _worker_thread
+    global _worker_thread, _purge_thread
     if os.getenv("INGEST_WORKER_ENABLED", "true").lower() == "true":
         _worker_thread = threading.Thread(target=run_worker, args=(_worker_stop,), daemon=True)
         _worker_thread.start()
+    if DATA_RETENTION_DAYS > 0:
+        _purge_thread = threading.Thread(target=_run_purge, args=(_worker_stop,), daemon=True)
+        _purge_thread.start()
     log(logger, logging.INFO, "startup.complete")
     yield
     _worker_stop.set()
     if _worker_thread:
         _worker_thread.join(timeout=5)
+    if _purge_thread:
+        _purge_thread.join(timeout=5)
 
 
 # On Railway there's no reverse proxy in front to filter these, so gate them in the app:
@@ -1103,6 +1125,58 @@ def set_conversation_status(
     session.commit()
     _audit(session, "operator", operator.email, f"conversation.{status}", target=f"conversation:{conversation_id}", client_id=operator.client_id)
     return {"ok": True, "status": status}
+
+
+def _erase_conversation(session: Session, conv: Conversation) -> None:
+    """Hard-delete a conversation and everything hanging off it (messages, AI logs, tickets),
+    respecting FK order. Used by GDPR erasure and the retention purge."""
+    for lg in session.exec(select(AiResponseLog).where(AiResponseLog.conversation_id == conv.id)).all():
+        session.delete(lg)
+    session.flush()
+    for m in session.exec(select(Message).where(Message.conversation_id == conv.id)).all():
+        session.delete(m)
+    for t in session.exec(select(Ticket).where(Ticket.conversation_id == conv.id)).all():
+        session.delete(t)
+    session.flush()
+    session.delete(conv)
+
+
+@app.delete("/conversations/{conversation_id}")
+def delete_conversation(conversation_id: int, operator: Operator = Depends(require_operator), session: Session = Depends(get_session)):
+    """GDPR erasure: permanently delete a conversation and its messages/tickets/AI logs."""
+    conv = session.get(Conversation, conversation_id)
+    if not conv or conv.client_id != operator.client_id:
+        raise HTTPException(404, "conversation not found")
+    _erase_conversation(session, conv)
+    session.commit()
+    _audit(session, "operator", operator.email, "conversation.delete", target=f"conversation:{conversation_id}", client_id=operator.client_id)
+    return {"ok": True}
+
+
+@app.post("/gdpr/erase")
+def gdpr_erase(email: str = Body(..., embed=True), operator: Operator = Depends(require_operator), session: Session = Depends(get_session)):
+    """GDPR right-to-be-forgotten: delete every conversation of this client that a visitor
+    left under the given email (visitor_email captured on escalation)."""
+    convs = session.exec(
+        select(Conversation).where(Conversation.client_id == operator.client_id, Conversation.visitor_email == email)
+    ).all()
+    for conv in convs:
+        _erase_conversation(session, conv)
+    session.commit()
+    _audit(session, "operator", operator.email, "gdpr.erase", target=email, client_id=operator.client_id, detail={"deleted": len(convs)})
+    return {"ok": True, "deleted": len(convs)}
+
+
+def purge_old_conversations(session: Session, days: int) -> int:
+    """Data-minimization: delete conversations older than `days`. Returns how many were purged."""
+    if days <= 0:
+        return 0
+    cutoff = datetime.utcnow() - timedelta(days=days)
+    old = session.exec(select(Conversation).where(Conversation.created_at < cutoff)).all()
+    for conv in old:
+        _erase_conversation(session, conv)
+    session.commit()
+    return len(old)
 
 
 # ---- Operator tools: canned responses + info-field definitions (per client) ----
