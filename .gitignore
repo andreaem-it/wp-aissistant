@@ -9,3 +9,8 @@ wp-plugin/wp-aissistant.zip
 wp-plugin/dist/
 .wrangler/
 .claude/
+
+.dev.vars*
+!.dev.vars.example
+.env*
+!.env.example
