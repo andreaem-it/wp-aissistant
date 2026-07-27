@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import time
 import urllib.request
 
@@ -23,6 +24,10 @@ LLM_RETRIES = int(os.getenv("LLM_RETRIES", "2"))
 
 ESCALATE_PREFIX = "ESCALATE:"
 ORDER_LOOKUP_PREFIX = "ORDER_LOOKUP:"
+# ponytail: the model doesn't reliably reproduce ORDER_LOOKUP_PREFIX verbatim (seen emitting
+# "ORDERS_LOOKUP:" instead) — match any single leading "...LOOKUP...:" token instead of an
+# exact string, so a close variant still gets parsed instead of leaking to the visitor as text.
+ORDER_LOOKUP_RE = re.compile(r"^\s*[A-Z_ ]*LOOKUP[A-Z_ ]*:\s*(.+)", re.I)
 
 
 class LLMUnavailableError(Exception):
@@ -89,8 +94,9 @@ def chat(system: str, history: list[dict], user_message: str) -> dict:
     text = (resp.choices[0].message.content or "").strip()
     if text.startswith(ESCALATE_PREFIX):
         return {"escalate": text[len(ESCALATE_PREFIX):].strip() or "unspecified", **meta}
-    if text.startswith(ORDER_LOOKUP_PREFIX):
-        return {"order_lookup": text[len(ORDER_LOOKUP_PREFIX):].strip(), **meta}
+    lookup_match = ORDER_LOOKUP_RE.match(text)
+    if lookup_match:
+        return {"order_lookup": lookup_match.group(1).strip(), **meta}
     return {"reply": text, **meta}
 
 

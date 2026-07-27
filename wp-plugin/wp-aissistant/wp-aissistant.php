@@ -413,8 +413,8 @@ function wpai_order_lookup(WP_REST_Request $req) {
                 'verified' => 'full',
                 'status' => wc_get_order_status_name($order->get_status()),
                 'shipping_date' => $order->get_date_completed() ? $order->get_date_completed()->date('Y-m-d') : null,
-                'total' => $order->get_formatted_order_total(),
-                'items' => array_map(fn($i) => $i->get_name() . ' x' . $i->get_quantity(), $order->get_items()),
+                'total' => wp_strip_all_tags($order->get_formatted_order_total()),
+                'items' => array_values(array_map(fn($i) => $i->get_name() . ' x' . $i->get_quantity(), $order->get_items())),
                 'shipping_address' => $order->get_formatted_shipping_address() ?: $order->get_formatted_billing_address(),
             ];
         }

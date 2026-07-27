@@ -42,7 +42,7 @@ from fastapi.responses import StreamingResponse
 import urllib.error
 import urllib.request
 
-from .llm import ESCALATE_PREFIX, ORDER_LOOKUP_PREFIX, LLMUnavailableError
+from .llm import ESCALATE_PREFIX, ORDER_LOOKUP_RE, LLMUnavailableError
 from .llm import chat as llm_chat
 from .llm import chat_stream as llm_chat_stream
 from .llm import embed
@@ -652,7 +652,10 @@ def chat_stream_endpoint(
             is_order_lookup = False
             full = ""
             meta: dict = {}
-            prefix_threshold = max(len(ESCALATE_PREFIX), len(ORDER_LOOKUP_PREFIX))
+            # markers are always a single short line — wait for the newline (or stream end)
+            # instead of a fixed length, since the model doesn't reproduce prefixes verbatim
+            # (e.g. "ORDERS_LOOKUP:" instead of "ORDER_LOOKUP:") so a fixed cutoff could split
+            # mid-prefix.
             try:
                 context, retrieval_meta = retrieve_with_meta(s, client_id, message)
                 system = _build_system(context)
@@ -663,11 +666,10 @@ def chat_stream_endpoint(
                     full += payload
                     if not decided:
                         buffer += payload
-                        # decide the marker only once enough has arrived to compare both prefixes
-                        if len(buffer) >= prefix_threshold or "\n" in buffer:
+                        if "\n" in buffer:
                             decided = True
                             is_escalation = buffer.startswith(ESCALATE_PREFIX)
-                            is_order_lookup = buffer.startswith(ORDER_LOOKUP_PREFIX)
+                            is_order_lookup = bool(ORDER_LOOKUP_RE.match(buffer))
                             if not is_escalation and not is_order_lookup and buffer:
                                 yield _sse({"type": "token", "text": buffer})
                     elif not is_escalation and not is_order_lookup:
@@ -679,10 +681,10 @@ def chat_stream_endpoint(
                 yield _sse({"type": "escalated", "conversation_id": conv.id})
                 return
 
-            # very short output that never reached the decision threshold
+            # very short output that never reached a newline
             if not decided:
                 is_escalation = full.startswith(ESCALATE_PREFIX)
-                is_order_lookup = full.startswith(ORDER_LOOKUP_PREFIX)
+                is_order_lookup = bool(ORDER_LOOKUP_RE.match(full))
                 if not is_escalation and not is_order_lookup and full:
                     yield _sse({"type": "token", "text": full})
 
@@ -694,7 +696,7 @@ def chat_stream_endpoint(
                 return
 
             if is_order_lookup:
-                order_number, _, identifier = full[len(ORDER_LOOKUP_PREFIX):].partition("|")
+                order_number, _, identifier = ORDER_LOOKUP_RE.match(full).group(1).partition("|")
                 origin = site_url or request.headers.get("origin") or request.headers.get("referer") or ""
                 data = _order_lookup(origin, client.api_key, order_number.strip(), identifier.strip(), wp_user_token)
                 reply_text = _format_order_reply(data)
