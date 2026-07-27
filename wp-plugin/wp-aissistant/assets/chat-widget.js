@@ -175,6 +175,7 @@
           message,
           conversation_id: conversationId ? Number(conversationId) : null,
           wp_user_token: await userToken(),
+          site_url: WPAI.siteUrl,
         }),
       });
     } finally {
@@ -225,6 +226,7 @@
           message,
           conversation_id: conversationId ? Number(conversationId) : null,
           wp_user_token: await userToken(),
+          site_url: WPAI.siteUrl,
         }),
       });
     } catch (e) {

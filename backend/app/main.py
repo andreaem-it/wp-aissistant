@@ -569,6 +569,7 @@ def chat_stream_endpoint(
     message: str = Body(...),
     conversation_id: int | None = Body(None),
     wp_user_token: str | None = Body(None),
+    site_url: str | None = Body(None),
     client: Client = Depends(rate_limit_chat),
     session: Session = Depends(get_session),
 ):
@@ -630,7 +631,7 @@ def chat_stream_endpoint(
 
             detected = _detect_order_lookup(message)
             if detected:
-                origin = request.headers.get("origin") or request.headers.get("referer") or ""
+                origin = site_url or request.headers.get("origin") or request.headers.get("referer") or ""
                 data = _order_lookup(origin, client.api_key, detected[0], detected[1], wp_user_token)
                 reply_text = _format_order_reply(data)
                 reply_msg = Message(conversation_id=conv.id, role="assistant", content=reply_text)
@@ -694,7 +695,7 @@ def chat_stream_endpoint(
 
             if is_order_lookup:
                 order_number, _, identifier = full[len(ORDER_LOOKUP_PREFIX):].partition("|")
-                origin = request.headers.get("origin") or request.headers.get("referer") or ""
+                origin = site_url or request.headers.get("origin") or request.headers.get("referer") or ""
                 data = _order_lookup(origin, client.api_key, order_number.strip(), identifier.strip(), wp_user_token)
                 reply_text = _format_order_reply(data)
                 reply_msg = Message(conversation_id=conv.id, role="assistant", content=reply_text)
@@ -735,6 +736,7 @@ def chat_endpoint(
     message: str = Body(...),
     conversation_id: int | None = Body(None),
     wp_user_token: str | None = Body(None),
+    site_url: str | None = Body(None),
     client: Client = Depends(rate_limit_chat),
     session: Session = Depends(get_session),
 ):
@@ -784,7 +786,7 @@ def chat_endpoint(
 
     detected = _detect_order_lookup(message)
     if detected:
-        origin = request.headers.get("origin") or request.headers.get("referer") or ""
+        origin = site_url or request.headers.get("origin") or request.headers.get("referer") or ""
         data = _order_lookup(origin, client.api_key, detected[0], detected[1], wp_user_token)
         reply_text = _format_order_reply(data)
         reply_msg = Message(conversation_id=conv.id, role="assistant", content=reply_text)
@@ -833,7 +835,7 @@ def chat_endpoint(
 
     if "order_lookup" in result:
         order_number, _, identifier = result["order_lookup"].partition("|")
-        origin = request.headers.get("origin") or request.headers.get("referer") or ""
+        origin = site_url or request.headers.get("origin") or request.headers.get("referer") or ""
         data = _order_lookup(origin, client.api_key, order_number.strip(), identifier.strip(), wp_user_token)
         reply_text = _format_order_reply(data)
         reply_msg = Message(conversation_id=conv.id, role="assistant", content=reply_text)

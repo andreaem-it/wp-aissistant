@@ -206,6 +206,10 @@ add_action('wp_enqueue_scripts', function () {
         'image' => wpai_widget_image(),
         'ajaxUrl' => admin_url('admin-ajax.php'),
         'loggedIn' => is_user_logged_in(),
+        // The Origin/Referer header the backend would otherwise fall back to never carries a
+        // path, so a subdirectory install (e.g. example.com/shop/) would build a wrong
+        // order-lookup callback URL. Send the real site URL explicitly instead.
+        'siteUrl' => home_url(),
     ]);
 });
 
