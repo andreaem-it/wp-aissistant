@@ -3,6 +3,7 @@ import {
   Shield, Building2, Plus, Eye, EyeOff, Copy, Check, RefreshCw,
   Trash2, MessageSquare, Users, FileText, Package, Sparkles, CreditCard,
   LayoutDashboard, Activity, ScrollText, AlertTriangle, Search,
+  ThumbsUp, ThumbsDown, X,
 } from "lucide-react";
 import { getAdminKey, setAdminKey, clearAdminKey, adminApi } from "./adminApi.js";
 import { MiniBars, Breakdown } from "./Charts.jsx";
@@ -361,7 +362,20 @@ function OverviewView() {
     { label: "Conversazioni", value: s.conversations.total, Icon: MessageSquare },
     { label: "Risolte da AI", value: pct(s.ai.resolution_rate), Icon: Check },
     { label: "Latenza media", value: s.ai.avg_latency_ms ? `${s.ai.avg_latency_ms} ms` : "—", Icon: Activity },
-    { label: "Feedback", value: `👍 ${s.feedback?.positive ?? 0} · 👎 ${s.feedback?.negative ?? 0}`, Icon: Check },
+    {
+      label: "Feedback",
+      value: (
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 10, fontSize: 20 }}>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+            <ThumbsUp size={16} strokeWidth={2.25} /> {s.feedback?.positive ?? 0}
+          </span>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+            <ThumbsDown size={16} strokeWidth={2.25} /> {s.feedback?.negative ?? 0}
+          </span>
+        </span>
+      ),
+      Icon: Check,
+    },
   ];
   const esc = s.escalations_by_trigger;
   return (
@@ -412,7 +426,7 @@ function OverviewView() {
 
 function HealthView() {
   const [h, setH] = useState(null);
-  const [emailResult, setEmailResult] = useState("");
+  const [emailResult, setEmailResult] = useState(null);
   const load = () => adminApi.health().then(setH);
   useEffect(() => { load(); }, []);
   if (!h) return <p style={{ color: "var(--text-muted)" }}>Caricamento…</p>;
@@ -452,12 +466,12 @@ function HealthView() {
           onSubmit={async (e) => {
             e.preventDefault();
             const to = new FormData(e.target).get("to");
-            setEmailResult("Invio in corso…");
+            setEmailResult({ pending: true });
             try {
               const r = await adminApi.testEmail(to);
-              setEmailResult(r.sent ? `✓ ${r.detail} a ${to}` : `✗ ${r.detail}`);
+              setEmailResult({ ok: r.sent, text: r.sent ? `${r.detail} a ${to}` : r.detail });
             } catch {
-              setEmailResult("✗ Errore nella richiesta.");
+              setEmailResult({ ok: false, text: "Errore nella richiesta." });
             }
           }}
           style={{ display: "flex", gap: 10, alignItems: "flex-end" }}
@@ -470,7 +484,16 @@ function HealthView() {
             Invia test
           </button>
         </form>
-        {emailResult && <p style={{ fontSize: 12.5, color: "var(--text-muted)", margin: "10px 0 0" }}>{emailResult}</p>}
+        {emailResult && (
+          <p style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, color: "var(--text-muted)", margin: "10px 0 0" }}>
+            {emailResult.pending ? null : emailResult.ok ? (
+              <Check size={14} color="var(--green)" />
+            ) : (
+              <X size={14} color="var(--red)" />
+            )}
+            {emailResult.pending ? "Invio in corso…" : emailResult.text}
+          </p>
+        )}
       </div>
     </div>
   );
@@ -612,7 +635,7 @@ function DebugView({ initialId }) {
                           <td>{c.source}</td>
                           <td style={{ maxWidth: 320, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.source_ref}</td>
                           <td>{c.distance}</td>
-                          <td>{c.selected ? "✓" : ""}</td>
+                          <td>{c.selected ? <Check size={14} color="var(--green)" /> : ""}</td>
                         </tr>
                       ))}
                     </tbody>

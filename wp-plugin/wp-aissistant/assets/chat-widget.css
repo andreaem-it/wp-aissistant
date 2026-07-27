@@ -94,7 +94,7 @@
 #wpai-input { flex: 1; border: none; padding: 10px; font-size: 14px; }
 #wpai-form button { border: none; background: #2271b1; color: #fff; padding: 0 16px; cursor: pointer; }
 
-/* feedback 👍/👎 under an assistant reply */
+/* feedback (thumbs up/down) under an assistant reply */
 .wpai-feedback { display: flex; gap: 4px; margin: -2px 0 10px 2px; }
 .wpai-fb-btn {
   border: none; background: transparent; cursor: pointer; font-size: 14px;

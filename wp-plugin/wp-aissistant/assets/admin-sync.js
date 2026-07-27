@@ -10,9 +10,18 @@
     }).then((r) => r.json());
   }
 
-  function setRow(row, statusText, cls) {
+  function setRow(row, statusText, cls, icon) {
+    // built via DOM, not innerHTML: statusText can carry a backend error message verbatim
     row.className = "wpai-sync-row" + (cls ? " " + cls : "");
-    row.querySelector(".status").textContent = statusText;
+    const el = row.querySelector(".status");
+    el.textContent = "";
+    if (icon) {
+      const i = document.createElement("i");
+      i.className = "fa-solid " + icon;
+      el.appendChild(i);
+      el.appendChild(document.createTextNode(" "));
+    }
+    el.appendChild(document.createTextNode(statusText));
   }
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -29,11 +38,11 @@
       }
       if (!res || !res.success) continue;
       const status = res.data.status;
-      if (status === "done") { setRow(row, "✓ sincronizzato", "done"); return; }
-      if (status === "error") { setRow(row, "errore: " + (res.data.error || ""), "error"); return; }
+      if (status === "done") { setRow(row, "sincronizzato", "done", "fa-check"); return; }
+      if (status === "error") { setRow(row, "errore: " + (res.data.error || ""), "error", "fa-triangle-exclamation"); return; }
       setRow(row, status === "processing" ? "elaborazione…" : "in coda…");
     }
-    setRow(row, "✓ inviato (elaborazione in corso)", "done");
+    setRow(row, "inviato (elaborazione in corso)", "done", "fa-check");
   }
 
   async function run(btn) {
@@ -76,11 +85,11 @@
       try {
         res = await ajax({ action: "wpai_sync_item", type: items[i].type, id: items[i].id });
       } catch (e) {
-        setRow(rows[i], "errore di rete", "error");
+        setRow(rows[i], "errore di rete", "error", "fa-triangle-exclamation");
         continue;
       }
       if (!res || !res.success) {
-        setRow(rows[i], "errore: " + (res && res.data ? res.data : ""), "error");
+        setRow(rows[i], "errore: " + (res && res.data ? res.data : ""), "error", "fa-triangle-exclamation");
         continue;
       }
       await waitForJob(res.data.job_id, rows[i]);

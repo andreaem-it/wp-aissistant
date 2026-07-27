@@ -2,6 +2,13 @@
 
 Tutte le modifiche rilevanti del plugin WP AIssistant.
 
+## [0.7.1] - 2026-07-27
+
+- Sostituite tutte le emoji con icone reali (Font Awesome Free, via CDN cdnjs con SRI):
+  pulsante flottante, feedback 👍/👎, conferma email, stato sincronizzazione nella pagina
+  Sincronizzazione (`assets/admin-sync.js`, ora costruito via DOM invece di `textContent`
+  per non introdurre un rischio XSS quando lo stato include un messaggio d'errore del backend).
+
 ## [0.7.0] - 2026-07-26
 
 - Overhaul admin: menu top-level "AI Assistant" (`add_menu_page`, fuori da Impostazioni)

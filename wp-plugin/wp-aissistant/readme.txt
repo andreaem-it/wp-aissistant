@@ -3,7 +3,7 @@ Tags: ai, chatbot, customer-support, woocommerce, rag
 Requires at least: 5.8
 Tested up to: 6.5
 Requires PHP: 7.4
-Stable tag: 0.7.0
+Stable tag: 0.7.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -36,6 +36,10 @@ Richiede un'istanza del backend WP AIssistant raggiungibile e una API Key del cl
 4. In *AI Assistant → Sincronizzazione* usa **Sincronizza ora** per il primo caricamento.
 
 == Changelog ==
+
+= 0.7.1 =
+* Sostituite le emoji con icone reali (Font Awesome) nel widget e nelle pagine di
+  amministrazione del plugin.
 
 = 0.7.0 =
 * Nuovo: menu dedicato "AI Assistant" (fuori da Impostazioni), con pagine separate

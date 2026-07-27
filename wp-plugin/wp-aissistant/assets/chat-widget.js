@@ -61,11 +61,11 @@
     if (!messageId) return;
     const wrap = document.createElement("div");
     wrap.className = "wpai-feedback";
-    for (const [value, label, aria] of [["up", "👍", "Risposta utile"], ["down", "👎", "Risposta non utile"]]) {
+    for (const [value, icon, aria] of [["up", "fa-thumbs-up", "Risposta utile"], ["down", "fa-thumbs-down", "Risposta non utile"]]) {
       const btn = document.createElement("button");
       btn.type = "button";
       btn.className = "wpai-fb-btn wpai-fb-" + value;
-      btn.textContent = label;
+      btn.innerHTML = `<i class="fa-solid ${icon}"></i>`;
       btn.setAttribute("aria-label", aria);
       btn.addEventListener("click", () => sendFeedback(conversationId, messageId, value, wrap));
       wrap.appendChild(btn);
@@ -103,7 +103,7 @@
           body: JSON.stringify({ conversation_id: Number(conversationId), email: input.value, url: window.location.href }),
         });
         localStorage.setItem(CONTACT_KEY, String(conversationId));
-        wrap.textContent = "✓ Ti avviseremo via email appena rispondiamo.";
+        wrap.innerHTML = '<i class="fa-solid fa-check"></i> Ti avviseremo via email appena rispondiamo.';
         wrap.className = "wpai-contact done";
       } catch (e2) {
         // best-effort: don't block the chat if the contact save fails
@@ -317,7 +317,7 @@
   function init() {
     const toggle = document.createElement("button");
     toggle.id = "wpai-toggle";
-    toggle.textContent = "💬";
+    toggle.innerHTML = '<i class="fa-solid fa-comment-dots"></i>';
     document.body.appendChild(toggle);
 
     const win = document.createElement("div");

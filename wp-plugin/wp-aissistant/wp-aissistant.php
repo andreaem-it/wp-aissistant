@@ -2,13 +2,13 @@
 /**
  * Plugin Name: WP AIssistant
  * Description: Floating AI chat widget backed by a RAG backend, with automatic site content sync.
- * Version: 0.7.0
+ * Version: 0.7.1
  */
 
 if (!defined('ABSPATH')) exit;
 
 define('WPAI_OPTION', 'wpai_settings');
-define('WPAI_VERSION', '0.7.0'); // keep in sync with the "Version:" header above
+define('WPAI_VERSION', '0.7.1'); // keep in sync with the "Version:" header above
 
 // The backend is a single hosted service (not something each site owner runs), so its URL
 // isn't a setting — it's hardcoded here. Override only for local/staging testing by defining
@@ -16,6 +16,13 @@ define('WPAI_VERSION', '0.7.0'); // keep in sync with the "Version:" header abov
 if (!defined('WPAI_BACKEND_URL')) {
     define('WPAI_BACKEND_URL', 'https://wp-aissistant-production.up.railway.app');
 }
+
+// Real icons instead of emoji, in the widget and in our wp-admin pages. Loaded from the
+// official Font Awesome CDN (cdnjs) rather than self-hosted — simplest to keep current,
+// at the cost of one extra external request on every page (incl. customer sites running
+// the widget).
+define('WPAI_FONTAWESOME_URL', 'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css');
+define('WPAI_FONTAWESOME_SRI', 'sha512-SnH5WK+bZxgPHs44uWIX+LLJAJ9/2PkPKZ5QiAj6Ta86w+fsb2TkcmfRyVX3pBnMFcV7oQPJkl9QevSCWr3W6A==');
 
 function wpai_opt($key) {
     $opts = get_option(WPAI_OPTION, []);
@@ -161,6 +168,7 @@ add_action('admin_enqueue_scripts', function ($hook) {
     }
     // small shared admin CSS on our pages
     if (strpos((string) $hook, 'wp-aissistant') !== false) {
+        wp_enqueue_style('wpai-fontawesome', WPAI_FONTAWESOME_URL, [], null);
         wp_register_style('wpai-admin', false);
         wp_enqueue_style('wpai-admin');
         wp_add_inline_style('wpai-admin', '
@@ -178,10 +186,17 @@ add_action('admin_enqueue_scripts', function ($hook) {
     }
 });
 
+// Subresource integrity on the Font Awesome CDN tag, wherever it's enqueued.
+add_filter('style_loader_tag', function ($tag, $handle) {
+    if ($handle !== 'wpai-fontawesome') return $tag;
+    return str_replace(' rel=', ' integrity="' . WPAI_FONTAWESOME_SRI . '" crossorigin="anonymous" referrerpolicy="no-referrer" rel=', $tag);
+}, 10, 2);
+
 // ---- Floating chat widget ----
 
 add_action('wp_enqueue_scripts', function () {
     if (!wpai_opt('api_key')) return;
+    wp_enqueue_style('wpai-fontawesome', WPAI_FONTAWESOME_URL, [], null);
     wp_enqueue_style('wpai-chat', plugins_url('assets/chat-widget.css', __FILE__), [], WPAI_VERSION);
     wp_enqueue_script('wpai-chat', plugins_url('assets/chat-widget.js', __FILE__), [], WPAI_VERSION, true);
     wp_localize_script('wpai-chat', 'WPAI', [
