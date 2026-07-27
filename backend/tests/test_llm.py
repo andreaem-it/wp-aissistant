@@ -18,17 +18,22 @@ def _raising(*args, **kwargs):
 
 def test_plain_reply(monkeypatch):
     monkeypatch.setattr(llm.litellm, "completion", _fake_completion("Ciao!"))
-    assert llm.chat("sys", [], "ciao") == {"reply": "Ciao!"}
+    result = llm.chat("sys", [], "ciao")
+    assert result["reply"] == "Ciao!"
+    # every call also carries diagnostics for the AI response log (app/db.py AiResponseLog)
+    assert set(result) == {"reply", "model", "latency_ms", "tokens_prompt", "tokens_completion"}
 
 
 def test_escalation_marker_parsed(monkeypatch):
     monkeypatch.setattr(llm.litellm, "completion", _fake_completion("ESCALATE: serve un umano"))
-    assert llm.chat("sys", [], "voglio un rimborso") == {"escalate": "serve un umano"}
+    result = llm.chat("sys", [], "voglio un rimborso")
+    assert result["escalate"] == "serve un umano"
 
 
 def test_escalation_without_reason_defaults(monkeypatch):
     monkeypatch.setattr(llm.litellm, "completion", _fake_completion("ESCALATE:"))
-    assert llm.chat("sys", [], "x") == {"escalate": "unspecified"}
+    result = llm.chat("sys", [], "x")
+    assert result["escalate"] == "unspecified"
 
 
 def test_chat_raises_llm_unavailable_when_provider_unreachable(monkeypatch):

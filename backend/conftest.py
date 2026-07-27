@@ -34,6 +34,15 @@ def client(monkeypatch):
     from fastapi.testclient import TestClient
     from sqlmodel import SQLModel
     from app import db, main, rag
+    from app.ratelimit import FixedWindowLimiter
+
+    # The rate limiters are process-wide singletons (app/main.py module globals), and the
+    # test DB is dropped+recreated per test so serial ids (incl. client.id, used in the
+    # rate-limit key) restart at 1 — without a fresh limiter here, hits from an earlier
+    # test's "client 1" would count against this test's unrelated "client 1" and cause
+    # sporadic 429s across the suite.
+    monkeypatch.setattr(main, "chat_limiter", FixedWindowLimiter(main.chat_limiter.limit, 60))
+    monkeypatch.setattr(main, "ingest_limiter", FixedWindowLimiter(main.ingest_limiter.limit, 60))
 
     # no Ollama in tests: deterministic embeddings and a canned chat reply
     monkeypatch.setattr(rag, "embed", lambda text: [0.0] * db.EMBED_DIM)
