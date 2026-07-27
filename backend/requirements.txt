@@ -8,6 +8,7 @@ litellm
 tenacity
 prometheus-client
 redis
+sentry-sdk
 stripe
 pypdf
 pytesseract

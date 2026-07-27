@@ -57,6 +57,25 @@ from .worker import requeue_stale, run_worker
 setup_logging()
 logger = logging.getLogger("wpai")
 
+# Error tracking (Sentry). Opt-in: unset SENTRY_DSN => disabled (no-op). When set, sentry-sdk
+# auto-instruments FastAPI/Starlette and captures unhandled exceptions with request context.
+# send_default_pii=False so we don't ship visitor messages/emails to Sentry.
+_sentry_dsn = os.getenv("SENTRY_DSN", "").strip()
+if _sentry_dsn:
+    try:
+        import sentry_sdk
+
+        sentry_sdk.init(
+            dsn=_sentry_dsn,
+            environment=os.getenv("SENTRY_ENV", "production"),
+            release=os.getenv("APP_VERSION", "dev"),
+            traces_sample_rate=float(os.getenv("SENTRY_TRACES_SAMPLE_RATE", "0.0")),
+            send_default_pii=False,
+        )
+        log(logger, logging.INFO, "sentry.enabled")
+    except Exception as exc:  # noqa: BLE001 — monitoring must never break startup
+        log(logger, logging.WARNING, "sentry.init_failed", error=str(exc))
+
 _worker_stop = threading.Event()
 _worker_thread: threading.Thread | None = None
 
