@@ -2,6 +2,13 @@
 
 Tutte le modifiche rilevanti del plugin WP AIssistant.
 
+## [0.9.1] - 2026-07-27
+
+- Fix (sicurezza, critico): `wpai_user_token` (che sblocca i dati completi dell'ordine)
+  era firmato in HMAC con l'`api_key`, che è pubblica (localizzata nel JS del widget) →
+  un attaccante poteva forgiare un token per qualsiasi `user_id` e leggere dati completi
+  di ordini altrui. Ora firmato con `wp_salt('auth')` (segreto server-side, `wpai_token_secret`).
+
 ## [0.9.0] - 2026-07-27
 
 - Nuovo (GDPR): impostazione "URL Privacy Policy". Se impostata, il widget mostra in

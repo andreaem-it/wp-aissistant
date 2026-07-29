@@ -2,13 +2,13 @@
 /**
  * Plugin Name: WP AIssistant
  * Description: Floating AI chat widget backed by a RAG backend, with automatic site content sync.
- * Version: 0.9.0
+ * Version: 0.9.1
  */
 
 if (!defined('ABSPATH')) exit;
 
 define('WPAI_OPTION', 'wpai_settings');
-define('WPAI_VERSION', '0.9.0'); // keep in sync with the "Version:" header above
+define('WPAI_VERSION', '0.9.1'); // keep in sync with the "Version:" header above
 
 // The backend is a single hosted service (not something each site owner runs), so its URL
 // isn't a setting — it's hardcoded here. Override only for local/staging testing by defining
@@ -390,12 +390,18 @@ add_action('rest_api_init', function () {
     ]);
 });
 
+// Server-side-only secret for signing user identity tokens. MUST NOT be the api_key: the
+// api_key is public (localized into the widget JS), so signing with it would let anyone forge
+// a token for any user_id and read full order data. wp_salt() never leaves the server.
+function wpai_token_secret() {
+    return wp_salt('auth');
+}
+
 function wpai_verify_user_token($token) {
-    $key = wpai_opt('api_key');
     $parts = explode('.', (string) $token, 2);
-    if (!$key || count($parts) !== 2) return null;
+    if (count($parts) !== 2) return null;
     [$payload_b64, $sig] = $parts;
-    if (!hash_equals(hash_hmac('sha256', $payload_b64, $key), $sig)) return null;
+    if (!hash_equals(hash_hmac('sha256', $payload_b64, wpai_token_secret()), $sig)) return null;
     $payload = json_decode(base64_decode($payload_b64), true);
     if (!is_array($payload) || empty($payload['exp']) || time() > $payload['exp']) return null;
     return $payload; // {user_id, email, exp}
@@ -454,6 +460,6 @@ add_action('wp_ajax_wpai_user_token', function () {
         'email' => $user->user_email,
         'exp' => time() + 300,
     ]));
-    $sig = hash_hmac('sha256', $payload, $key);
+    $sig = hash_hmac('sha256', $payload, wpai_token_secret());
     wp_send_json_success(['token' => $payload . '.' . $sig]);
 });

@@ -3,7 +3,7 @@ Tags: ai, chatbot, customer-support, woocommerce, rag
 Requires at least: 5.8
 Tested up to: 6.5
 Requires PHP: 7.4
-Stable tag: 0.9.0
+Stable tag: 0.9.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -36,6 +36,12 @@ Richiede un'istanza del backend WP AIssistant raggiungibile e una API Key del cl
 4. In *AI Assistant → Sincronizzazione* usa **Sincronizza ora** per il primo caricamento.
 
 == Changelog ==
+
+= 0.9.1 =
+* Fix (sicurezza): il token identità per il lookup ordini (che sblocca i dati completi)
+  ora è firmato con un segreto server-side (wp_salt) e non più con l'API Key — l'API Key
+  è pubblica nel widget, quindi era falsificabile. I token già emessi (validità 5 min)
+  vanno rigenerati automaticamente.
 
 = 0.9.0 =
 * Nuovo (GDPR): campo "URL Privacy Policy" nelle impostazioni; se impostato il widget

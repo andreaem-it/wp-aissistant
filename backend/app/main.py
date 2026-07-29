@@ -516,6 +516,22 @@ def _build_system(context: list[str]) -> str:
     )
 
 
+def _trusted_callback_origin(allowed_origins: str, site_url, request) -> str:
+    """The origin to call back for an order lookup — ONLY if it's one the client configured in
+    allowed_origins. `site_url` is an attacker-controllable body param, so validating the chosen
+    origin against the allowlist prevents SSRF (a spoofed site_url making the backend POST to an
+    arbitrary/internal URL). Returns "" when nothing trusted matches (order lookup then fails
+    gracefully instead of hitting an untrusted host). Requires allowed_origins to be configured."""
+    allowed = set(_split_origins(allowed_origins))
+    if not allowed:
+        return ""
+    for cand in (site_url, request.headers.get("origin"), request.headers.get("referer")):
+        norm = _normalize_origins(cand or "")
+        if norm and norm in allowed:
+            return norm
+    return ""
+
+
 def _order_lookup(origin: str, api_key: str, order_number: str, identifier: str, user_token: str | None) -> dict:
     """Calls the WP plugin's dedicated order-lookup REST route (the plugin's own api_key is
     reused as the shared secret — no new credential to provision). `origin` is the widget
@@ -692,7 +708,7 @@ def chat_stream_endpoint(
 
             detected = _detect_order_lookup(history, message)
             if detected:
-                origin = site_url or request.headers.get("origin") or request.headers.get("referer") or ""
+                origin = _trusted_callback_origin(client.allowed_origins, site_url, request)
                 data = _order_lookup(origin, client.api_key, detected[0], detected[1], wp_user_token)
                 reply_text = _format_order_reply(data)
                 reply_msg = Message(conversation_id=conv.id, role="assistant", content=reply_text)
@@ -759,7 +775,7 @@ def chat_stream_endpoint(
             if is_order_lookup:
                 lookup_match = ORDER_LOOKUP_RE.match(full)
                 order_number, identifier = lookup_match.group(1), lookup_match.group(2)
-                origin = site_url or request.headers.get("origin") or request.headers.get("referer") or ""
+                origin = _trusted_callback_origin(client.allowed_origins, site_url, request)
                 data = _order_lookup(origin, client.api_key, order_number.strip(), identifier.strip(), wp_user_token)
                 reply_text = _format_order_reply(data)
                 reply_msg = Message(conversation_id=conv.id, role="assistant", content=reply_text)
@@ -853,7 +869,7 @@ def chat_endpoint(
 
     detected = _detect_order_lookup(history, message)
     if detected:
-        origin = site_url or request.headers.get("origin") or request.headers.get("referer") or ""
+        origin = _trusted_callback_origin(client.allowed_origins, site_url, request)
         data = _order_lookup(origin, client.api_key, detected[0], detected[1], wp_user_token)
         reply_text = _format_order_reply(data)
         reply_msg = Message(conversation_id=conv.id, role="assistant", content=reply_text)
@@ -902,7 +918,7 @@ def chat_endpoint(
 
     if "order_lookup" in result:
         order_number, _, identifier = result["order_lookup"].partition("|")
-        origin = site_url or request.headers.get("origin") or request.headers.get("referer") or ""
+        origin = _trusted_callback_origin(client.allowed_origins, site_url, request)
         data = _order_lookup(origin, client.api_key, order_number.strip(), identifier.strip(), wp_user_token)
         reply_text = _format_order_reply(data)
         reply_msg = Message(conversation_id=conv.id, role="assistant", content=reply_text)
