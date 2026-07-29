@@ -35,8 +35,7 @@ Finché i secret non ci sono, il workflow **si salta da solo** (resta verde). Il
 ## Note
 
 - I link **Accedi/Registrati** puntano al panel su Cloudflare Pages
-  (`https://wp-aissistant-panel.pages.dev`, in attesa del cutover DNS di
-  `panel.wpaissistant.it`) e al relativo flusso self-service; le
+  (`https://panel.wpaissistant.it`) e al relativo flusso self-service; le
   destinazioni sono configurate in `LINKS` in fondo a `website/index.html`.
 - I **prezzi** nel sito sono un listino indicativo: il checkout mostra sempre prezzo e
   condizioni definitivi del piano configurato in Stripe.
