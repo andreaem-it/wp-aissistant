@@ -32,15 +32,30 @@ esempi equivalenti — scegline uno:
 
 ## Stack di produzione pronto
 
-Alla root del repo c'è **[`docker-compose.prod.yml`](../docker-compose.prod.yml)**: backend
-dall'immagine GHCR, Caddy davanti (questo `Caddyfile`), porta 8000 **non** esposta, CORS
-ristretto e `FORWARDED_ALLOW_IPS` già impostato.
+Alla root ci sono due stack espliciti:
+
+- **[`docker-compose.prod.yml`](../docker-compose.prod.yml)** — inferenza locale con
+  Ollama e `nomic-embed-text` (`EMBED_DIM=768`).
+- **[`docker-compose.prod-cloud.yml`](../docker-compose.prod-cloud.yml)** — Cloudflare
+  Workers AI con `bge-m3` (`EMBED_DIM=1024`), senza container GPU/Ollama.
+
+Entrambi usano l'immagine GHCR, Caddy, Redis condiviso, CORS ristretto e backend non esposto.
+Propagano inoltre billing, email, Sentry, retention, metriche e configurazione worker dalle
+variabili del file `.env`/ambiente.
 
 ```bash
 export ADMIN_API_KEY=<token-robusto>
 export POSTGRES_PASSWORD=<password-robusta>
 # edita deploy/Caddyfile con il tuo dominio, poi:
 docker compose -f docker-compose.prod.yml up -d
+```
+
+Per il profilo cloud:
+
+```bash
+export CLOUDFLARE_API_KEY=<workers-ai-token>
+export CLOUDFLARE_ACCOUNT_ID=<account-id>
+docker compose -f docker-compose.prod-cloud.yml up -d
 ```
 
 Con **Nginx** invece di Caddy: sostituisci il servizio `caddy` con un `nginx:alpine`, monta

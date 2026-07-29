@@ -142,7 +142,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: docker compose config
-        run: ADMIN_API_KEY=dummy docker compose -f docker-compose.prod.yml config -q
+        run: |
+          ADMIN_API_KEY=dummy docker compose -f docker-compose.prod.yml config -q
+          POSTGRES_PASSWORD=dummy ADMIN_API_KEY=dummy CLOUDFLARE_API_KEY=dummy \
+            CLOUDFLARE_ACCOUNT_ID=dummy docker compose -f docker-compose.prod-cloud.yml config -q
 
   dependency-audit:
     name: Dependency audit
