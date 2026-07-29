@@ -717,6 +717,101 @@ def _over_quota(session: Session, client_id: int) -> bool:
     return bool(limit) and _monthly_message_count(session, client_id) > limit
 
 
+def _prepare_chat_turn(
+    session: Session,
+    *,
+    client_id: int,
+    visitor_id: str,
+    message: str,
+    conversation_id: int | None,
+    conversation_token: str | None,
+) -> tuple[Conversation, str, list[dict]]:
+    """Shared state transition for both blocking and SSE chat transports."""
+    if conversation_id:
+        conv = session.get(Conversation, conversation_id)
+        if not conv or conv.client_id != client_id:
+            raise HTTPException(404, "conversation not found")
+        _require_conversation_token(conv, conversation_token)
+        access_token = conversation_token
+    else:
+        conv, access_token = _create_conversation(session, client_id, visitor_id)
+
+    history = [
+        {"role": m.role if m.role != "operator" else "assistant", "content": m.content}
+        for m in session.exec(
+            select(Message)
+            .where(Message.conversation_id == conv.id)
+            .order_by(Message.id)
+        ).all()
+    ]
+    session.add(Message(conversation_id=conv.id, role="user", content=message))
+    conv.updated_at = datetime.utcnow()
+    if conv.status == "closed":
+        conv.status = "open"
+        conv.closed_at = None
+    session.add(conv)
+    session.commit()
+    metrics.chat_messages_total.inc()
+    return conv, access_token, history
+
+
+def _deterministic_chat_action(
+    session: Session,
+    *,
+    client_id: int,
+    client_name: str,
+    conv: Conversation,
+    message: str,
+) -> str | None:
+    """Handle transport-independent early exits before retrieval/LLM work."""
+    if conv.status == "escalated":
+        return "escalated"
+    lowered = message.lower()
+    keyword_hit = next((k for k in ALWAYS_ESCALATE_KEYWORDS if k in lowered), None)
+    if keyword_hit:
+        _escalate(
+            session,
+            client_id,
+            client_name,
+            conv,
+            f"richiede intervento umano ({keyword_hit})",
+            outcome="escalated_keyword",
+            trigger="keyword",
+        )
+        return "escalated"
+    if _over_quota(session, client_id):
+        return "quota_exceeded"
+    return None
+
+
+def _save_order_lookup_reply(
+    session: Session,
+    *,
+    client_id: int,
+    conv: Conversation,
+    data: dict,
+    retrieval_meta: list[dict] | None = None,
+    llm_meta: dict | None = None,
+) -> tuple[str, Message]:
+    reply_text = _format_order_reply(data)
+    reply_msg = Message(conversation_id=conv.id, role="assistant", content=reply_text)
+    session.add(reply_msg)
+    conv.updated_at = datetime.utcnow()
+    session.add(conv)
+    session.commit()
+    session.refresh(reply_msg)
+    _log_ai_response(
+        session,
+        client_id,
+        conv.id,
+        "order_lookup",
+        retrieval_meta=retrieval_meta,
+        llm_meta=llm_meta,
+        message_id=reply_msg.id,
+    )
+    return reply_text, reply_msg
+
+
 @app.post("/chat/stream")
 def chat_stream_endpoint(
     request: Request,
@@ -750,24 +845,14 @@ def chat_stream_endpoint(
         # a fresh session: the request-scoped one closes when this function returns, before the
         # generator is consumed while streaming
         with Session(engine) as s:
-            if conversation_id:
-                conv = s.get(Conversation, conversation_id)
-                access_token = conversation_token
-            else:
-                conv, access_token = _create_conversation(s, client_id, visitor_id)
-
-            history = [
-                {"role": m.role if m.role != "operator" else "assistant", "content": m.content}
-                for m in s.exec(select(Message).where(Message.conversation_id == conv.id).order_by(Message.id)).all()
-            ]
-            s.add(Message(conversation_id=conv.id, role="user", content=message))
-            conv.updated_at = datetime.utcnow()
-            if conv.status == "closed":
-                conv.status = "open"  # new visitor activity reopens a closed conversation
-                conv.closed_at = None
-            s.add(conv)
-            s.commit()
-            metrics.chat_messages_total.inc()
+            conv, access_token, history = _prepare_chat_turn(
+                s,
+                client_id=client_id,
+                visitor_id=visitor_id,
+                message=message,
+                conversation_id=conversation_id,
+                conversation_token=conversation_token,
+            )
 
             yield _sse({
                 "type": "start",
@@ -775,19 +860,17 @@ def chat_stream_endpoint(
                 "conversation_token": access_token,
             })
 
-            if conv.status == "escalated":
+            early_action = _deterministic_chat_action(
+                s,
+                client_id=client_id,
+                client_name=client_name,
+                conv=conv,
+                message=message,
+            )
+            if early_action == "escalated":
                 yield _sse({"type": "escalated", "conversation_id": conv.id})
                 return
-
-            lowered = message.lower()
-            keyword_hit = next((k for k in ALWAYS_ESCALATE_KEYWORDS if k in lowered), None)
-            if keyword_hit:
-                reason = f"richiede intervento umano ({keyword_hit})"
-                _escalate(s, client_id, client_name, conv, reason, outcome="escalated_keyword", trigger="keyword")
-                yield _sse({"type": "escalated", "conversation_id": conv.id})
-                return
-
-            if _over_quota(s, client_id):
+            if early_action == "quota_exceeded":
                 yield _sse({"type": "quota_exceeded", "conversation_id": conv.id})
                 return
 
@@ -795,14 +878,9 @@ def chat_stream_endpoint(
             if detected:
                 origin = _trusted_callback_origin(client.allowed_origins, site_url, request)
                 data = _order_lookup(origin, client.api_key, detected[0], detected[1], wp_user_token)
-                reply_text = _format_order_reply(data)
-                reply_msg = Message(conversation_id=conv.id, role="assistant", content=reply_text)
-                s.add(reply_msg)
-                conv.updated_at = datetime.utcnow()
-                s.add(conv)
-                s.commit()
-                s.refresh(reply_msg)
-                _log_ai_response(s, client_id, conv.id, "order_lookup", message_id=reply_msg.id)
+                reply_text, reply_msg = _save_order_lookup_reply(
+                    s, client_id=client_id, conv=conv, data=data
+                )
                 yield _sse({"type": "token", "text": reply_text})
                 yield _sse({"type": "done", "conversation_id": conv.id, "message_id": reply_msg.id, "products": []})
                 return
@@ -862,14 +940,14 @@ def chat_stream_endpoint(
                 order_number, identifier = lookup_match.group(1), lookup_match.group(2)
                 origin = _trusted_callback_origin(client.allowed_origins, site_url, request)
                 data = _order_lookup(origin, client.api_key, order_number.strip(), identifier.strip(), wp_user_token)
-                reply_text = _format_order_reply(data)
-                reply_msg = Message(conversation_id=conv.id, role="assistant", content=reply_text)
-                s.add(reply_msg)
-                conv.updated_at = datetime.utcnow()
-                s.add(conv)
-                s.commit()
-                s.refresh(reply_msg)
-                _log_ai_response(s, client_id, conv.id, "order_lookup", retrieval_meta=retrieval_meta, llm_meta=meta, message_id=reply_msg.id)
+                reply_text, reply_msg = _save_order_lookup_reply(
+                    s,
+                    client_id=client_id,
+                    conv=conv,
+                    data=data,
+                    retrieval_meta=retrieval_meta,
+                    llm_meta=meta,
+                )
                 yield _sse({"type": "token", "text": reply_text})
                 yield _sse({"type": "done", "conversation_id": conv.id, "message_id": reply_msg.id, "products": []})
                 return
@@ -906,64 +984,33 @@ def chat_endpoint(
     client: Client = Depends(rate_limit_chat),
     session: Session = Depends(get_session),
 ):
-    if conversation_id:
-        conv = session.get(Conversation, conversation_id)
-        if not conv or conv.client_id != client.id:
-            raise HTTPException(404, "conversation not found")
-        _require_conversation_token(conv, conversation_token)
-        access_token = conversation_token
-    else:
-        conv, access_token = _create_conversation(session, client.id, visitor_id)
-
-    history = [
-        {"role": m.role if m.role != "operator" else "assistant", "content": m.content}
-        for m in session.exec(select(Message).where(Message.conversation_id == conv.id).order_by(Message.id)).all()
-    ]
-    session.add(Message(conversation_id=conv.id, role="user", content=message))
-    conv.updated_at = datetime.utcnow()
-    if conv.status == "closed":
-        conv.status = "open"  # new visitor activity reopens a closed conversation
-        conv.closed_at = None
-    session.add(conv)
-    session.commit()
-    metrics.chat_messages_total.inc()
-
-    if conv.status == "escalated":
+    conv, access_token, history = _prepare_chat_turn(
+        session,
+        client_id=client.id,
+        visitor_id=visitor_id,
+        message=message,
+        conversation_id=conversation_id,
+        conversation_token=conversation_token,
+    )
+    early_action = _deterministic_chat_action(
+        session,
+        client_id=client.id,
+        client_name=client.name,
+        conv=conv,
+        message=message,
+    )
+    if early_action == "escalated":
         return {"conversation_id": conv.id, "conversation_token": access_token, "status": "escalated", "reply": None}
-
-    lowered = message.lower()
-    keyword_hit = next((k for k in ALWAYS_ESCALATE_KEYWORDS if k in lowered), None)
-    if keyword_hit:
-        reason = f"richiede intervento umano ({keyword_hit})"
-        conv.status = "escalated"
-        conv.updated_at = datetime.utcnow()
-        session.add(conv)
-        ticket = Ticket(conversation_id=conv.id, reason=reason)
-        session.add(ticket)
-        session.commit()
-        session.refresh(ticket)
-        log(logger, logging.INFO, "chat.escalated", client_id=client.id, conversation_id=conv.id, trigger="keyword", keyword=keyword_hit)
-        metrics.escalations_total.labels(trigger="keyword").inc()
-        _log_ai_response(session, client.id, conv.id, "escalated_keyword")
-        notify_new_ticket(client.name, conv.id, ticket.id, reason)
-        return {"conversation_id": conv.id, "conversation_token": access_token, "status": "escalated", "reply": None}
-
-    # monthly message quota: block only the (paid) AI path — human handoffs above still go through
-    if _over_quota(session, client.id):
+    if early_action == "quota_exceeded":
         return {"conversation_id": conv.id, "conversation_token": access_token, "status": "quota_exceeded", "reply": None}
 
     detected = _detect_order_lookup(history, message)
     if detected:
         origin = _trusted_callback_origin(client.allowed_origins, site_url, request)
         data = _order_lookup(origin, client.api_key, detected[0], detected[1], wp_user_token)
-        reply_text = _format_order_reply(data)
-        reply_msg = Message(conversation_id=conv.id, role="assistant", content=reply_text)
-        session.add(reply_msg)
-        conv.updated_at = datetime.utcnow()
-        session.add(conv)
-        session.commit()
-        session.refresh(reply_msg)
-        _log_ai_response(session, client.id, conv.id, "order_lookup", message_id=reply_msg.id)
+        reply_text, reply_msg = _save_order_lookup_reply(
+            session, client_id=client.id, conv=conv, data=data
+        )
         return {"conversation_id": conv.id, "conversation_token": access_token, "status": "open", "reply": reply_text, "products": [], "message_id": reply_msg.id}
 
     retrieval_meta: list[dict] = []
@@ -1005,14 +1052,14 @@ def chat_endpoint(
         order_number, _, identifier = result["order_lookup"].partition("|")
         origin = _trusted_callback_origin(client.allowed_origins, site_url, request)
         data = _order_lookup(origin, client.api_key, order_number.strip(), identifier.strip(), wp_user_token)
-        reply_text = _format_order_reply(data)
-        reply_msg = Message(conversation_id=conv.id, role="assistant", content=reply_text)
-        session.add(reply_msg)
-        conv.updated_at = datetime.utcnow()
-        session.add(conv)
-        session.commit()
-        session.refresh(reply_msg)
-        _log_ai_response(session, client.id, conv.id, "order_lookup", retrieval_meta=retrieval_meta, llm_meta=result, message_id=reply_msg.id)
+        reply_text, reply_msg = _save_order_lookup_reply(
+            session,
+            client_id=client.id,
+            conv=conv,
+            data=data,
+            retrieval_meta=retrieval_meta,
+            llm_meta=result,
+        )
         return {"conversation_id": conv.id, "conversation_token": access_token, "status": "open", "reply": reply_text, "products": [], "message_id": reply_msg.id}
 
     reply_msg = Message(conversation_id=conv.id, role="assistant", content=result["reply"])
