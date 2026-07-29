@@ -1913,17 +1913,51 @@ def create_plan(
 @app.post("/admin/plans/{plan_id}", dependencies=[Depends(require_admin)])
 def update_plan(
     plan_id: int,
+    name: str | None = Body(None),
+    price_cents: int | None = Body(None),
+    currency: str | None = Body(None),
+    chat_rate_limit: int | None = Body(None),
+    ingest_rate_limit: int | None = Body(None),
     stripe_price_id: str | None = Body(None),
     monthly_message_limit: int | None = Body(None),
     session: Session = Depends(get_session),
 ):
-    """Update a plan's Stripe price id and/or monthly message quota (only the fields provided)."""
+    """Update a plan's commercial settings (only the fields provided)."""
     plan = session.get(Plan, plan_id)
     if not plan:
         raise HTTPException(404, "plan not found")
+    if name is not None:
+        normalized_name = name.strip()
+        if not normalized_name:
+            raise HTTPException(400, "plan name cannot be empty")
+        duplicate = session.exec(
+            select(Plan).where(Plan.name == normalized_name, Plan.id != plan_id)
+        ).first()
+        if duplicate:
+            raise HTTPException(409, "a plan with this name already exists")
+        plan.name = normalized_name
+    if price_cents is not None:
+        if price_cents < 0:
+            raise HTTPException(400, "price_cents cannot be negative")
+        plan.price_cents = price_cents
+    if currency is not None:
+        normalized_currency = currency.strip().lower()
+        if len(normalized_currency) != 3:
+            raise HTTPException(400, "currency must be a 3-letter ISO code")
+        plan.currency = normalized_currency
+    if chat_rate_limit is not None:
+        if chat_rate_limit < 1:
+            raise HTTPException(400, "chat_rate_limit must be positive")
+        plan.chat_rate_limit = chat_rate_limit
+    if ingest_rate_limit is not None:
+        if ingest_rate_limit < 1:
+            raise HTTPException(400, "ingest_rate_limit must be positive")
+        plan.ingest_rate_limit = ingest_rate_limit
     if stripe_price_id is not None:
         plan.stripe_price_id = stripe_price_id
     if monthly_message_limit is not None:
+        if monthly_message_limit < 0:
+            raise HTTPException(400, "monthly_message_limit cannot be negative")
         plan.monthly_message_limit = monthly_message_limit
     session.add(plan)
     session.commit()

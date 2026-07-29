@@ -34,6 +34,50 @@ def test_checkout_requires_stripe_price_id(client, tenant):
     assert r.status_code == 400
 
 
+def test_admin_can_update_plan_commercial_settings(client):
+    admin = {"Authorization": "Bearer test-admin"}
+    plan = client.post(
+        "/admin/plans",
+        headers=admin,
+        json={"name": "Old", "price_cents": 7900},
+    ).json()
+
+    response = client.post(
+        f"/admin/plans/{plan['id']}",
+        headers=admin,
+        json={
+            "name": "Pro",
+            "price_cents": 4900,
+            "currency": "EUR",
+            "chat_rate_limit": 120,
+            "ingest_rate_limit": 240,
+            "monthly_message_limit": 2500,
+            "stripe_price_id": "price_new",
+        },
+    )
+
+    assert response.status_code == 200
+    updated = response.json()
+    assert updated["name"] == "Pro"
+    assert updated["price_cents"] == 4900
+    assert updated["currency"] == "eur"
+    assert updated["monthly_message_limit"] == 2500
+    assert updated["stripe_price_id"] == "price_new"
+
+
+def test_admin_rejects_invalid_plan_commercial_settings(client):
+    admin = {"Authorization": "Bearer test-admin"}
+    plan = client.post("/admin/plans", headers=admin, json={"name": "Valid"}).json()
+
+    response = client.post(
+        f"/admin/plans/{plan['id']}",
+        headers=admin,
+        json={"price_cents": -1},
+    )
+
+    assert response.status_code == 400
+
+
 def test_webhook_checkout_completed_activates_plan(client, tenant, monkeypatch):
     plan_id = _make_paid_plan(client, price_id="price_pro")
     event = {
