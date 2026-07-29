@@ -92,7 +92,7 @@ docker compose exec ollama ollama pull llama3.1
 docker compose exec ollama ollama pull nomic-embed-text
 
 python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements.lock
 alembic upgrade head             # crea/aggiorna lo schema del DB
 uvicorn app.main:app --reload   # http://localhost:8000
 ```
@@ -116,7 +116,7 @@ uvicorn app.main:app --reload   # http://localhost:8000
 
 ```bash
 cd backend
-pip install -r requirements-dev.txt
+pip install -r requirements-dev.lock
 pytest                              # test unitari (security, rate limit, LLM, chunking)
 
 # test d'integrazione degli endpoint (richiedono un DB Postgres+pgvector di test):
