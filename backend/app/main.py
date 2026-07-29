@@ -199,6 +199,13 @@ OPERATOR_SESSION_TTL = timedelta(hours=int(os.getenv("OPERATOR_SESSION_TTL_HOURS
 # Ingest is limited per client. Windows are 60s; override the counts via env.
 chat_limiter = make_limiter(int(os.getenv("CHAT_RATE_LIMIT", "30")), 60)
 ingest_limiter = make_limiter(int(os.getenv("INGEST_RATE_LIMIT", "60")), 60)
+auth_limiter = make_limiter(int(os.getenv("AUTH_RATE_LIMIT", "10")), 60)
+
+
+def _rate_limit_auth(request: Request, scope: str, identity: str = "") -> None:
+    ip = request.client.host if request.client else "unknown"
+    identity_digest = hashlib.sha256(identity.strip().lower().encode()).hexdigest()[:16]
+    auth_limiter.check(f"auth:{scope}:{ip}:{identity_digest}")
 
 # ponytail: deterministic safety net for categories that must always reach a human —
 # small local LLMs don't reliably follow "always escalate refunds" instructions
@@ -1995,6 +2002,7 @@ def public_plans(session: Session = Depends(get_session)):
 
 @app.post("/signup")
 def signup(
+    request: Request,
     company_name: str = Body(...),
     email: str = Body(...),
     password: str = Body(...),
@@ -2004,6 +2012,7 @@ def signup(
     """Self-serve registration: create the account (on the Free plan, 'incomplete' until paid)
     and start a Stripe Checkout subscription with a free trial + card capture. The chosen plan is
     applied by the webhook once checkout completes. Returns the hosted checkout URL."""
+    _rate_limit_auth(request, "signup", email)
     if not billing.enabled():
         raise HTTPException(503, "billing not configured")
     plan = session.get(Plan, plan_id)
@@ -2240,10 +2249,15 @@ def _consume_token(session: Session, token: str, purpose: str) -> Operator | Non
 
 
 @app.post("/auth/verify-email")
-def verify_email(token: str = Body(..., embed=True), session: Session = Depends(get_session)):
+def verify_email(
+    request: Request,
+    token: str = Body(..., embed=True),
+    session: Session = Depends(get_session),
+):
     """Confirm an operator's email from the link sent at signup. Idempotent-ish: a used or
     expired token 400s, but an already-verified operator re-clicking simply succeeds again
     only while the token is fresh — after that they can just log in."""
+    _rate_limit_auth(request, "verify")
     operator = _consume_token(session, token, "verify_email")
     if not operator:
         raise HTTPException(400, "invalid or expired token")
@@ -2256,9 +2270,14 @@ def verify_email(token: str = Body(..., embed=True), session: Session = Depends(
 
 
 @app.post("/auth/resend-verification")
-def resend_verification(email: str = Body(..., embed=True), session: Session = Depends(get_session)):
+def resend_verification(
+    request: Request,
+    email: str = Body(..., embed=True),
+    session: Session = Depends(get_session),
+):
     """Re-send the verification email. Like /auth/forgot, always returns ok to avoid leaking
     which emails are registered; only actually sends for an existing, still-unverified account."""
+    _rate_limit_auth(request, "resend", email)
     operator = session.exec(select(Operator).where(Operator.email == email)).first()
     if operator and not operator.email_verified:
         token = _issue_token(session, operator.id, "verify_email", VERIFY_TOKEN_TTL)
@@ -2267,9 +2286,14 @@ def resend_verification(email: str = Body(..., embed=True), session: Session = D
 
 
 @app.post("/auth/forgot")
-def forgot_password(email: str = Body(..., embed=True), session: Session = Depends(get_session)):
+def forgot_password(
+    request: Request,
+    email: str = Body(..., embed=True),
+    session: Session = Depends(get_session),
+):
     """Start a password reset. Always returns ok (no user enumeration); when the email maps
     to an operator, issue a single-use token and email the reset link."""
+    _rate_limit_auth(request, "forgot", email)
     operator = session.exec(select(Operator).where(Operator.email == email)).first()
     if operator:
         token = _issue_token(session, operator.id, "reset", RESET_TOKEN_TTL)
@@ -2280,12 +2304,14 @@ def forgot_password(email: str = Body(..., embed=True), session: Session = Depen
 
 @app.post("/auth/reset")
 def reset_password(
+    request: Request,
     token: str = Body(...),
     new_password: str = Body(...),
     session: Session = Depends(get_session),
 ):
     """Complete a password reset. Consumes the token, sets the new password, and revokes all
     of the operator's active sessions so a leaked/old login can't survive the reset."""
+    _rate_limit_auth(request, "reset")
     if len(new_password) < 8:
         raise HTTPException(400, "new password must be at least 8 characters")
     operator = _consume_token(session, token, "reset")
@@ -2306,7 +2332,13 @@ def reset_password(
 
 
 @app.post("/operator/login")
-def operator_login(email: str = Body(...), password: str = Body(...), session: Session = Depends(get_session)):
+def operator_login(
+    request: Request,
+    email: str = Body(...),
+    password: str = Body(...),
+    session: Session = Depends(get_session),
+):
+    _rate_limit_auth(request, "login", email)
     operator = session.exec(select(Operator).where(Operator.email == email)).first()
     if not operator or not verify_password(password, operator.password_hash):
         raise HTTPException(401, "invalid credentials")

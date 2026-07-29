@@ -43,6 +43,7 @@ def client(monkeypatch):
     # sporadic 429s across the suite.
     monkeypatch.setattr(main, "chat_limiter", FixedWindowLimiter(main.chat_limiter.limit, 60))
     monkeypatch.setattr(main, "ingest_limiter", FixedWindowLimiter(main.ingest_limiter.limit, 60))
+    monkeypatch.setattr(main, "auth_limiter", FixedWindowLimiter(main.auth_limiter.limit, 60))
 
     # no Ollama in tests: deterministic embeddings and a canned chat reply
     monkeypatch.setattr(rag, "embed", lambda text: [0.0] * db.EMBED_DIM)
