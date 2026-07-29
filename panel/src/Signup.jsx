@@ -3,7 +3,7 @@ import { api } from "./api.js";
 
 export default function Signup({ onBackToLogin }) {
   const [plans, setPlans] = useState(null);
-  const [form, setForm] = useState({ company: "", email: "", password: "", plan_id: "" });
+  const [form, setForm] = useState({ company: "", email: "", password: "", plan_id: "", billing_interval: "month" });
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -31,6 +31,7 @@ export default function Signup({ onBackToLogin }) {
         email: form.email,
         password: form.password,
         plan_id: Number(form.plan_id),
+        billing_interval: form.billing_interval,
       });
       window.location.href = checkout_url; // -> Stripe Checkout (card + free trial)
     } catch (err) {
@@ -70,11 +71,22 @@ export default function Signup({ onBackToLogin }) {
       </div>
       {plans && plans.length > 0 && (
         <div className="wpai-field">
+          <label htmlFor="su-interval">Fatturazione</label>
+          <select id="su-interval" value={form.billing_interval} onChange={(e) => setForm((f) => ({ ...f, billing_interval: e.target.value }))}>
+            <option value="month">Mensile</option>
+            <option value="year">Annuale — 2 mesi gratis</option>
+          </select>
+        </div>
+      )}
+      {plans && plans.length > 0 && (
+        <div className="wpai-field">
           <label htmlFor="su-plan">Piano</label>
           <select id="su-plan" value={form.plan_id} onChange={(e) => setForm((f) => ({ ...f, plan_id: e.target.value }))}>
             {plans.map((p) => (
               <option key={p.id} value={p.id}>
-                {p.name} — {(p.price_cents / 100).toFixed(2)} {p.currency.toUpperCase()}/mese
+                {p.name} — {form.billing_interval === "year"
+                  ? `${(p.yearly_price_cents / 100).toFixed(2)} ${p.currency.toUpperCase()}/anno`
+                  : `${(p.price_cents / 100).toFixed(2)} ${p.currency.toUpperCase()}/mese`}
               </option>
             ))}
           </select>

@@ -88,5 +88,6 @@ export const api = {
   rotateKey: () => call("/me/rotate-key", { method: "POST" }),
   usage: () => call("/usage"),
   plans: () => call("/billing/plans"),
-  checkout: (plan_id) => call("/billing/checkout", { method: "POST", body: { plan_id } }),
+  checkout: (plan_id, billing_interval = "month") =>
+    call("/billing/checkout", { method: "POST", body: { plan_id, billing_interval } }),
 };

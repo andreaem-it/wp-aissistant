@@ -41,6 +41,7 @@ function BillingCard({ me }) {
   const [plans, setPlans] = useState([]);
   const [busy, setBusy] = useState(null);
   const [usage, setUsage] = useState(null);
+  const [billingInterval, setBillingInterval] = useState("month");
 
   useEffect(() => {
     api.plans().then(setPlans).catch(() => setPlans([]));
@@ -50,7 +51,7 @@ function BillingCard({ me }) {
   const upgrade = async (planId) => {
     setBusy(planId);
     try {
-      const { checkout_url } = await api.checkout(planId);
+      const { checkout_url } = await api.checkout(planId, billingInterval);
       window.location.href = checkout_url;
     } catch {
       setBusy(null);
@@ -94,10 +95,16 @@ function BillingCard({ me }) {
         </p>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 6 }}>
+          <select value={billingInterval} onChange={(e) => setBillingInterval(e.target.value)} aria-label="Periodicità fatturazione">
+            <option value="month">Mensile</option>
+            <option value="year">Annuale — 2 mesi gratis</option>
+          </select>
           {others.map((p) => (
             <div key={p.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
               <span>
-                <strong>{p.name}</strong> — {(p.price_cents / 100).toFixed(2)} {p.currency.toUpperCase()}/mese
+                <strong>{p.name}</strong> — {billingInterval === "year"
+                  ? `${(p.yearly_price_cents / 100).toFixed(2)} ${p.currency.toUpperCase()}/anno`
+                  : `${(p.price_cents / 100).toFixed(2)} ${p.currency.toUpperCase()}/mese`}
               </span>
               <button className="wpai-btn" onClick={() => upgrade(p.id)} disabled={busy === p.id}>
                 {busy === p.id ? "Reindirizzamento…" : "Passa a questo piano"}

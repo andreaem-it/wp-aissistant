@@ -24,7 +24,9 @@ class Plan(SQLModel, table=True):
     # monthly chat-message quota (visitor messages that reach the AI); 0 = unlimited.
     # Counted per calendar month; over quota the AI stops answering (see enforcement in /chat).
     monthly_message_limit: int = 0
+    yearly_price_cents: int = 0
     stripe_price_id: str = ""
+    stripe_yearly_price_id: str = ""
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 

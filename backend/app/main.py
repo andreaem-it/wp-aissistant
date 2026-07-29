@@ -1893,7 +1893,9 @@ def create_plan(
     chat_rate_limit: int = Body(30),
     ingest_rate_limit: int = Body(60),
     monthly_message_limit: int = Body(0),
+    yearly_price_cents: int = Body(0),
     stripe_price_id: str = Body(""),
+    stripe_yearly_price_id: str = Body(""),
     session: Session = Depends(get_session),
 ):
     if session.exec(select(Plan).where(Plan.name == name)).first():
@@ -1902,7 +1904,9 @@ def create_plan(
         name=name, price_cents=price_cents, currency=currency,
         chat_rate_limit=chat_rate_limit, ingest_rate_limit=ingest_rate_limit,
         monthly_message_limit=monthly_message_limit,
+        yearly_price_cents=yearly_price_cents,
         stripe_price_id=stripe_price_id,
+        stripe_yearly_price_id=stripe_yearly_price_id,
     )
     session.add(plan)
     session.commit()
@@ -1919,6 +1923,8 @@ def update_plan(
     chat_rate_limit: int | None = Body(None),
     ingest_rate_limit: int | None = Body(None),
     stripe_price_id: str | None = Body(None),
+    stripe_yearly_price_id: str | None = Body(None),
+    yearly_price_cents: int | None = Body(None),
     monthly_message_limit: int | None = Body(None),
     session: Session = Depends(get_session),
 ):
@@ -1955,6 +1961,12 @@ def update_plan(
         plan.ingest_rate_limit = ingest_rate_limit
     if stripe_price_id is not None:
         plan.stripe_price_id = stripe_price_id
+    if stripe_yearly_price_id is not None:
+        plan.stripe_yearly_price_id = stripe_yearly_price_id
+    if yearly_price_cents is not None:
+        if yearly_price_cents < 0:
+            raise HTTPException(400, "yearly_price_cents cannot be negative")
+        plan.yearly_price_cents = yearly_price_cents
     if monthly_message_limit is not None:
         if monthly_message_limit < 0:
             raise HTTPException(400, "monthly_message_limit cannot be negative")
@@ -1968,8 +1980,21 @@ def update_plan(
 # ---- Billing (Stripe) ----
 
 
+def _stripe_price_for_interval(plan: Plan, billing_interval: str) -> str:
+    if billing_interval == "month":
+        return plan.stripe_price_id
+    if billing_interval == "year":
+        return plan.stripe_yearly_price_id
+    raise HTTPException(400, "billing_interval must be 'month' or 'year'")
+
+
 @app.post("/billing/checkout")
-def billing_checkout(plan_id: int = Body(..., embed=True), operator: Operator = Depends(require_operator), session: Session = Depends(get_session)):
+def billing_checkout(
+    plan_id: int = Body(..., embed=True),
+    billing_interval: str = Body("month", embed=True),
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
     """Start a Stripe Checkout session for the operator's client to subscribe to `plan_id`.
     Returns the hosted checkout URL to redirect the browser to."""
     if not billing.enabled():
@@ -1977,13 +2002,14 @@ def billing_checkout(plan_id: int = Body(..., embed=True), operator: Operator = 
     plan = session.get(Plan, plan_id)
     if not plan:
         raise HTTPException(404, "plan not found")
-    if not plan.stripe_price_id:
-        raise HTTPException(400, "plan has no stripe_price_id")
+    stripe_price_id = _stripe_price_for_interval(plan, billing_interval)
+    if not stripe_price_id:
+        raise HTTPException(400, f"plan has no {billing_interval}ly Stripe price")
     client = session.get(Client, operator.client_id)
 
     params = {
         "mode": "subscription",
-        "line_items": [{"price": plan.stripe_price_id, "quantity": 1}],
+        "line_items": [{"price": stripe_price_id, "quantity": 1}],
         "success_url": billing.SUCCESS_URL,
         "cancel_url": billing.CANCEL_URL,
         "client_reference_id": str(client.id),
@@ -2018,7 +2044,9 @@ def billing_plans(operator: Operator = Depends(require_operator), session: Sessi
     return [
         {
             "id": p.id, "name": p.name, "price_cents": p.price_cents,
-            "currency": p.currency, "purchasable": bool(p.stripe_price_id),
+            "yearly_price_cents": p.yearly_price_cents, "currency": p.currency,
+            "purchasable": bool(p.stripe_price_id),
+            "yearly_purchasable": bool(p.stripe_yearly_price_id),
         }
         for p in session.exec(select(Plan).order_by(Plan.price_cents, Plan.id)).all()
     ]
@@ -2028,7 +2056,10 @@ def billing_plans(operator: Operator = Depends(require_operator), session: Sessi
 def public_plans(session: Session = Depends(get_session)):
     """Purchasable plans for the public signup page (no auth). Free/priceless plans are hidden."""
     return [
-        {"id": p.id, "name": p.name, "price_cents": p.price_cents, "currency": p.currency}
+        {
+            "id": p.id, "name": p.name, "price_cents": p.price_cents,
+            "yearly_price_cents": p.yearly_price_cents, "currency": p.currency,
+        }
         for p in session.exec(select(Plan).order_by(Plan.price_cents, Plan.id)).all()
         if p.stripe_price_id
     ]
@@ -2041,6 +2072,7 @@ def signup(
     email: str = Body(...),
     password: str = Body(...),
     plan_id: int = Body(...),
+    billing_interval: str = Body("month"),
     session: Session = Depends(get_session),
 ):
     """Self-serve registration: create the account (on the Free plan, 'incomplete' until paid)
@@ -2050,8 +2082,11 @@ def signup(
     if not billing.enabled():
         raise HTTPException(503, "billing not configured")
     plan = session.get(Plan, plan_id)
-    if not plan or not plan.stripe_price_id:
+    if not plan:
         raise HTTPException(400, "invalid plan")
+    stripe_price_id = _stripe_price_for_interval(plan, billing_interval)
+    if not stripe_price_id:
+        raise HTTPException(400, f"plan has no {billing_interval}ly Stripe price")
 
     existing = session.exec(select(Operator).where(Operator.email == email)).first()
     if existing:
@@ -2095,7 +2130,7 @@ def signup(
     meta = {"client_id": str(client.id), "plan_id": str(plan.id)}
     checkout = stripe.checkout.Session.create(
         mode="subscription",
-        line_items=[{"price": plan.stripe_price_id, "quantity": 1}],
+        line_items=[{"price": stripe_price_id, "quantity": 1}],
         success_url=billing.SUCCESS_URL,
         cancel_url=billing.CANCEL_URL,
         client_reference_id=str(client.id),

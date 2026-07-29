@@ -26,6 +26,36 @@ def test_checkout_returns_url(client, tenant, monkeypatch):
     assert r.json()["checkout_url"] == "https://checkout.stripe/x"
 
 
+def test_checkout_uses_yearly_price(client, tenant, monkeypatch):
+    admin = {"Authorization": "Bearer test-admin"}
+    plan = client.post(
+        "/admin/plans",
+        headers=admin,
+        json={
+            "name": "Annual",
+            "price_cents": 4900,
+            "yearly_price_cents": 49000,
+            "stripe_price_id": "price_month",
+            "stripe_yearly_price_id": "price_year",
+        },
+    ).json()
+    captured = {}
+
+    def create_checkout(**kwargs):
+        captured.update(kwargs)
+        return types.SimpleNamespace(url="https://checkout.stripe/year", id="cs_year")
+
+    monkeypatch.setattr("stripe.checkout.Session.create", create_checkout)
+    response = client.post(
+        "/billing/checkout",
+        headers=tenant["op"],
+        json={"plan_id": plan["id"], "billing_interval": "year"},
+    )
+
+    assert response.status_code == 200
+    assert captured["line_items"][0]["price"] == "price_year"
+
+
 def test_checkout_requires_stripe_price_id(client, tenant):
     # a plan without a stripe_price_id can't be checked out
     admin = {"Authorization": "Bearer test-admin"}
@@ -53,6 +83,8 @@ def test_admin_can_update_plan_commercial_settings(client):
             "ingest_rate_limit": 240,
             "monthly_message_limit": 2500,
             "stripe_price_id": "price_new",
+            "yearly_price_cents": 49000,
+            "stripe_yearly_price_id": "price_yearly",
         },
     )
 
@@ -63,6 +95,8 @@ def test_admin_can_update_plan_commercial_settings(client):
     assert updated["currency"] == "eur"
     assert updated["monthly_message_limit"] == 2500
     assert updated["stripe_price_id"] == "price_new"
+    assert updated["yearly_price_cents"] == 49000
+    assert updated["stripe_yearly_price_id"] == "price_yearly"
 
 
 def test_admin_rejects_invalid_plan_commercial_settings(client):

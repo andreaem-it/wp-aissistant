@@ -72,6 +72,41 @@ def test_signup_starts_checkout_and_creates_incomplete_account(client, monkeypat
         assert c.plan_id != pro_id  # on Free until the subscription activates
 
 
+def test_signup_uses_yearly_price(client, monkeypatch):
+    client.post("/admin/plans", headers=ADMIN, json={"name": "Free"})
+    annual = client.post(
+        "/admin/plans",
+        headers=ADMIN,
+        json={
+            "name": "Annual",
+            "price_cents": 4900,
+            "yearly_price_cents": 49000,
+            "stripe_price_id": "price_month",
+            "stripe_yearly_price_id": "price_year",
+        },
+    ).json()
+    captured = {}
+
+    def create_checkout(**kwargs):
+        captured.update(kwargs)
+        return types.SimpleNamespace(url="https://checkout.stripe/year", id="cs_signup_year")
+
+    monkeypatch.setattr("stripe.checkout.Session.create", create_checkout)
+    response = client.post(
+        "/signup",
+        json={
+            "company_name": "Annual Co",
+            "email": "annual@example.test",
+            "password": "password1",
+            "plan_id": annual["id"],
+            "billing_interval": "year",
+        },
+    )
+
+    assert response.status_code == 200
+    assert captured["line_items"][0]["price"] == "price_year"
+
+
 def _verify_token(email, purpose="verify_email"):
     """Read the latest unused email token for an operator straight from the DB (in tests
     SMTP is unset, so the link is only logged — we fetch the raw token instead)."""
