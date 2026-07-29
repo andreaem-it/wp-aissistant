@@ -58,7 +58,8 @@ Tre componenti indipendenti:
 - **Client** — tenant, identificato da `api_key`.
 - **Chunk** — pezzo di contenuto embeddato (documento o pagina sito).
 - **Product** — prodotto WooCommerce strutturato (per renderizzare card nel widget).
-- **Conversation** — `open | escalated | closed`.
+- **Conversation** — `open | escalated | closed`; l'accesso del widget alla singola
+  conversazione richiede un token visitatore casuale distinto dalla `api_key`.
 - **Message** — `user | assistant | operator`.
 - **Ticket** — `open | answered | closed`, collegato a una conversazione.
 - **Operator** — agente umano che accede al panel; appartiene a un client (password hashed).
@@ -67,7 +68,13 @@ Tre componenti indipendenti:
 ### Due tipi di credenziale
 
 - **api_key del client** — machine-to-machine: usata da widget e plugin WP per `/chat` e ingest.
-- **Token operatore** — sessione umana: ottenuto via login email+password, usato dal panel.
+- **Token operatore** — sessione umana a scadenza: ottenuto via login email+password,
+  usato dal panel.
+
+La `api_key` inclusa nel widget identifica il tenant ma non è considerata segreta. Alla
+creazione della chat il backend restituisce un `conversation_token` ad alta entropia; il
+browser deve presentarlo per continuare o leggere quella conversazione. Nel database viene
+salvato soltanto il suo hash.
 
 L'endpoint `/conversations/{id}/messages` accetta entrambi (il widget lo interroga in polling,
 il panel lo legge).

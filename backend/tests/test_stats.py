@@ -107,7 +107,8 @@ def test_chat_returns_message_id(client, tenant):
 def test_feedback_records_and_shows_in_stats(client, tenant):
     r = client.post("/chat", headers=tenant["key"], json={"visitor_id": "v1", "message": "ciao"}).json()
     ok = client.post("/chat/feedback", headers=tenant["key"],
-                     json={"conversation_id": r["conversation_id"], "message_id": r["message_id"], "value": "up"})
+                     json={"conversation_id": r["conversation_id"], "conversation_token": r["conversation_token"],
+                           "message_id": r["message_id"], "value": "up"})
     assert ok.status_code == 200
     s = client.get("/stats", headers=tenant["op"]).json()
     assert s["feedback"]["positive"] == 1
@@ -117,7 +118,8 @@ def test_feedback_records_and_shows_in_stats(client, tenant):
 def test_feedback_rejects_bad_value(client, tenant):
     r = client.post("/chat", headers=tenant["key"], json={"visitor_id": "v1", "message": "ciao"}).json()
     bad = client.post("/chat/feedback", headers=tenant["key"],
-                      json={"conversation_id": r["conversation_id"], "message_id": r["message_id"], "value": "meh"})
+                      json={"conversation_id": r["conversation_id"], "conversation_token": r["conversation_token"],
+                            "message_id": r["message_id"], "value": "meh"})
     assert bad.status_code == 400
 
 

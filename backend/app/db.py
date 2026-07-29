@@ -1,5 +1,5 @@
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 
 from pgvector.sqlalchemy import Vector
@@ -69,6 +69,10 @@ class Conversation(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     client_id: int = Field(index=True, foreign_key="client.id")
     visitor_id: str
+    # SHA-256 digest of the opaque token issued to the visitor when the conversation is
+    # created. The public widget api_key identifies only the tenant; this token proves that
+    # the browser owns this specific conversation.
+    access_token_hash: str = Field(default="", index=True)
     # optional: the visitor can leave an email (on escalation) to be notified when an operator
     # replies; visitor_url is the page they chatted from, used as the link back in that email.
     visitor_email: Optional[str] = None
@@ -184,13 +188,13 @@ class AuthToken(SQLModel, table=True):
 
 
 class OperatorSession(SQLModel, table=True):
-    """Opaque bearer token issued at login; deleted on logout. client_id is denormalized
-    here so request scoping doesn't need an extra Operator lookup."""
+    """Opaque bearer token issued at login, with a finite lifetime and explicit logout."""
     id: Optional[int] = Field(default=None, primary_key=True)
     operator_id: int = Field(index=True, foreign_key="operator.id")
     client_id: int = Field(index=True, foreign_key="client.id")
     token: str = Field(index=True, unique=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)
+    expires_at: datetime = Field(default_factory=lambda: datetime.utcnow() + timedelta(days=30))
 
 
 class IngestJob(SQLModel, table=True):

@@ -1,6 +1,7 @@
 (function () {
   const VISITOR_KEY = "wpai_visitor_id";
   const CONV_KEY = "wpai_conversation_id";
+  const CONV_TOKEN_KEY = "wpai_conversation_token";
   const ESCALATED_KEY = "wpai_escalated_shown";
   const CONTACT_KEY = "wpai_contact_given";
 
@@ -86,7 +87,12 @@
       await fetch(`${WPAI.backendUrl}/chat/feedback`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${WPAI.apiKey}` },
-        body: JSON.stringify({ conversation_id: Number(conversationId), message_id: messageId, value }),
+        body: JSON.stringify({
+          conversation_id: Number(conversationId),
+          conversation_token: localStorage.getItem(CONV_TOKEN_KEY),
+          message_id: messageId,
+          value,
+        }),
       });
       wrap.setAttribute("data-voted", value); // CSS highlights the chosen button, hides the other
     } catch (e) {
@@ -137,7 +143,12 @@
         await fetch(`${WPAI.backendUrl}/chat/contact`, {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${WPAI.apiKey}` },
-          body: JSON.stringify({ conversation_id: Number(conversationId), email: input.value, url: window.location.href }),
+          body: JSON.stringify({
+            conversation_id: Number(conversationId),
+            conversation_token: localStorage.getItem(CONV_TOKEN_KEY),
+            email: input.value,
+            url: window.location.href,
+          }),
         });
         localStorage.setItem(CONTACT_KEY, String(conversationId));
         wrap.innerHTML = '<i class="fa-solid fa-check"></i> Ti avviseremo via email appena rispondiamo.';
@@ -192,6 +203,7 @@
           visitor_id: visitorId(),
           message,
           conversation_id: conversationId ? Number(conversationId) : null,
+          conversation_token: conversationId ? localStorage.getItem(CONV_TOKEN_KEY) : null,
           wp_user_token: await userToken(),
           site_url: WPAI.siteUrl,
         }),
@@ -203,6 +215,7 @@
       // a stored conversation id that no longer belongs to this client 404s — drop it and retry once
       if (res.status === 404 && conversationId && !retried) {
         localStorage.removeItem(CONV_KEY);
+        localStorage.removeItem(CONV_TOKEN_KEY);
         localStorage.removeItem(ESCALATED_KEY);
         return sendMessage(message, messages, true);
       }
@@ -210,6 +223,7 @@
     }
     const data = await res.json();
     localStorage.setItem(CONV_KEY, data.conversation_id);
+    localStorage.setItem(CONV_TOKEN_KEY, data.conversation_token);
     startPolling(data.conversation_id, messages);
     if (data.status === "escalated") {
       if (localStorage.getItem(ESCALATED_KEY) !== String(data.conversation_id)) {
@@ -243,6 +257,7 @@
           visitor_id: visitorId(),
           message,
           conversation_id: conversationId ? Number(conversationId) : null,
+          conversation_token: conversationId ? localStorage.getItem(CONV_TOKEN_KEY) : null,
           wp_user_token: await userToken(),
           site_url: WPAI.siteUrl,
         }),
@@ -256,6 +271,7 @@
       // a stored conversation id that no longer belongs to this client 404s — drop it and retry once
       if (res.status === 404 && conversationId && !retried) {
         localStorage.removeItem(CONV_KEY);
+        localStorage.removeItem(CONV_TOKEN_KEY);
         localStorage.removeItem(ESCALATED_KEY);
         return sendMessageStream(message, messages, true);
       }
@@ -268,6 +284,7 @@
       if (evt.type === "start") {
         convId = evt.conversation_id;
         localStorage.setItem(CONV_KEY, convId);
+        localStorage.setItem(CONV_TOKEN_KEY, evt.conversation_token);
         startPolling(convId, messages);
       } else if (evt.type === "token") {
         setTyping(messages, false);
@@ -341,7 +358,12 @@
       try {
         const res = await fetch(
           `${WPAI.backendUrl}/conversations/${conversationId}/messages?after_id=${lastMessageId}`,
-          { headers: { Authorization: `Bearer ${WPAI.apiKey}` } }
+          {
+            headers: {
+              Authorization: `Bearer ${WPAI.apiKey}`,
+              "X-Conversation-Token": localStorage.getItem(CONV_TOKEN_KEY) || "",
+            },
+          }
         );
         const data = await res.json();
         for (const m of data.messages) {

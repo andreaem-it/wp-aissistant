@@ -1,4 +1,6 @@
 import json
+import hashlib
+import ipaddress
 import logging
 import os
 import re
@@ -191,6 +193,7 @@ ADMIN_API_KEY = os.getenv("ADMIN_API_KEY")
 # TTLs for single-use email tokens (app/email.py sends the links)
 RESET_TOKEN_TTL = timedelta(hours=int(os.getenv("RESET_TOKEN_TTL_HOURS", "1")))
 VERIFY_TOKEN_TTL = timedelta(hours=int(os.getenv("VERIFY_TOKEN_TTL_HOURS", "48")))
+OPERATOR_SESSION_TTL = timedelta(hours=int(os.getenv("OPERATOR_SESSION_TTL_HOURS", str(24 * 30))))
 
 # /chat hits the LLM on every call, so it's the main abuse/cost surface — limit per client+IP.
 # Ingest is limited per client. Windows are 60s; override the counts via env.
@@ -287,7 +290,7 @@ def _cors_headers(origin: str) -> dict:
         "Access-Control-Allow-Origin": origin,
         "Access-Control-Allow-Credentials": "true",
         "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-        "Access-Control-Allow-Headers": "Authorization, Content-Type, ngrok-skip-browser-warning",
+        "Access-Control-Allow-Headers": "Authorization, Content-Type, X-Conversation-Token, ngrok-skip-browser-warning",
         "Access-Control-Max-Age": "600",
         "Vary": "Origin",
     }
@@ -377,13 +380,55 @@ def _bearer_token(authorization: str | None) -> str:
     return authorization[7:].strip()
 
 
+def _hash_conversation_token(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def _create_conversation(session: Session, client_id: int, visitor_id: str) -> tuple[Conversation, str]:
+    """Create a visitor conversation and return its one-time plaintext access token.
+
+    Only the digest is persisted. The tenant api_key is embedded in the public widget and
+    therefore cannot authorize access to an individual visitor's transcript.
+    """
+    token = secrets.token_urlsafe(32)
+    conv = Conversation(
+        client_id=client_id,
+        visitor_id=visitor_id,
+        access_token_hash=_hash_conversation_token(token),
+    )
+    session.add(conv)
+    session.commit()
+    session.refresh(conv)
+    return conv, token
+
+
+def _require_conversation_token(conv: Conversation, token: str | None) -> None:
+    """Fail as not-found so callers cannot use the endpoint to enumerate conversations."""
+    if (
+        not conv.access_token_hash
+        or not token
+        or not secrets.compare_digest(_hash_conversation_token(token), conv.access_token_hash)
+    ):
+        raise HTTPException(404, "conversation not found")
+
+
+def _get_operator_session(session: Session, token: str) -> OperatorSession | None:
+    """Resolve an active session and eagerly remove it when its absolute TTL has elapsed."""
+    op_session = session.exec(
+        select(OperatorSession).where(OperatorSession.token == token)
+    ).first()
+    if op_session and op_session.expires_at <= datetime.utcnow():
+        session.delete(op_session)
+        session.commit()
+        return None
+    return op_session
+
+
 def require_operator(
     authorization: str = Header(None), session: Session = Depends(get_session)
 ) -> Operator:
     """Auth for the human panel: resolves an operator session token to its Operator."""
-    op_session = session.exec(
-        select(OperatorSession).where(OperatorSession.token == _bearer_token(authorization))
-    ).first()
+    op_session = _get_operator_session(session, _bearer_token(authorization))
     operator = session.get(Operator, op_session.operator_id) if op_session else None
     if not operator:
         raise HTTPException(401, "invalid or expired session")
@@ -396,9 +441,7 @@ def resolve_client_id(
     """Dual auth for endpoints shared by the widget (client api_key) and the panel
     (operator session token). Returns the owning client_id from whichever matches."""
     token = _bearer_token(authorization)
-    op_session = session.exec(
-        select(OperatorSession).where(OperatorSession.token == token)
-    ).first()
+    op_session = _get_operator_session(session, token)
     if op_session:
         return op_session.client_id
     client = session.exec(select(Client).where(Client.api_key == token)).first()
@@ -525,6 +568,19 @@ def _trusted_callback_origin(allowed_origins: str, site_url, request) -> str:
     allowed = set(_split_origins(allowed_origins))
     if not allowed:
         return ""
+    # Reject literal internal/link-local targets outright instead of silently falling back.
+    # This keeps attacker-controlled callback candidates visible as a failed validation and
+    # prevents future refactors from accidentally using the original site_url.
+    if site_url:
+        from urllib.parse import urlparse
+
+        try:
+            hostname = urlparse(site_url).hostname
+            address = ipaddress.ip_address(hostname) if hostname else None
+            if address and not address.is_global:
+                return ""
+        except ValueError:
+            pass  # regular DNS hostname; exact allowlist matching below remains authoritative
     for cand in (site_url, request.headers.get("origin"), request.headers.get("referer")):
         norm = _normalize_origins(cand or "")
         if norm and norm in allowed:
@@ -642,6 +698,7 @@ def chat_stream_endpoint(
     visitor_id: str = Body(...),
     message: str = Body(...),
     conversation_id: int | None = Body(None),
+    conversation_token: str | None = Body(None),
     wp_user_token: str | None = Body(None),
     site_url: str | None = Body(None),
     client: Client = Depends(rate_limit_chat),
@@ -662,6 +719,7 @@ def chat_stream_endpoint(
         conv = session.get(Conversation, conversation_id)
         if not conv or conv.client_id != client_id:
             raise HTTPException(404, "conversation not found")
+        _require_conversation_token(conv, conversation_token)
 
     def event_stream():
         # a fresh session: the request-scoped one closes when this function returns, before the
@@ -669,11 +727,9 @@ def chat_stream_endpoint(
         with Session(engine) as s:
             if conversation_id:
                 conv = s.get(Conversation, conversation_id)
+                access_token = conversation_token
             else:
-                conv = Conversation(client_id=client_id, visitor_id=visitor_id)
-                s.add(conv)
-                s.commit()
-                s.refresh(conv)
+                conv, access_token = _create_conversation(s, client_id, visitor_id)
 
             history = [
                 {"role": m.role if m.role != "operator" else "assistant", "content": m.content}
@@ -688,7 +744,11 @@ def chat_stream_endpoint(
             s.commit()
             metrics.chat_messages_total.inc()
 
-            yield _sse({"type": "start", "conversation_id": conv.id})
+            yield _sse({
+                "type": "start",
+                "conversation_id": conv.id,
+                "conversation_token": access_token,
+            })
 
             if conv.status == "escalated":
                 yield _sse({"type": "escalated", "conversation_id": conv.id})
@@ -815,6 +875,7 @@ def chat_endpoint(
     visitor_id: str = Body(...),
     message: str = Body(...),
     conversation_id: int | None = Body(None),
+    conversation_token: str | None = Body(None),
     wp_user_token: str | None = Body(None),
     site_url: str | None = Body(None),
     client: Client = Depends(rate_limit_chat),
@@ -824,11 +885,10 @@ def chat_endpoint(
         conv = session.get(Conversation, conversation_id)
         if not conv or conv.client_id != client.id:
             raise HTTPException(404, "conversation not found")
+        _require_conversation_token(conv, conversation_token)
+        access_token = conversation_token
     else:
-        conv = Conversation(client_id=client.id, visitor_id=visitor_id)
-        session.add(conv)
-        session.commit()
-        session.refresh(conv)
+        conv, access_token = _create_conversation(session, client.id, visitor_id)
 
     history = [
         {"role": m.role if m.role != "operator" else "assistant", "content": m.content}
@@ -844,7 +904,7 @@ def chat_endpoint(
     metrics.chat_messages_total.inc()
 
     if conv.status == "escalated":
-        return {"conversation_id": conv.id, "status": "escalated", "reply": None}
+        return {"conversation_id": conv.id, "conversation_token": access_token, "status": "escalated", "reply": None}
 
     lowered = message.lower()
     keyword_hit = next((k for k in ALWAYS_ESCALATE_KEYWORDS if k in lowered), None)
@@ -861,11 +921,11 @@ def chat_endpoint(
         metrics.escalations_total.labels(trigger="keyword").inc()
         _log_ai_response(session, client.id, conv.id, "escalated_keyword")
         notify_new_ticket(client.name, conv.id, ticket.id, reason)
-        return {"conversation_id": conv.id, "status": "escalated", "reply": None}
+        return {"conversation_id": conv.id, "conversation_token": access_token, "status": "escalated", "reply": None}
 
     # monthly message quota: block only the (paid) AI path — human handoffs above still go through
     if _over_quota(session, client.id):
-        return {"conversation_id": conv.id, "status": "quota_exceeded", "reply": None}
+        return {"conversation_id": conv.id, "conversation_token": access_token, "status": "quota_exceeded", "reply": None}
 
     detected = _detect_order_lookup(history, message)
     if detected:
@@ -879,7 +939,7 @@ def chat_endpoint(
         session.commit()
         session.refresh(reply_msg)
         _log_ai_response(session, client.id, conv.id, "order_lookup", message_id=reply_msg.id)
-        return {"conversation_id": conv.id, "status": "open", "reply": reply_text, "products": [], "message_id": reply_msg.id}
+        return {"conversation_id": conv.id, "conversation_token": access_token, "status": "open", "reply": reply_text, "products": [], "message_id": reply_msg.id}
 
     retrieval_meta: list[dict] = []
     try:
@@ -900,7 +960,7 @@ def chat_endpoint(
         metrics.escalations_total.labels(trigger="llm_down").inc()
         _log_ai_response(session, client.id, conv.id, "escalated_llm_down", retrieval_meta=retrieval_meta)
         notify_new_ticket(client.name, conv.id, ticket.id, reason)
-        return {"conversation_id": conv.id, "status": "escalated", "reply": None}
+        return {"conversation_id": conv.id, "conversation_token": access_token, "status": "escalated", "reply": None}
 
     if "escalate" in result:
         conv.status = "escalated"
@@ -914,7 +974,7 @@ def chat_endpoint(
         metrics.escalations_total.labels(trigger="model").inc()
         _log_ai_response(session, client.id, conv.id, "escalated_model", retrieval_meta=retrieval_meta, llm_meta=result)
         notify_new_ticket(client.name, conv.id, ticket.id, result["escalate"])
-        return {"conversation_id": conv.id, "status": "escalated", "reply": None}
+        return {"conversation_id": conv.id, "conversation_token": access_token, "status": "escalated", "reply": None}
 
     if "order_lookup" in result:
         order_number, _, identifier = result["order_lookup"].partition("|")
@@ -928,7 +988,7 @@ def chat_endpoint(
         session.commit()
         session.refresh(reply_msg)
         _log_ai_response(session, client.id, conv.id, "order_lookup", retrieval_meta=retrieval_meta, llm_meta=result, message_id=reply_msg.id)
-        return {"conversation_id": conv.id, "status": "open", "reply": reply_text, "products": [], "message_id": reply_msg.id}
+        return {"conversation_id": conv.id, "conversation_token": access_token, "status": "open", "reply": reply_text, "products": [], "message_id": reply_msg.id}
 
     reply_msg = Message(conversation_id=conv.id, role="assistant", content=result["reply"])
     session.add(reply_msg)
@@ -941,7 +1001,7 @@ def chat_endpoint(
         products = retrieve_products(session, client.id, message)
     except LLMUnavailableError:
         products = []  # reply already succeeded; don't lose it over a second embedding call
-    return {"conversation_id": conv.id, "status": "open", "reply": result["reply"], "products": products, "message_id": reply_msg.id}
+    return {"conversation_id": conv.id, "conversation_token": access_token, "status": "open", "reply": result["reply"], "products": products, "message_id": reply_msg.id}
 
 
 @app.post("/chat/feedback")
@@ -949,6 +1009,7 @@ def chat_feedback(
     conversation_id: int = Body(...),
     message_id: int = Body(...),
     value: str = Body(...),  # "up" | "down"
+    conversation_token: str | None = Body(None),
     client: Client = Depends(require_client),
     session: Session = Depends(get_session),
 ):
@@ -959,6 +1020,7 @@ def chat_feedback(
     conv = session.get(Conversation, conversation_id)
     if not conv or conv.client_id != client.id:
         raise HTTPException(404, "conversation not found")
+    _require_conversation_token(conv, conversation_token)
     msg = session.get(Message, message_id)
     if not msg or msg.conversation_id != conversation_id or msg.role != "assistant":
         raise HTTPException(404, "message not found")
@@ -973,6 +1035,7 @@ def chat_contact(
     conversation_id: int = Body(...),
     email: str = Body(...),
     url: str | None = Body(None),
+    conversation_token: str | None = Body(None),
     client: Client = Depends(require_client),
     session: Session = Depends(get_session),
 ):
@@ -983,6 +1046,7 @@ def chat_contact(
     conv = session.get(Conversation, conversation_id)
     if not conv or conv.client_id != client.id:
         raise HTTPException(404, "conversation not found")
+    _require_conversation_token(conv, conversation_token)
     conv.visitor_email = email.strip()[:255]
     if url:
         conv.visitor_url = url[:1000]
@@ -1020,11 +1084,22 @@ def usage(client_id: int = Depends(resolve_client_id), session: Session = Depend
 
 
 @app.get("/conversations/{conversation_id}/messages")
-def conversation_messages(conversation_id: int, after_id: int = 0, client_id: int = Depends(resolve_client_id), session: Session = Depends(get_session)):
+def conversation_messages(
+    conversation_id: int,
+    after_id: int = 0,
+    conversation_token: str | None = Header(None, alias="X-Conversation-Token"),
+    authorization: str = Header(None),
+    session: Session = Depends(get_session),
+):
     """Polled by the chat widget (client api_key) and read by the panel (operator token)."""
+    bearer = _bearer_token(authorization)
+    op_session = _get_operator_session(session, bearer)
+    client_id = op_session.client_id if op_session else get_client(bearer, session).id
     conv = session.get(Conversation, conversation_id)
     if not conv or conv.client_id != client_id:
         raise HTTPException(404, "conversation not found")
+    if not op_session:
+        _require_conversation_token(conv, conversation_token)
     messages = session.exec(
         select(Message).where(Message.conversation_id == conversation_id, Message.id > after_id).order_by(Message.id)
     ).all()
@@ -2117,16 +2192,19 @@ def operator_login(email: str = Body(...), password: str = Body(...), session: S
         # 403 to a "verify your email / resend" prompt
         raise HTTPException(403, "email not verified")
     token = secrets.token_urlsafe(32)
-    session.add(OperatorSession(operator_id=operator.id, client_id=operator.client_id, token=token))
+    session.add(OperatorSession(
+        operator_id=operator.id,
+        client_id=operator.client_id,
+        token=token,
+        expires_at=datetime.utcnow() + OPERATOR_SESSION_TTL,
+    ))
     session.commit()
     return {"token": token, "client_id": operator.client_id, "email": operator.email}
 
 
 @app.post("/operator/logout")
 def operator_logout(authorization: str = Header(None), operator: Operator = Depends(require_operator), session: Session = Depends(get_session)):
-    op_session = session.exec(
-        select(OperatorSession).where(OperatorSession.token == _bearer_token(authorization))
-    ).first()
+    op_session = _get_operator_session(session, _bearer_token(authorization))
     if op_session:
         session.delete(op_session)
         session.commit()

@@ -2,6 +2,15 @@
 
 Tutte le modifiche rilevanti del plugin WP AIssistant.
 
+## [0.9.2] - 2026-07-29
+
+- Fix (sicurezza, critico): la API Key pubblica del widget non autorizza più da sola
+  lettura, prosecuzione o modifica di qualsiasi conversazione del tenant. Ogni nuova
+  conversazione riceve un token casuale separato; il widget lo conserva e lo presenta
+  per chat, polling, feedback e contatto. Il backend salva soltanto l'hash del token.
+- Le conversazioni create con versioni precedenti vengono abbandonate in sicurezza e
+  ricreate automaticamente al primo nuovo messaggio.
+
 ## [0.9.1] - 2026-07-27
 
 - Fix (sicurezza, critico): `wpai_user_token` (che sblocca i dati completi dell'ordine)

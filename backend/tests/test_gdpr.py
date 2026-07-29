@@ -10,9 +10,13 @@ ADMIN = {"Authorization": "Bearer test-admin"}
 
 def _escalated_with_email(client, tenant, email):
     """A conversation with messages, a ticket and captured visitor email."""
-    conv_id = client.post("/chat", headers=tenant["key"], json={"visitor_id": "v", "message": "rimborso"}).json()["conversation_id"]
-    client.post("/chat/contact", headers=tenant["key"], json={"conversation_id": conv_id, "email": email})
-    return conv_id
+    created = client.post("/chat", headers=tenant["key"], json={"visitor_id": "v", "message": "rimborso"}).json()
+    client.post("/chat/contact", headers=tenant["key"], json={
+        "conversation_id": created["conversation_id"],
+        "conversation_token": created["conversation_token"],
+        "email": email,
+    })
+    return created["conversation_id"]
 
 
 def _counts(conv_id):

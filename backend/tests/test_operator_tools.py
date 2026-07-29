@@ -18,7 +18,9 @@ def test_info_field_key_is_slugified_and_unique(client, tenant):
 
 
 def test_conversation_info_roundtrip(client, tenant):
-    conv_id = client.post("/chat", headers=tenant["key"], json={"visitor_id": "v", "message": "ciao"}).json()["conversation_id"]
+    created = client.post("/chat", headers=tenant["key"], json={"visitor_id": "v", "message": "ciao"}).json()
+    conv_id = created["conversation_id"]
+    widget_headers = {**tenant["key"], "X-Conversation-Token": created["conversation_token"]}
     assert client.get(f"/conversations/{conv_id}/info", headers=tenant["op"]).json() == {"info": {}}
     client.put(f"/conversations/{conv_id}/info", headers=tenant["op"], json={"info": {"id_ordine": "001"}})
     assert client.get(f"/conversations/{conv_id}/info", headers=tenant["op"]).json() == {"info": {"id_ordine": "001"}}
@@ -40,13 +42,15 @@ def test_operator_name_and_typing_indicator(client, tenant):
     client.post("/me/name", headers=tenant["op"], json={"name": "Giulia"})
     assert client.get("/me", headers=tenant["op"]).json()["name"] == "Giulia"
 
-    conv_id = client.post("/chat", headers=tenant["key"], json={"visitor_id": "v", "message": "ciao"}).json()["conversation_id"]
+    created = client.post("/chat", headers=tenant["key"], json={"visitor_id": "v", "message": "ciao"}).json()
+    conv_id = created["conversation_id"]
+    widget_headers = {**tenant["key"], "X-Conversation-Token": created["conversation_token"]}
     # before any typing ping, the widget poll shows no operator typing
-    poll = client.get(f"/conversations/{conv_id}/messages", headers=tenant["key"]).json()
+    poll = client.get(f"/conversations/{conv_id}/messages", headers=widget_headers).json()
     assert poll["operator_typing"] is None
     # after the operator pings typing, the widget poll surfaces the name
     client.post(f"/conversations/{conv_id}/typing", headers=tenant["op"])
-    poll = client.get(f"/conversations/{conv_id}/messages", headers=tenant["key"]).json()
+    poll = client.get(f"/conversations/{conv_id}/messages", headers=widget_headers).json()
     assert poll["operator_typing"] == "Giulia"
 
 
@@ -65,7 +69,9 @@ def test_teach_knowledge_requires_content(client, tenant):
 
 def test_conversation_info_not_leaked_to_widget(client, tenant):
     # the visitor-facing /messages endpoint must not expose operator info fields
-    conv_id = client.post("/chat", headers=tenant["key"], json={"visitor_id": "v", "message": "ciao"}).json()["conversation_id"]
+    created = client.post("/chat", headers=tenant["key"], json={"visitor_id": "v", "message": "ciao"}).json()
+    conv_id = created["conversation_id"]
     client.put(f"/conversations/{conv_id}/info", headers=tenant["op"], json={"info": {"segreto": "x"}})
-    msgs = client.get(f"/conversations/{conv_id}/messages", headers=tenant["key"]).json()
+    headers = {**tenant["key"], "X-Conversation-Token": created["conversation_token"]}
+    msgs = client.get(f"/conversations/{conv_id}/messages", headers=headers).json()
     assert "info" not in msgs

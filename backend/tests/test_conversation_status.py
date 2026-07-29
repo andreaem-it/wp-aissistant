@@ -7,11 +7,11 @@ ADMIN = {"Authorization": "Bearer test-admin"}
 
 
 def _conv(client, tenant, msg="ciao"):
-    return client.post("/chat", headers=tenant["key"], json={"visitor_id": "v", "message": msg}).json()["conversation_id"]
+    return client.post("/chat", headers=tenant["key"], json={"visitor_id": "v", "message": msg}).json()
 
 
 def test_close_and_reopen(client, tenant):
-    cid = _conv(client, tenant)
+    cid = _conv(client, tenant)["conversation_id"]
     r = client.post(f"/conversations/{cid}/status", headers=tenant["op"], json={"status": "closed"})
     assert r.status_code == 200 and r.json()["status"] == "closed"
     with Session(db.engine) as s:
@@ -25,12 +25,12 @@ def test_close_and_reopen(client, tenant):
 
 
 def test_invalid_status_rejected(client, tenant):
-    cid = _conv(client, tenant)
+    cid = _conv(client, tenant)["conversation_id"]
     assert client.post(f"/conversations/{cid}/status", headers=tenant["op"], json={"status": "banana"}).status_code == 400
 
 
 def test_scoped_to_client(client, tenant):
-    cid = _conv(client, tenant)
+    cid = _conv(client, tenant)["conversation_id"]
     other = client.post("/admin/clients", headers=ADMIN, json={"name": "Other"}).json()
     client.post(f"/admin/clients/{other['id']}/operators", headers=ADMIN, json={"email": "o2@x.it", "password": "password1"})
     tok = client.post("/operator/login", json={"email": "o2@x.it", "password": "password1"}).json()["token"]
@@ -39,9 +39,15 @@ def test_scoped_to_client(client, tenant):
 
 
 def test_new_visitor_message_reopens_closed(client, tenant):
-    cid = _conv(client, tenant)
+    created = _conv(client, tenant)
+    cid = created["conversation_id"]
     client.post(f"/conversations/{cid}/status", headers=tenant["op"], json={"status": "closed"})
     # visitor writes again -> conversation auto-reopens
-    client.post("/chat", headers=tenant["key"], json={"visitor_id": "v", "message": "altra domanda", "conversation_id": cid})
+    client.post("/chat", headers=tenant["key"], json={
+        "visitor_id": "v",
+        "message": "altra domanda",
+        "conversation_id": cid,
+        "conversation_token": created["conversation_token"],
+    })
     with Session(db.engine) as s:
         assert s.get(db.Conversation, cid).status == "open"
