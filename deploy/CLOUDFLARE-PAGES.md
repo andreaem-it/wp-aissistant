@@ -34,9 +34,9 @@ Finché i secret non ci sono, il workflow **si salta da solo** (resta verde). Il
 
 ## Note
 
-- I link **Accedi/Registrati** del sito puntano al panel
-  (`https://panel-production-ed34.up.railway.app`) — configurati in `LINKS` in fondo a
-  `website/index.html`. Non esiste ancora una registrazione self-service, quindi "Registrati"
-  porta al login del panel: cambialo se aggiungi un flusso di signup.
-- I **prezzi** nel sito sono d'esempio: allineali all'offerta reale (e ai piani/Stripe).
+- I link **Accedi/Registrati** puntano al panel
+  (`https://panel-production-ed34.up.railway.app`) e al relativo flusso self-service; le
+  destinazioni sono configurate in `LINKS` in fondo a `website/index.html`.
+- I **prezzi** nel sito sono un listino indicativo: il checkout mostra sempre prezzo e
+  condizioni definitivi del piano configurato in Stripe.
 - `website/_headers` imposta header di sicurezza di base; Cloudflare Pages lo applica in automatico.

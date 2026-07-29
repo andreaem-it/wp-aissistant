@@ -351,8 +351,9 @@ servila con qualsiasi web server statico). Deploy consigliato su **Cloudflare Pa
 [`deploy/CLOUDFLARE-PAGES.md`](deploy/CLOUDFLARE-PAGES.md). Presenta funzionalità, prezzi **a pacchetto**
 (Starter/Pro/Business, con toggle mensile/annuale) e **a consumo** (pay-as-you-go), più i link
 di **login** e **registrazione**. Le destinazioni di quei link si configurano nell'oggetto
-`LINKS` in fondo a `index.html` (di default puntano al panel su `http://localhost:5173`).
-I prezzi mostrati sono di listino promozionale d'esempio, da allineare all'offerta reale.
+`LINKS` in fondo a `index.html` (attualmente puntano al panel in produzione e al suo flusso
+di signup). I prezzi mostrati sono un listino indicativo; il checkout mostra prezzo e
+condizioni definitivi configurati in Stripe.
 
 ## Roadmap MVP → Produzione
 

@@ -3,70 +3,92 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <script>document.documentElement.className += " js";</script>
   <title>WP AIssistant — L'assistente AI per il tuo sito WordPress</title>
-  <meta name="description" content="Assistente AI di supporto clienti per WordPress e WooCommerce: risponde in tempo reale con i contenuti del tuo sito, mostra i prodotti, e passa la parola a un operatore umano — con strumenti pro, notifiche email e statistiche." />
+  <meta name="description" content="Assistente AI di supporto clienti per WordPress e WooCommerce: risponde in tempo reale con i contenuti del tuo sito, mostra i prodotti, cerca lo stato degli ordini e passa la parola a un operatore umano — con strumenti pro, notifiche email, statistiche e privacy GDPR." />
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%235B4FE8'/%3E%3Cstop offset='1' stop-color='%238B7FF0'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='32' height='32' rx='9' fill='url(%23g)'/%3E%3C/svg%3E" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" integrity="sha512-SnH5WK+bZxgPHs44uWIX+LLJAJ9/2PkPKZ5QiAj6Ta86w+fsb2TkcmfRyVX3pBnMFcV7oQPJkl9QevSCWr3W6A==" crossorigin="anonymous" referrerpolicy="no-referrer" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
+  <a class="skip-link" href="#main">Vai al contenuto</a>
   <!-- ==================== NAV ==================== -->
   <header class="nav" id="top">
     <div class="container nav-inner">
       <a href="#top" class="brand">
-        <span class="brand-mark"><i class="fa-solid fa-robot"></i></span> WP AIssistant
+        <span class="brand-mark"><i class="fa-solid fa-robot"></i></span>
+        <span>WP <b>AIssistant</b></span>
       </a>
-      <button class="nav-toggle" aria-label="Apri menu" onclick="document.body.classList.toggle('nav-open')"><i class="fa-solid fa-bars"></i></button>
-      <nav class="nav-links">
+      <button class="nav-toggle" type="button" aria-label="Apri menu" aria-expanded="false" aria-controls="mainNav"><i class="fa-solid fa-bars"></i></button>
+      <nav class="nav-links" id="mainNav" aria-label="Navigazione principale">
         <a href="#features">Funzionalità</a>
-        <a href="#pricing">Prezzi</a>
         <a href="#how">Come funziona</a>
+        <a href="#pricing">Prezzi</a>
         <a class="btn btn-ghost" data-link="login" href="#">Accedi</a>
-        <a class="btn btn-primary" data-link="register" href="#">Registrati</a>
+        <a class="btn btn-primary" data-link="register" href="#">Inizia gratis</a>
       </nav>
     </div>
   </header>
 
   <!-- ==================== HERO ==================== -->
+  <main id="main">
   <section class="hero">
-    <div class="container hero-inner">
-      <span class="pill"><i class="fa-solid fa-sparkles"></i> Nuovo · Supporto clienti AI per WordPress &amp; WooCommerce</span>
-      <h1>Il tuo sito risponde ai clienti.<br /><span class="grad">Da solo, 24/7.</span></h1>
-      <p class="lead">
-        WP AIssistant è un assistente AI che impara dai contenuti del tuo sito e risponde ai
-        visitatori in chat. Quando serve una persona vera, apre un ticket e passa la parola a un
-        operatore. Installi il plugin, ed è online in pochi minuti.
-      </p>
-      <div class="hero-cta">
-        <a class="btn btn-primary btn-lg" data-link="register" href="#">Inizia gratis →</a>
-        <a class="btn btn-ghost btn-lg" href="#pricing">Guarda i prezzi</a>
+    <div class="orb orb-1"></div>
+    <div class="orb orb-2"></div>
+    <div class="container hero-grid">
+      <div class="hero-copy reveal">
+        <span class="pill"><span class="dot"></span> Supporto clienti AI per WordPress &amp; WooCommerce</span>
+        <h1>Il tuo sito risponde ai clienti.<br /><span class="grad">Da solo, 24/7.</span></h1>
+        <p class="lead">
+          Un assistente AI che impara dai contenuti del tuo sito e risponde in chat in tempo reale.
+          Mostra i prodotti, controlla lo stato degli ordini e — quando serve una persona vera —
+          passa la parola a un operatore. Installi il plugin, ed è online in pochi minuti.
+        </p>
+        <div class="hero-cta">
+          <a class="btn btn-primary btn-lg" data-link="register" href="#">Inizia gratis <i class="fa-solid fa-arrow-right"></i></a>
+          <a class="btn btn-outline btn-lg" href="#how">Come funziona</a>
+        </div>
+        <ul class="hero-meta">
+          <li><i class="fa-solid fa-circle-check"></i> Nessun addebito durante la prova</li>
+          <li><i class="fa-solid fa-circle-check"></i> 14 giorni di prova</li>
+          <li><i class="fa-solid fa-circle-check"></i> Disdici quando vuoi</li>
+        </ul>
       </div>
-      <p class="hero-note">Nessuna carta richiesta · 14 giorni di prova · Disdici quando vuoi</p>
 
-      <div class="hero-mock" aria-hidden="true">
+      <div class="hero-visual reveal" aria-hidden="true">
         <div class="mock-chat">
-          <div class="mock-head"><span class="mock-avatar"><i class="fa-solid fa-robot"></i></span> Assistente</div>
+          <div class="mock-head">
+            <span class="mock-avatar"><i class="fa-solid fa-robot"></i></span>
+            <div><div class="mock-title">Assistente</div><div class="mock-status"><span class="live"></span> Online</div></div>
+          </div>
           <div class="mock-body">
             <div class="bubble user">Avete la spedizione gratuita?</div>
-            <div class="bubble bot">Sì! La spedizione è gratuita per ordini sopra i 49&nbsp;€. <i class="fa-solid fa-truck"></i></div>
-            <div class="bubble user">Vorrei un rimborso sull'ordine #1042</div>
-            <div class="bubble sys">Ti metto in contatto con un operatore — ti risponde qui a breve.</div>
-            <div class="bubble typing">Giulia sta scrivendo…</div>
-            <div class="bubble op">Ciao, sono Giulia! Ho trovato l'ordine #1042, procedo subito con il rimborso. <i class="fa-solid fa-thumbs-up"></i></div>
+            <div class="bubble bot">Sì! È gratuita per ordini sopra i 49&nbsp;€. <i class="fa-solid fa-truck"></i></div>
+            <div class="bubble user">Dov'è il mio ordine #1042?</div>
+            <div class="bubble bot">Il tuo ordine #1042 è <b>spedito</b> il 12/07. Serve altro?</div>
+            <div class="bubble user">Vorrei un rimborso</div>
+            <div class="bubble sys">Ti metto in contatto con un operatore…</div>
+            <div class="bubble typing"><span></span><span></span><span></span> Giulia sta scrivendo</div>
+            <div class="bubble op">Ciao, sono Giulia! Procedo subito con il rimborso. <i class="fa-solid fa-thumbs-up"></i></div>
           </div>
         </div>
+        <div class="mock-badge mb-1"><i class="fa-solid fa-bolt"></i> Risposte in tempo reale</div>
+        <div class="mock-badge mb-2"><i class="fa-solid fa-box"></i> Stato ordini live</div>
       </div>
     </div>
   </section>
 
-  <!-- ==================== LOGOS / TRUST ==================== -->
+  <!-- ==================== TRUST ==================== -->
   <section class="trust">
-    <div class="container">
-      <p>Progettato per negozi e siti che usano <strong>WordPress</strong> e <strong>WooCommerce</strong></p>
+    <div class="container trust-inner">
+      <p class="trust-label">Costruito per negozi e siti su <strong>WordPress</strong> e <strong>WooCommerce</strong></p>
       <div class="trust-stats">
-        <div><strong>&lt;2s</strong><span>tempo di risposta medio</span></div>
-        <div><strong>70%</strong><span>richieste risolte senza operatore</span></div>
-        <div><strong>24/7</strong><span>sempre attivo, in ogni lingua</span></div>
+        <div><strong class="grad">RAG</strong><span>risposte basate sui tuoi contenuti</span></div>
+        <div><strong class="grad">Live</strong><span>AI e operatori nella stessa chat</span></div>
+        <div><strong class="grad">24/7</strong><span>sempre pronto a rispondere</span></div>
       </div>
     </div>
   </section>
@@ -74,72 +96,114 @@
   <!-- ==================== FEATURES ==================== -->
   <section class="section" id="features">
     <div class="container">
-      <div class="section-head">
+      <div class="section-head reveal">
         <span class="eyebrow">Funzionalità</span>
-        <h2>Tutto ciò che serve per un supporto che si gestisce da solo</h2>
-        <p>Dalla risposta automatica all'escalation umana, in un unico strumento.</p>
+        <h2>Un supporto che si gestisce (quasi) da solo</h2>
+        <p>Dalla risposta automatica all'escalation umana, tutto in un unico strumento.</p>
       </div>
-      <div class="grid features">
-        <article class="card feature">
-          <div class="ic"><i class="fa-solid fa-comments"></i></div>
+      <div class="feature-grid">
+        <article class="card feature reveal">
+          <div class="feature-icon i-indigo"><i class="fa-solid fa-comments"></i></div>
           <h3>Risposte dai tuoi contenuti</h3>
           <p>Motore RAG: l'AI risponde solo con le informazioni del tuo sito, senza inventare.</p>
         </article>
-        <article class="card feature">
-          <div class="ic"><i class="fa-solid fa-bolt"></i></div>
+        <article class="card feature reveal">
+          <div class="feature-icon i-violet"><i class="fa-solid fa-bolt"></i></div>
           <h3>Risposte in tempo reale</h3>
           <p>La risposta appare parola per parola, come una chat vera: niente attese a blocco.</p>
         </article>
-        <article class="card feature">
-          <div class="ic"><i class="fa-solid fa-bag-shopping"></i></div>
+        <article class="card feature reveal">
+          <div class="feature-icon i-blue"><i class="fa-solid fa-box"></i></div>
+          <h3>Stato degli ordini in chat</h3>
+          <p>Il cliente chiede "dov'è il mio ordine?" e l'AI risponde con stato e spedizione, verificando l'identità.</p>
+        </article>
+        <article class="card feature reveal">
+          <div class="feature-icon i-pink"><i class="fa-solid fa-bag-shopping"></i></div>
           <h3>Prodotti WooCommerce</h3>
-          <p>Mostra card prodotto con prezzo e immagine direttamente nella conversazione.</p>
+          <p>Card prodotto con prezzo e immagine direttamente nella conversazione.</p>
         </article>
-        <article class="card feature">
-          <div class="ic"><i class="fa-solid fa-headset"></i></div>
+        <article class="card feature reveal">
+          <div class="feature-icon i-teal"><i class="fa-solid fa-headset"></i></div>
           <h3>Escalation a operatore</h3>
-          <p>Rimborsi, reclami o domande fuori contesto? Si apre un ticket e risponde una persona — che vede tutto lo storico della chat.</p>
+          <p>Rimborsi o domande fuori contesto? Si apre un ticket e risponde una persona, con tutto lo storico della chat.</p>
         </article>
-        <article class="card feature">
-          <div class="ic"><i class="fa-solid fa-keyboard"></i></div>
+        <article class="card feature reveal">
+          <div class="feature-icon i-amber"><i class="fa-solid fa-keyboard"></i></div>
           <h3>Presenza umana reale</h3>
           <p>Quando risponde un operatore, il cliente vede "<em>Giulia sta scrivendo…</em>" e riceve la risposta anche via email.</p>
         </article>
-        <article class="card feature">
-          <div class="ic"><i class="fa-solid fa-toolbox"></i></div>
+        <article class="card feature reveal">
+          <div class="feature-icon i-indigo"><i class="fa-solid fa-toolbox"></i></div>
           <h3>Strumenti per l'operatore</h3>
-          <p>Risposte predefinite con un clic e campi info (nome cliente, n° ordine, problematica) salvati sulla conversazione.</p>
+          <p>Risposte predefinite con un clic e campi info (nome, n° ordine, problematica) salvati sulla conversazione.</p>
         </article>
-        <article class="card feature">
-          <div class="ic"><i class="fa-solid fa-brain"></i></div>
+        <article class="card feature reveal">
+          <div class="feature-icon i-violet"><i class="fa-solid fa-brain"></i></div>
           <h3>Impara dalle tue risposte</h3>
-          <p>L'operatore può insegnare all'AI una nuova risposta o FAQ: entra subito nella knowledge base.</p>
+          <p>L'operatore insegna all'AI una nuova FAQ: entra subito nella knowledge base.</p>
         </article>
-        <article class="card feature">
-          <div class="ic"><i class="fa-solid fa-arrows-rotate"></i></div>
+        <article class="card feature reveal">
+          <div class="feature-icon i-blue"><i class="fa-solid fa-arrows-rotate"></i></div>
           <h3>Sync in tempo reale</h3>
-          <p>Pagine, articoli e prodotti si indicizzano da soli alla pubblicazione — e vedi lo stato di ognuno mentre sincronizza.</p>
+          <p>Pagine, articoli e prodotti si indicizzano da soli — e vedi lo stato di ognuno mentre sincronizza.</p>
         </article>
-        <article class="card feature">
-          <div class="ic"><i class="fa-solid fa-file-lines"></i></div>
+        <article class="card feature reveal">
+          <div class="feature-icon i-teal"><i class="fa-solid fa-file-lines"></i></div>
           <h3>Knowledge base estesa</h3>
           <p>Carica PDF, immagini (con OCR) e documenti, o aggiungi testo libero per arricchire le risposte.</p>
         </article>
-        <article class="card feature">
-          <div class="ic"><i class="fa-solid fa-chart-column"></i></div>
+        <article class="card feature reveal">
+          <div class="feature-icon i-pink"><i class="fa-solid fa-chart-column"></i></div>
           <h3>Statistiche &amp; qualità</h3>
-          <p>Volume, quota mensile, % risolte dall'AI, latenza e feedback <i class="fa-solid fa-thumbs-up"></i>/<i class="fa-solid fa-thumbs-down"></i> dei clienti su ogni risposta.</p>
+          <p>Volume, quota mensile, % risolte dall'AI, latenza e feedback dei clienti su ogni risposta.</p>
         </article>
-        <article class="card feature">
-          <div class="ic"><i class="fa-solid fa-palette"></i></div>
-          <h3>Widget personalizzabile</h3>
-          <p>Titolo, avatar e stile del widget flottante adattabili al tuo brand. Risponde in ogni lingua.</p>
+        <article class="card feature reveal">
+          <div class="feature-icon i-amber"><i class="fa-solid fa-shield-halved"></i></div>
+          <h3>Privacy &amp; GDPR</h3>
+          <p>Avviso privacy nel widget, cancellazione dei dati su richiesta e retention configurabile.</p>
         </article>
-        <article class="card feature">
-          <div class="ic"><i class="fa-solid fa-lock"></i></div>
-          <h3>Sicuro, con quote chiare</h3>
-          <p>Dati isolati per cliente, quota mensile di messaggi trasparente: sai sempre quanto hai usato e quanto resta.</p>
-        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== OPERATOR WORKSPACE ==================== -->
+  <section class="section product-showcase" id="workspace">
+    <div class="container showcase-grid">
+      <div class="showcase-copy reveal">
+        <span class="eyebrow">Control room</span>
+        <h2>Ogni conversazione sotto controllo</h2>
+        <p>La dashboard riunisce ticket, conversazioni, knowledge base e indicatori di qualità. L'AI gestisce il primo contatto; il team interviene con contesto completo quando serve.</p>
+        <ul class="showcase-list">
+          <li><i class="fa-solid fa-inbox"></i><span><strong>Inbox condivisa</strong> con stato, priorità e storico completo.</span></li>
+          <li><i class="fa-solid fa-wand-magic-sparkles"></i><span><strong>Miglioramento continuo</strong> trasformando le risposte migliori in nuova conoscenza.</span></li>
+          <li><i class="fa-solid fa-chart-line"></i><span><strong>Qualità misurabile</strong> con feedback, latenza, volumi e quota mensile.</span></li>
+        </ul>
+      </div>
+      <div class="dashboard-mock reveal" aria-label="Anteprima illustrativa della dashboard operatore">
+        <div class="dash-sidebar" aria-hidden="true">
+          <span class="dash-logo"><i class="fa-solid fa-robot"></i></span>
+          <span class="dash-nav active"><i class="fa-solid fa-comments"></i></span>
+          <span class="dash-nav"><i class="fa-solid fa-ticket"></i></span>
+          <span class="dash-nav"><i class="fa-solid fa-book-open"></i></span>
+          <span class="dash-nav"><i class="fa-solid fa-chart-simple"></i></span>
+        </div>
+        <div class="dash-content">
+          <div class="dash-top">
+            <div><span class="dash-kicker">Workspace</span><strong>Conversazioni</strong></div>
+            <span class="dash-avatar">GE</span>
+          </div>
+          <div class="dash-metrics">
+            <div><span>Conversazioni</span><strong>128</strong><em>questo mese</em></div>
+            <div><span>Gestite dall'AI</span><strong>82%</strong><em class="positive">+6%</em></div>
+            <div><span>Feedback</span><strong>4,8</strong><em>su 5</em></div>
+          </div>
+          <div class="dash-table">
+            <div class="dash-row dash-heading"><span>Cliente</span><span>Argomento</span><span>Stato</span></div>
+            <div class="dash-row"><span><b class="mini-avatar purple">MR</b> Martina R.</span><span>Stato ordine #1042</span><span class="status ai">AI attiva</span></div>
+            <div class="dash-row"><span><b class="mini-avatar blue">LC</b> Luca C.</span><span>Richiesta rimborso</span><span class="status human">Operatore</span></div>
+            <div class="dash-row"><span><b class="mini-avatar pink">AS</b> Anna S.</span><span>Taglia disponibile</span><span class="status done">Risolta</span></div>
+          </div>
+        </div>
       </div>
     </div>
   </section>
@@ -147,22 +211,23 @@
   <!-- ==================== HOW IT WORKS ==================== -->
   <section class="section alt" id="how">
     <div class="container">
-      <div class="section-head">
+      <div class="section-head reveal">
         <span class="eyebrow">Come funziona</span>
         <h2>Online in 3 passi</h2>
+        <p>Dall'installazione alla prima risposta, in pochi minuti.</p>
       </div>
-      <div class="grid steps">
-        <div class="step">
+      <div class="steps">
+        <div class="step reveal">
           <div class="step-n">1</div>
           <h3>Installa il plugin</h3>
-          <p>Aggiungi WP AIssistant al tuo WordPress e inserisci la tua chiave.</p>
+          <p>Aggiungi WP AIssistant al tuo WordPress e incolla la tua chiave.</p>
         </div>
-        <div class="step">
+        <div class="step reveal">
           <div class="step-n">2</div>
           <h3>Sincronizza i contenuti</h3>
-          <p>Dal menu <em>AI Assistant</em> invii pagine, articoli e prodotti: l'AI impara dal tuo sito e vedi lo stato di ognuno in tempo reale.</p>
+          <p>Dal menu <em>AI Assistant</em> invii pagine, articoli e prodotti: vedi lo stato di ognuno in tempo reale.</p>
         </div>
-        <div class="step">
+        <div class="step reveal">
           <div class="step-n">3</div>
           <h3>Attiva il widget</h3>
           <p>La chat compare sul sito e inizia a rispondere ai tuoi visitatori.</p>
@@ -174,119 +239,87 @@
   <!-- ==================== PRICING ==================== -->
   <section class="section" id="pricing">
     <div class="container">
-      <div class="section-head">
+      <div class="section-head reveal">
         <span class="eyebrow">Prezzi</span>
-        <h2>Scegli come pagare</h2>
-        <p>Un canone mensile prevedibile, oppure paghi solo ciò che usi. Cambi quando vuoi.</p>
+        <h2>Un piano per ogni dimensione</h2>
+        <p>Canone mensile prevedibile, quota di messaggi trasparente. Cambi o disdici quando vuoi.</p>
       </div>
 
-      <!-- toggle a pacchetto / a consumo -->
-      <div class="pricing-switch" role="tablist">
-        <button class="active" id="tab-pkg" role="tab" onclick="showPricing('pkg')">A pacchetto</button>
-        <button id="tab-usage" role="tab" onclick="showPricing('usage')">A consumo</button>
+      <div class="billing-toggle reveal">
+        <span>Mensile</span>
+        <label class="switch"><span class="sr-only">Mostra prezzi annuali</span><input type="checkbox" id="annualToggle" /><span class="slider"></span></label>
+        <span>Annuale <em class="save">−2 mesi</em></span>
       </div>
 
-      <!-- A PACCHETTO -->
-      <div id="pane-pkg" class="pricing-pane">
-        <div class="billing-toggle">
-          <span>Mensile</span>
-          <label class="switch"><input type="checkbox" id="annualToggle" onchange="toggleAnnual()" /><span class="slider"></span></label>
-          <span>Annuale <em class="save">−2 mesi</em></span>
-        </div>
-        <div class="grid tiers">
-          <article class="card tier">
-            <h3>Starter</h3>
-            <p class="tier-desc">Per piccoli siti e blog che iniziano.</p>
-            <div class="price"><span class="cur">€</span><span class="amt" data-m="29" data-y="24">29</span><span class="per">/mese</span></div>
-            <a class="btn btn-outline block" data-link="register" href="#">Prova gratis</a>
-            <ul class="ticks">
-              <li>1 sito web</li>
-              <li>500 messaggi / mese</li>
-              <li>Risposte in tempo reale</li>
-              <li>Knowledge base fino a 200 pagine</li>
-              <li>1 operatore</li>
-              <li>Sync automatico dei contenuti</li>
-            </ul>
-          </article>
+      <div class="tiers">
+        <article class="card tier reveal">
+          <h3>Starter</h3>
+          <p class="tier-desc">Per piccoli siti e blog che iniziano.</p>
+          <div class="price" aria-live="polite"><span class="cur">€</span><span class="amt" data-m="29" data-y="24">29</span><span class="per">/mese</span></div>
+          <a class="btn btn-outline block" data-link="register" href="#">Prova gratis</a>
+          <ul class="ticks">
+            <li>1 sito web</li>
+            <li>500 messaggi / mese</li>
+            <li>Risposte in tempo reale</li>
+            <li>Knowledge base fino a 200 pagine</li>
+            <li>1 operatore</li>
+            <li>Sync automatico dei contenuti</li>
+          </ul>
+        </article>
 
-          <article class="card tier popular">
-            <div class="badge">Più popolare</div>
-            <h3>Pro</h3>
-            <p class="tier-desc">Per negozi WooCommerce in crescita.</p>
-            <div class="price"><span class="cur">€</span><span class="amt" data-m="79" data-y="66">79</span><span class="per">/mese</span></div>
-            <a class="btn btn-primary block" data-link="register" href="#">Prova gratis</a>
-            <ul class="ticks">
-              <li>3 siti web</li>
-              <li>2.000 messaggi / mese</li>
-              <li>Knowledge base illimitata</li>
-              <li>5 operatori</li>
-              <li>Card prodotto WooCommerce</li>
-              <li>Risposte predefinite &amp; campi info</li>
-              <li>Notifiche email al cliente</li>
-              <li>Statistiche &amp; feedback qualità</li>
-            </ul>
-          </article>
+        <article class="card tier popular reveal">
+          <div class="badge"><i class="fa-solid fa-star"></i> Più popolare</div>
+          <h3>Pro</h3>
+          <p class="tier-desc">Per negozi WooCommerce in crescita.</p>
+          <div class="price" aria-live="polite"><span class="cur">€</span><span class="amt" data-m="79" data-y="66">79</span><span class="per">/mese</span></div>
+          <a class="btn btn-primary block" data-link="register" href="#">Prova gratis</a>
+          <ul class="ticks">
+            <li>3 siti web</li>
+            <li>2.000 messaggi / mese</li>
+            <li>Knowledge base illimitata</li>
+            <li>5 operatori</li>
+            <li>Stato ordini &amp; card prodotto</li>
+            <li>Risposte predefinite &amp; campi info</li>
+            <li>Notifiche email &amp; statistiche</li>
+          </ul>
+        </article>
 
-          <article class="card tier">
-            <h3>Business</h3>
-            <p class="tier-desc">Per volumi elevati e più team.</p>
-            <div class="price"><span class="cur">€</span><span class="amt" data-m="199" data-y="166">199</span><span class="per">/mese</span></div>
-            <a class="btn btn-outline block" data-link="register" href="#">Prova gratis</a>
-            <ul class="ticks">
-              <li>Siti illimitati</li>
-              <li>10.000 messaggi / mese</li>
-              <li>Operatori illimitati</li>
-              <li>Branding rimosso</li>
-              <li>Priorità sui modelli AI</li>
-              <li>Supporto prioritario &amp; SLA</li>
-            </ul>
-          </article>
-        </div>
+        <article class="card tier reveal">
+          <h3>Business</h3>
+          <p class="tier-desc">Per volumi elevati e più team.</p>
+          <div class="price" aria-live="polite"><span class="cur">€</span><span class="amt" data-m="199" data-y="166">199</span><span class="per">/mese</span></div>
+          <a class="btn btn-outline block" data-link="register" href="#">Prova gratis</a>
+          <ul class="ticks">
+            <li>Siti illimitati</li>
+            <li>10.000 messaggi / mese</li>
+            <li>Operatori illimitati</li>
+            <li>Branding rimosso</li>
+            <li>Priorità sui modelli AI</li>
+            <li>Supporto prioritario &amp; SLA</li>
+          </ul>
+        </article>
       </div>
 
-      <!-- A CONSUMO -->
-      <div id="pane-usage" class="pricing-pane" hidden>
-        <div class="grid usage">
-          <article class="card usage-card">
-            <div class="ic"><i class="fa-solid fa-comments"></i></div>
-            <div class="u-price">€0,05<span>/ conversazione</span></div>
-            <p>Paghi solo le conversazioni gestite dall'AI. Le chat non risolte non si pagano.</p>
-          </article>
-          <article class="card usage-card">
-            <div class="ic"><i class="fa-solid fa-envelope"></i></div>
-            <div class="u-price">€0,02<span>/ messaggio</span></div>
-            <p>Tariffa lineare per ogni messaggio elaborato, senza scaglioni nascosti.</p>
-          </article>
-          <article class="card usage-card">
-            <div class="ic"><i class="fa-solid fa-book"></i></div>
-            <div class="u-price">€0,01<span>/ pagina indicizzata</span></div>
-            <p>Costo una tantum per ogni pagina o documento aggiunto alla knowledge base.</p>
-          </article>
-        </div>
-        <div class="usage-note card">
-          <div>
-            <h3>Nessun canone fisso</h3>
-            <p>Ideale se il traffico è stagionale o imprevedibile: attivi il servizio e paghi solo l'uso reale, con un tetto di spesa mensile che imposti tu.</p>
-          </div>
-          <a class="btn btn-primary" data-link="register" href="#">Attiva pay-as-you-go</a>
-        </div>
-      </div>
-
-      <p class="enterprise">
+      <p class="pricing-note reveal">Prezzi di listino indicativi, IVA esclusa. Il prezzo e le condizioni definitive sono sempre mostrati prima del pagamento.</p>
+      <p class="enterprise reveal">
         Ti serve qualcosa su misura, on-premise o con volumi enterprise?
-        <a data-link="contact" href="#">Parliamone →</a>
+        <a data-link="contact" href="#">Parliamone <i class="fa-solid fa-arrow-right"></i></a>
       </p>
     </div>
   </section>
+  </main>
 
   <!-- ==================== FINAL CTA ==================== -->
   <section class="cta">
-    <div class="container cta-inner">
-      <h2>Pronto a far rispondere il tuo sito?</h2>
-      <p>Attiva WP AIssistant oggi e trasforma le domande dei visitatori in vendite e clienti soddisfatti.</p>
-      <div class="hero-cta">
-        <a class="btn btn-primary btn-lg" data-link="register" href="#">Crea il tuo account →</a>
-        <a class="btn btn-ghost btn-lg" data-link="login" href="#">Accedi</a>
+    <div class="container">
+      <div class="cta-inner reveal">
+        <div class="cta-orb"></div>
+        <h2>Pronto a far rispondere il tuo sito?</h2>
+        <p>Attiva WP AIssistant oggi e trasforma le domande dei visitatori in vendite e clienti soddisfatti.</p>
+        <div class="hero-cta">
+          <a class="btn btn-light btn-lg" data-link="register" href="#">Crea il tuo account <i class="fa-solid fa-arrow-right"></i></a>
+          <a class="btn btn-ghost btn-lg" data-link="login" href="#">Accedi</a>
+        </div>
       </div>
     </div>
   </section>
@@ -294,16 +327,16 @@
   <!-- ==================== FOOTER ==================== -->
   <footer class="footer">
     <div class="container footer-inner">
-      <div>
-        <a href="#top" class="brand"><span class="brand-mark"><i class="fa-solid fa-robot"></i></span> WP AIssistant</a>
+      <div class="footer-brand">
+        <a href="#top" class="brand"><span class="brand-mark"><i class="fa-solid fa-robot"></i></span> <span>WP <b>AIssistant</b></span></a>
         <p class="muted">Supporto clienti AI per WordPress &amp; WooCommerce.</p>
       </div>
       <nav class="footer-cols">
         <div>
           <h4>Prodotto</h4>
           <a href="#features">Funzionalità</a>
-          <a href="#pricing">Prezzi</a>
           <a href="#how">Come funziona</a>
+          <a href="#pricing">Prezzi</a>
         </div>
         <div>
           <h4>Account</h4>
@@ -321,34 +354,50 @@
   </footer>
 
   <script>
-    // -------- Configura qui le destinazioni reali di login/registrazione/contatto --------
-    // Punta questi URL al pannello operatori e al flusso di signup quando saranno pronti.
+    // -------- Destinazioni reali di login/registrazione/contatto --------
     const PANEL = "https://panel-production-ed34.up.railway.app";
     const LINKS = {
       login: PANEL,
-      register: PANEL + "/?signup=1",   // apre la pagina di registrazione (prova gratuita + carta)
-      contact: "mailto:ciao@wp-aissistant.example",
+      register: PANEL + "/?signup=1",
+      contact: "https://github.com/andreaem-it/wp-aissistant/issues/new",
     };
     document.querySelectorAll("[data-link]").forEach((a) => {
       const dest = LINKS[a.getAttribute("data-link")];
       if (dest) a.setAttribute("href", dest);
     });
 
-    // -------- Toggle prezzi a pacchetto / a consumo --------
-    function showPricing(which) {
-      const pkg = which === "pkg";
-      document.getElementById("pane-pkg").hidden = !pkg;
-      document.getElementById("pane-usage").hidden = pkg;
-      document.getElementById("tab-pkg").classList.toggle("active", pkg);
-      document.getElementById("tab-usage").classList.toggle("active", !pkg);
-    }
+    // -------- Navigazione mobile accessibile --------
+    const navToggle = document.querySelector(".nav-toggle");
+    const closeNav = () => {
+      document.body.classList.remove("nav-open");
+      navToggle.setAttribute("aria-expanded", "false");
+      navToggle.setAttribute("aria-label", "Apri menu");
+    };
+    navToggle.addEventListener("click", () => {
+      const open = document.body.classList.toggle("nav-open");
+      navToggle.setAttribute("aria-expanded", String(open));
+      navToggle.setAttribute("aria-label", open ? "Chiudi menu" : "Apri menu");
+    });
+    document.querySelectorAll("#mainNav a").forEach((link) => link.addEventListener("click", closeNav));
+    document.addEventListener("keydown", (event) => { if (event.key === "Escape") closeNav(); });
 
     // -------- Toggle mensile / annuale --------
-    function toggleAnnual() {
-      const annual = document.getElementById("annualToggle").checked;
+    document.getElementById("annualToggle").addEventListener("change", (event) => {
+      const annual = event.currentTarget.checked;
       document.querySelectorAll(".amt").forEach((el) => {
         el.textContent = annual ? el.dataset.y : el.dataset.m;
       });
+    });
+
+    // -------- Scroll reveal (rispetta prefers-reduced-motion) --------
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (reduce) {
+      document.querySelectorAll(".reveal").forEach((el) => el.classList.add("in"));
+    } else {
+      const io = new IntersectionObserver((entries) => {
+        entries.forEach((e) => { if (e.isIntersecting) { e.target.classList.add("in"); io.unobserve(e.target); } });
+      }, { rootMargin: "0px 0px -8% 0px" });
+      document.querySelectorAll(".reveal").forEach((el) => io.observe(el));
     }
   </script>
 </body>
