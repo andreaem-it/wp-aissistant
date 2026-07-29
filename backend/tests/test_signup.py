@@ -33,6 +33,28 @@ def test_public_plans_only_purchasable(client):
     assert "Free" not in names  # no stripe_price_id -> hidden
 
 
+def test_public_plans_are_sorted_by_price(client):
+    client.post(
+        "/admin/plans",
+        headers=ADMIN,
+        json={"name": "Business", "price_cents": 9900, "stripe_price_id": "price_business"},
+    )
+    client.post(
+        "/admin/plans",
+        headers=ADMIN,
+        json={"name": "Starter", "price_cents": 1900, "stripe_price_id": "price_starter"},
+    )
+    client.post(
+        "/admin/plans",
+        headers=ADMIN,
+        json={"name": "Pro", "price_cents": 4900, "stripe_price_id": "price_pro"},
+    )
+
+    plans = client.get("/public/plans").json()
+
+    assert [plan["name"] for plan in plans] == ["Starter", "Pro", "Business"]
+
+
 def test_signup_starts_checkout_and_creates_incomplete_account(client, monkeypatch):
     pro_id = _setup_plans(client)
     _mock_checkout(monkeypatch)

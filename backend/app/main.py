@@ -2020,7 +2020,7 @@ def billing_plans(operator: Operator = Depends(require_operator), session: Sessi
             "id": p.id, "name": p.name, "price_cents": p.price_cents,
             "currency": p.currency, "purchasable": bool(p.stripe_price_id),
         }
-        for p in session.exec(select(Plan).order_by(Plan.id)).all()
+        for p in session.exec(select(Plan).order_by(Plan.price_cents, Plan.id)).all()
     ]
 
 
@@ -2029,7 +2029,7 @@ def public_plans(session: Session = Depends(get_session)):
     """Purchasable plans for the public signup page (no auth). Free/priceless plans are hidden."""
     return [
         {"id": p.id, "name": p.name, "price_cents": p.price_cents, "currency": p.currency}
-        for p in session.exec(select(Plan).order_by(Plan.id)).all()
+        for p in session.exec(select(Plan).order_by(Plan.price_cents, Plan.id)).all()
         if p.stripe_price_id
     ]
 
