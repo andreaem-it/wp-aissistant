@@ -1,4 +1,4 @@
-from app.security import hash_password, verify_password
+from app.security import _hash_password_legacy, hash_password, password_needs_rehash, verify_password
 
 
 def test_verify_correct_password():
@@ -22,7 +22,37 @@ def test_malformed_hash_fails_closed():
 
 def test_stored_format():
     h = hash_password("pw")
-    algo, iterations, salt, digest = h.split("$")
-    assert algo == "pbkdf2_sha256"
-    assert int(iterations) >= 100_000
-    assert salt and digest
+    assert h.startswith("$argon2id$")
+    assert not password_needs_rehash(h)
+
+
+def test_legacy_pbkdf2_is_accepted_and_marked_for_upgrade():
+    h = _hash_password_legacy("pw")
+    assert verify_password("pw", h)
+    assert not verify_password("wrong", h)
+    assert password_needs_rehash(h)
+
+
+def test_login_transparently_upgrades_legacy_hash(client, tenant):
+    from sqlmodel import Session, select
+    from app import db
+
+    with Session(db.engine) as session:
+        operator = session.exec(
+            select(db.Operator).where(db.Operator.email == "op@acme.it")
+        ).one()
+        operator.password_hash = _hash_password_legacy("pw")
+        session.add(operator)
+        session.commit()
+
+    response = client.post(
+        "/operator/login",
+        json={"email": "op@acme.it", "password": "pw"},
+    )
+    assert response.status_code == 200
+
+    with Session(db.engine) as session:
+        operator = session.exec(
+            select(db.Operator).where(db.Operator.email == "op@acme.it")
+        ).one()
+        assert operator.password_hash.startswith("$argon2id$")

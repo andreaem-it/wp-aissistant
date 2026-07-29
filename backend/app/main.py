@@ -53,7 +53,7 @@ from . import metrics
 from .notify import notify_new_ticket
 from .rag import extract_text, retrieve, retrieve_products, retrieve_with_meta
 from .ratelimit import make_limiter
-from .security import hash_password, verify_password
+from .security import hash_password, password_needs_rehash, verify_password
 from .worker import requeue_stale, run_worker
 
 setup_logging()
@@ -2314,6 +2314,10 @@ def operator_login(email: str = Body(...), password: str = Body(...), session: S
         # signup created the account but the mailbox was never confirmed; the panel maps this
         # 403 to a "verify your email / resend" prompt
         raise HTTPException(403, "email not verified")
+    if password_needs_rehash(operator.password_hash):
+        operator.password_hash = hash_password(password)
+        session.add(operator)
+        session.commit()
     token = secrets.token_urlsafe(32)
     session.add(OperatorSession(
         operator_id=operator.id,
