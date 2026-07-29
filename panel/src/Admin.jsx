@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   Shield, Building2, Plus, Eye, EyeOff, Copy, Check, RefreshCw,
   Trash2, MessageSquare, Users, FileText, Package, Sparkles, CreditCard,
@@ -81,8 +81,8 @@ function OperatorsPanel({ clientId }) {
   const [form, setForm] = useState({ email: "", password: "" });
   const [adding, setAdding] = useState(false);
 
-  const load = () => adminApi.operators(clientId).then(setOperators);
-  useEffect(() => { load(); }, [clientId]);
+  const load = useCallback(() => adminApi.operators(clientId).then(setOperators), [clientId]);
+  useEffect(() => { load(); }, [load]);
 
   const add = async (e) => {
     e.preventDefault();
@@ -171,7 +171,7 @@ function ClientDetail({ client, plans, onChanged }) {
     setOrigins(client.allowed_origins || "");
     setNewKey(null);
     setConfirmingRotate(false);
-  }, [client.id]);
+  }, [client.id, client.allowed_origins]);
 
   const saveOrigins = async () => {
     setSavingOrigins(true);
@@ -746,16 +746,16 @@ function Dashboard() {
 
   const openDebug = (convId) => { setDebugId(convId); setView("debug"); };
 
-  const load = () => adminApi.clients().then((list) => {
+  const load = useCallback(() => adminApi.clients().then((list) => {
     setClients(list);
-    if (selected) {
-      const fresh = list.find((c) => c.id === selected.id);
-      if (fresh) setSelected(fresh);
-    }
-  });
-  const loadPlans = () => adminApi.plans().then(setPlans);
+    setSelected((current) => {
+      if (!current) return current;
+      return list.find((c) => c.id === current.id) || current;
+    });
+  }), []);
+  const loadPlans = useCallback(() => adminApi.plans().then(setPlans), []);
 
-  useEffect(() => { load(); loadPlans(); }, []);
+  useEffect(() => { load(); loadPlans(); }, [load, loadPlans]);
 
   const runReembed = async () => {
     setReembedResult("in corso…");
