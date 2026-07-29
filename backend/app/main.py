@@ -207,6 +207,14 @@ ALWAYS_ESCALATE_KEYWORDS = [
     "cambio password account", "eliminare il mio account", "delete my account",
 ]
 
+MAX_CHAT_MESSAGE_CHARS = int(os.getenv("MAX_CHAT_MESSAGE_CHARS", "4000"))
+MAX_INGEST_TEXT_CHARS = int(os.getenv("MAX_INGEST_TEXT_CHARS", "2000000"))
+MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES", str(10 * 1024 * 1024)))
+
+
+def _bounded_limit(value: int, *, default: int = 100, maximum: int = 500) -> int:
+    return min(max(value or default, 1), maximum)
+
 # ponytail: same deterministic-safety-net pattern as ALWAYS_ESCALATE_KEYWORDS — the small model
 # doesn't reliably combine "order number" (turn 1) and "identifier" (turn 2) into a single
 # ORDER_LOOKUP marker across turns, and answering an order question straight from the LLM risks
@@ -470,8 +478,12 @@ def resolve_client_id(
 
 @app.post("/ingest/document")
 async def ingest_document(file: UploadFile, operator: Operator = Depends(require_operator), session: Session = Depends(get_session)):
-    data = await file.read()
+    data = await file.read(MAX_UPLOAD_BYTES + 1)
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(413, f"file too large (max {MAX_UPLOAD_BYTES} bytes)")
     text = extract_text(file.filename, data)
+    if len(text) > MAX_INGEST_TEXT_CHARS:
+        raise HTTPException(413, "extracted text too large")
     job = _enqueue(session, operator.client_id, "document", {"source_ref": file.filename, "text": text})
     return {"ok": True, "job_id": job.id, "status": job.status, "chars": len(text)}
 
@@ -488,6 +500,8 @@ def teach_knowledge(
     shows up in the knowledge base list and can be re-synced/removed like any other source."""
     if not content.strip():
         raise HTTPException(400, "content required")
+    if len(content) > MAX_INGEST_TEXT_CHARS:
+        raise HTTPException(413, "content too large")
     text = f"{title.strip()}\n\n{content}" if title.strip() else content
     ref = f"kb-manuale: {title.strip()}" if title.strip() else "kb-manuale"
     job = _enqueue(session, operator.client_id, "document", {"source_ref": ref, "text": text})
@@ -499,6 +513,8 @@ def teach_knowledge(
 def ingest_site_page(url: str = Body(...), text: str = Body(...), client: Client = Depends(rate_limit_ingest), session: Session = Depends(get_session)):
     """Called by the WP plugin on publish/update to push page/product content. The worker
     replaces previous chunks for this URL when it processes the job (so edits don't duplicate)."""
+    if len(url) > 2000 or len(text) > MAX_INGEST_TEXT_CHARS:
+        raise HTTPException(413, "site page payload too large")
     job = _enqueue(session, client.id, "site-page", {"url": url, "text": text})
     return {"ok": True, "job_id": job.id, "status": job.status}
 
@@ -515,6 +531,8 @@ def ingest_product_endpoint(
 ):
     """Called by the WP plugin for WooCommerce products, in addition to /ingest/site-page."""
     text = f"{title}\n{description}\nPrezzo: {price}" if price else f"{title}\n{description}"
+    if len(url) > 2000 or len(title) > 500 or len(text) > MAX_INGEST_TEXT_CHARS:
+        raise HTTPException(413, "product payload too large")
     job = _enqueue(session, client.id, "product", {
         "url": url, "title": title, "price": price, "image_url": image_url, "text": text,
     })
@@ -727,6 +745,10 @@ def _prepare_chat_turn(
     conversation_token: str | None,
 ) -> tuple[Conversation, str, list[dict]]:
     """Shared state transition for both blocking and SSE chat transports."""
+    if not message.strip():
+        raise HTTPException(400, "message required")
+    if len(message) > MAX_CHAT_MESSAGE_CHARS or len(visitor_id) > 128:
+        raise HTTPException(413, "chat payload too large")
     if conversation_id:
         conv = session.get(Conversation, conversation_id)
         if not conv or conv.client_id != client_id:
@@ -1159,6 +1181,7 @@ def usage(client_id: int = Depends(resolve_client_id), session: Session = Depend
 def conversation_messages(
     conversation_id: int,
     after_id: int = 0,
+    limit: int = 200,
     conversation_token: str | None = Header(None, alias="X-Conversation-Token"),
     authorization: str = Header(None),
     session: Session = Depends(get_session),
@@ -1173,7 +1196,10 @@ def conversation_messages(
     if not op_session:
         _require_conversation_token(conv, conversation_token)
     messages = session.exec(
-        select(Message).where(Message.conversation_id == conversation_id, Message.id > after_id).order_by(Message.id)
+        select(Message)
+        .where(Message.conversation_id == conversation_id, Message.id > after_id)
+        .order_by(Message.id)
+        .limit(_bounded_limit(limit, default=200))
     ).all()
     typing = _operator_typing.get(conversation_id)
     operator_typing_name = typing[0] if typing and (time.monotonic() - typing[1]) < TYPING_TTL else None
@@ -1185,9 +1211,17 @@ def conversation_messages(
 
 
 @app.get("/conversations")
-def list_conversations(operator: Operator = Depends(require_operator), session: Session = Depends(get_session)):
+def list_conversations(
+    before_id: int | None = None,
+    limit: int = 100,
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
+    query = select(Conversation).where(Conversation.client_id == operator.client_id)
+    if before_id:
+        query = query.where(Conversation.id < before_id)
     convs = session.exec(
-        select(Conversation).where(Conversation.client_id == operator.client_id).order_by(Conversation.created_at.desc())
+        query.order_by(Conversation.id.desc()).limit(_bounded_limit(limit))
     ).all()
     result = []
     for c in convs:
@@ -1199,11 +1233,22 @@ def list_conversations(operator: Operator = Depends(require_operator), session: 
 
 
 @app.get("/tickets")
-def list_tickets(status: str = "open", operator: Operator = Depends(require_operator), session: Session = Depends(get_session)):
-    tickets = session.exec(
+def list_tickets(
+    status: str = "open",
+    before_id: int | None = None,
+    limit: int = 100,
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
+    query = (
         select(Ticket, Conversation)
         .join(Conversation, Ticket.conversation_id == Conversation.id)
         .where(Conversation.client_id == operator.client_id, Ticket.status == status)
+    )
+    if before_id:
+        query = query.where(Ticket.id < before_id)
+    tickets = session.exec(
+        query.order_by(Ticket.id.desc()).limit(_bounded_limit(limit))
     ).all()
     return [{"ticket": t, "conversation": c} for t, c in tickets]
 
@@ -1455,7 +1500,11 @@ def set_conversation_info(
 
 
 @app.get("/knowledge-base")
-def list_knowledge_base(operator: Operator = Depends(require_operator), session: Session = Depends(get_session)):
+def list_knowledge_base(
+    limit: int = 200,
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
     """What's actually been ingested for this client — documents/pages grouped by
     source (deduped, the worker replaces old chunks on re-sync) and products."""
     rows = session.exec(
@@ -1463,6 +1512,7 @@ def list_knowledge_base(operator: Operator = Depends(require_operator), session:
         .where(Chunk.client_id == operator.client_id)
         .group_by(Chunk.source, Chunk.source_ref)
         .order_by(func.max(Chunk.id).desc())
+        .limit(_bounded_limit(limit, default=200))
     ).all()
     documents = [
         {"source": source, "source_ref": ref, "chunks": count}
@@ -1472,6 +1522,7 @@ def list_knowledge_base(operator: Operator = Depends(require_operator), session:
         select(Product)
         .where(Product.client_id == operator.client_id)
         .order_by(Product.id.desc())
+        .limit(_bounded_limit(limit, default=200))
     ).all()
     return {
         "documents": documents,
