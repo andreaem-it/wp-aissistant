@@ -245,17 +245,11 @@
         <p>Canone mensile prevedibile, quota di messaggi trasparente. Cambi o disdici quando vuoi.</p>
       </div>
 
-      <div class="billing-toggle reveal">
-        <span>Mensile</span>
-        <label class="switch"><span class="sr-only">Mostra prezzi annuali</span><input type="checkbox" id="annualToggle" /><span class="slider"></span></label>
-        <span>Annuale <em class="save">−2 mesi</em></span>
-      </div>
-
       <div class="tiers">
         <article class="card tier reveal">
           <h3>Starter</h3>
           <p class="tier-desc">Per piccoli siti e blog che iniziano.</p>
-          <div class="price" aria-live="polite"><span class="cur">€</span><span class="amt" data-m="19" data-y="16">19</span><span class="per">/mese</span></div>
+          <div class="price"><span class="cur">€</span><span class="amt">19</span><span class="per">/mese</span></div>
           <a class="btn btn-outline block" data-link="register" href="#">Prova gratis</a>
           <ul class="ticks">
             <li>1 sito web</li>
@@ -271,7 +265,7 @@
           <div class="badge"><i class="fa-solid fa-star"></i> Più popolare</div>
           <h3>Pro</h3>
           <p class="tier-desc">Per negozi WooCommerce in crescita.</p>
-          <div class="price" aria-live="polite"><span class="cur">€</span><span class="amt" data-m="49" data-y="41">49</span><span class="per">/mese</span></div>
+          <div class="price"><span class="cur">€</span><span class="amt">49</span><span class="per">/mese</span></div>
           <a class="btn btn-primary block" data-link="register" href="#">Prova gratis</a>
           <ul class="ticks">
             <li>1 sito WooCommerce</li>
@@ -287,7 +281,7 @@
         <article class="card tier reveal">
           <h3>Business</h3>
           <p class="tier-desc">Per negozi con volumi elevati.</p>
-          <div class="price" aria-live="polite"><span class="cur">€</span><span class="amt" data-m="99" data-y="83">99</span><span class="per">/mese</span></div>
+          <div class="price"><span class="cur">€</span><span class="amt">99</span><span class="per">/mese</span></div>
           <a class="btn btn-outline block" data-link="register" href="#">Prova gratis</a>
           <ul class="ticks">
             <li>1 sito WooCommerce</li>
@@ -380,14 +374,6 @@
     });
     document.querySelectorAll("#mainNav a").forEach((link) => link.addEventListener("click", closeNav));
     document.addEventListener("keydown", (event) => { if (event.key === "Escape") closeNav(); });
-
-    // -------- Toggle mensile / annuale --------
-    document.getElementById("annualToggle").addEventListener("change", (event) => {
-      const annual = event.currentTarget.checked;
-      document.querySelectorAll(".amt").forEach((el) => {
-        el.textContent = annual ? el.dataset.y : el.dataset.m;
-      });
-    });
 
     // -------- Scroll reveal (rispetta prefers-reduced-motion) --------
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
