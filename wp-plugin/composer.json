@@ -1,0 +1,19 @@
+{
+  "name": "wp-aissistant/wordpress-plugin",
+  "description": "Development tooling for the WP AIssistant WordPress plugin.",
+  "type": "project",
+  "require-dev": {
+    "dealerdirect/phpcodesniffer-composer-installer": "^1.0",
+    "squizlabs/php_codesniffer": "^3.13",
+    "wp-coding-standards/wpcs": "^3.2"
+  },
+  "scripts": {
+    "lint": "phpcs --standard=phpcs.xml.dist"
+  },
+  "config": {
+    "allow-plugins": {
+      "dealerdirect/phpcodesniffer-composer-installer": true
+    },
+    "sort-packages": true
+  }
+}

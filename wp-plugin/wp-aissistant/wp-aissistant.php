@@ -75,7 +75,7 @@ function wpai_settings_page() {
                 <?php if (!empty($usage['limit'])) : $pct = min(100, round($usage['used'] / $usage['limit'] * 100)); ?>
                     <p><strong><?php echo (int) $usage['used']; ?></strong> / <?php echo (int) $usage['limit']; ?> messaggi questo mese
                        <span style="color:#666;">(<?php echo (int) $usage['remaining']; ?> rimanenti)</span></p>
-                    <div class="wpai-bar"><div class="wpai-bar-fill" style="width:<?php echo $pct; ?>%;<?php echo $pct >= 100 ? 'background:#d97706;' : ''; ?>"></div></div>
+                    <div class="wpai-bar"><div class="wpai-bar-fill" style="width:<?php echo esc_attr($pct); ?>%;<?php echo $pct >= 100 ? 'background:#d97706;' : ''; ?>"></div></div>
                 <?php else : ?>
                     <p><strong><?php echo (int) $usage['used']; ?></strong> messaggi questo mese (nessun limite)</p>
                 <?php endif; ?>
@@ -89,18 +89,18 @@ function wpai_settings_page() {
             <table class="form-table">
                 <tr>
                     <th><label for="api_key">API Key</label></th>
-                    <td><input type="text" id="api_key" name="<?php echo WPAI_OPTION; ?>[api_key]"
+                    <td><input type="text" id="api_key" name="<?php echo esc_attr(WPAI_OPTION); ?>[api_key]"
                                value="<?php echo esc_attr($opts['api_key'] ?? ''); ?>" class="regular-text" />
                         <p class="description">La trovi nel pannello operatore → Profilo.</p></td>
                 </tr>
                 <tr>
                     <th><label for="widget_title">Titolo widget</label></th>
-                    <td><input type="text" id="widget_title" name="<?php echo WPAI_OPTION; ?>[widget_title]"
+                    <td><input type="text" id="widget_title" name="<?php echo esc_attr(WPAI_OPTION); ?>[widget_title]"
                                value="<?php echo esc_attr($opts['widget_title'] ?? ''); ?>" class="regular-text" placeholder="AI Assistant" /></td>
                 </tr>
                 <tr>
                     <th><label for="widget_privacy_url">URL Privacy Policy</label></th>
-                    <td><input type="url" id="widget_privacy_url" name="<?php echo WPAI_OPTION; ?>[widget_privacy_url]"
+                    <td><input type="url" id="widget_privacy_url" name="<?php echo esc_attr(WPAI_OPTION); ?>[widget_privacy_url]"
                                value="<?php echo esc_attr($opts['widget_privacy_url'] ?? ''); ?>" class="regular-text" placeholder="https://tuosito.it/privacy" />
                         <p class="description">Se impostato, il widget mostra un avviso "Continuando accetti la privacy policy" con il link (GDPR).</p></td>
                 </tr>
@@ -108,7 +108,7 @@ function wpai_settings_page() {
                     <th><label for="widget_image">Immagine widget</label></th>
                     <td>
                         <img id="wpai-image-preview" src="<?php echo esc_url($image); ?>" style="max-width:60px;max-height:60px;display:<?php echo $image ? 'block' : 'none'; ?>;margin-bottom:8px;" />
-                        <input type="hidden" id="widget_image" name="<?php echo WPAI_OPTION; ?>[widget_image]" value="<?php echo esc_attr($image); ?>" />
+                        <input type="hidden" id="widget_image" name="<?php echo esc_attr(WPAI_OPTION); ?>[widget_image]" value="<?php echo esc_attr($image); ?>" />
                         <button type="button" class="button" id="wpai-image-select">Scegli immagine</button>
                         <button type="button" class="button" id="wpai-image-clear" style="display:<?php echo $image ? 'inline-block' : 'none'; ?>;">Rimuovi</button>
                     </td>
@@ -337,8 +337,11 @@ add_action('wp_ajax_wpai_sync_list', function () {
 // Push one item to the backend (blocking) and return its ingest job_id.
 add_action('wp_ajax_wpai_sync_item', function () {
     wpai_sync_check();
-    $type = sanitize_text_field($_POST['type'] ?? '');
-    $id = (int) ($_POST['id'] ?? 0);
+    // Nonce and capability are verified by wpai_sync_check() immediately above.
+    // phpcs:ignore WordPress.Security.NonceVerification.Missing
+    $type = sanitize_text_field(wp_unslash($_POST['type'] ?? ''));
+    // phpcs:ignore WordPress.Security.NonceVerification.Missing
+    $id = absint(wp_unslash($_POST['id'] ?? 0));
 
     if ($type === 'site-info') {
         $res = wpai_push_content(home_url() . '/#site-info', wpai_build_site_info_content(), true);
@@ -361,7 +364,9 @@ add_action('wp_ajax_wpai_sync_item', function () {
 // Proxy the backend job status (queued | processing | done | error).
 add_action('wp_ajax_wpai_job_status', function () {
     wpai_sync_check();
-    $job_id = (int) ($_REQUEST['job_id'] ?? 0);
+    // Nonce and capability are verified by wpai_sync_check() immediately above.
+    // phpcs:ignore WordPress.Security.NonceVerification.Missing
+    $job_id = absint(wp_unslash($_POST['job_id'] ?? 0));
     $key = wpai_opt('api_key');
     if (!$job_id || !$key) wp_send_json_error('bad request', 400);
     $res = wp_remote_get(WPAI_BACKEND_URL . '/ingest/jobs/' . $job_id, [

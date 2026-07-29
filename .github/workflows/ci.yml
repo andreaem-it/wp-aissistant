@@ -111,8 +111,23 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.2"
+          tools: composer
+          coverage: none
+      - name: Install plugin quality tools
+        working-directory: wp-plugin
+        run: composer install --no-interaction --prefer-dist
+      - name: WordPress security standards
+        working-directory: wp-plugin
+        run: composer lint
       - name: Lint PHP
         run: php -l wp-plugin/wp-aissistant/wp-aissistant.php
+      - name: Check widget JavaScript syntax
+        run: |
+          node --check wp-plugin/wp-aissistant/assets/chat-widget.js
+          node --check wp-plugin/wp-aissistant/assets/admin-sync.js
       - name: Build zip
         working-directory: wp-plugin
         run: ./build.sh

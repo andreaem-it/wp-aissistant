@@ -1,0 +1,8 @@
+<?xml version="1.0"?>
+<ruleset name="WP AIssistant">
+  <description>Security-focused WordPress coding checks for the distributable plugin.</description>
+  <file>wp-aissistant/wp-aissistant.php</file>
+  <arg name="extensions" value="php"/>
+  <arg value="sp"/>
+  <rule ref="WordPress.Security"/>
+</ruleset>
