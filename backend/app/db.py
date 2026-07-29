@@ -211,6 +211,11 @@ class IngestJob(SQLModel, table=True):
     status: str = Field(default="queued", index=True)  # queued | processing | done | error
     payload: str  # JSON
     error: str = ""
+    attempts: int = 0
+    max_attempts: int = 3
+    available_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+    locked_at: Optional[datetime] = Field(default=None, index=True)
+    locked_by: str = ""
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 

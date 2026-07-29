@@ -310,7 +310,12 @@ async def dynamic_cors(request: Request, call_next):
 
 
 def _enqueue(session: Session, client_id: int, kind: str, payload: dict) -> IngestJob:
-    job = IngestJob(client_id=client_id, kind=kind, payload=json.dumps(payload))
+    job = IngestJob(
+        client_id=client_id,
+        kind=kind,
+        payload=json.dumps(payload),
+        max_attempts=int(os.getenv("INGEST_MAX_ATTEMPTS", "3")),
+    )
     session.add(job)
     session.commit()
     session.refresh(job)
@@ -522,7 +527,14 @@ def ingest_job_status(job_id: int, client_id: int = Depends(resolve_client_id), 
     job = session.get(IngestJob, job_id)
     if not job or job.client_id != client_id:
         raise HTTPException(404, "job not found")
-    return {"id": job.id, "kind": job.kind, "status": job.status, "error": job.error}
+    return {
+        "id": job.id,
+        "kind": job.kind,
+        "status": job.status,
+        "error": job.error,
+        "attempts": job.attempts,
+        "max_attempts": job.max_attempts,
+    }
 
 
 def _log_ai_response(session, client_id, conversation_id, outcome, retrieval_meta=None, llm_meta=None, message_id=None):

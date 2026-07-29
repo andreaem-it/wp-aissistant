@@ -9,8 +9,11 @@ processed exactly once. State lives in Postgres, so a crash mid-job is recoverab
 
 import json
 import logging
+import os
+import socket
 import threading
-from datetime import datetime
+import uuid
+from datetime import datetime, timedelta
 
 from sqlmodel import Session, select
 
@@ -22,6 +25,9 @@ from .rag import ingest, ingest_product
 logger = logging.getLogger("wpai.worker")
 
 POLL_INTERVAL = 2.0  # seconds between polls when the queue is empty
+LEASE_SECONDS = int(os.getenv("INGEST_LEASE_SECONDS", "1800"))
+MAX_ATTEMPTS = int(os.getenv("INGEST_MAX_ATTEMPTS", "3"))
+WORKER_ID = f"{socket.gethostname()}:{os.getpid()}:{uuid.uuid4().hex[:8]}"
 
 
 def _process(session: Session, job: IngestJob) -> None:
@@ -46,18 +52,25 @@ def _process(session: Session, job: IngestJob) -> None:
         raise ValueError(f"unknown job kind: {job.kind}")
 
 
-def _claim_next(session: Session) -> IngestJob | None:
+def _claim_next(session: Session, worker_id: str = WORKER_ID) -> IngestJob | None:
     """Atomically pick the oldest queued job and mark it processing (SKIP LOCKED so
     concurrent workers don't grab the same row)."""
     job = session.exec(
         select(IngestJob)
-        .where(IngestJob.status == "queued")
+        .where(
+            IngestJob.status == "queued",
+            IngestJob.available_at <= datetime.utcnow(),
+        )
         .order_by(IngestJob.id)
         .with_for_update(skip_locked=True)
         .limit(1)
     ).first()
     if job:
         job.status = "processing"
+        job.attempts += 1
+        job.max_attempts = job.max_attempts or MAX_ATTEMPTS
+        job.locked_at = datetime.utcnow()
+        job.locked_by = worker_id
         job.updated_at = datetime.utcnow()
         session.add(job)
         session.commit()
@@ -69,17 +82,49 @@ def _mark(session: Session, job_id: int, status: str, error: str) -> None:
     if job:
         job.status = status
         job.error = error
+        job.locked_at = None
+        job.locked_by = ""
         job.updated_at = datetime.utcnow()
         session.add(job)
         session.commit()
         metrics.ingest_jobs_total.labels(status=status).inc()
 
 
-def requeue_stale(session: Session) -> int:
-    """Return jobs stuck in 'processing' (from a crashed run) back to 'queued'. Run at startup."""
-    stale = session.exec(select(IngestJob).where(IngestJob.status == "processing")).all()
+def _retry_or_fail(session: Session, job_id: int, error: str) -> str:
+    """Retry transient failures with exponential backoff, then move to terminal error."""
+    job = session.get(IngestJob, job_id)
+    if not job:
+        return "missing"
+    job.error = error
+    job.locked_at = None
+    job.locked_by = ""
+    if job.attempts < (job.max_attempts or MAX_ATTEMPTS):
+        job.status = "queued"
+        delay = min(2 ** max(job.attempts - 1, 0) * 5, 300)
+        job.available_at = datetime.utcnow() + timedelta(seconds=delay)
+    else:
+        job.status = "error"
+    job.updated_at = datetime.utcnow()
+    session.add(job)
+    session.commit()
+    metrics.ingest_jobs_total.labels(status=job.status).inc()
+    return job.status
+
+
+def requeue_stale(session: Session, lease_seconds: int = LEASE_SECONDS) -> int:
+    """Requeue only abandoned leases, never every currently processing job at startup."""
+    cutoff = datetime.utcnow() - timedelta(seconds=lease_seconds)
+    stale = session.exec(
+        select(IngestJob).where(
+            IngestJob.status == "processing",
+            (IngestJob.locked_at.is_(None)) | (IngestJob.locked_at < cutoff),
+        )
+    ).all()
     for job in stale:
         job.status = "queued"
+        job.locked_at = None
+        job.locked_by = ""
+        job.available_at = datetime.utcnow()
         job.updated_at = datetime.utcnow()
         session.add(job)
     session.commit()
@@ -100,7 +145,7 @@ def run_worker(stop: threading.Event) -> None:
                     _mark(session, job_id, "done", "")
                 except Exception as exc:  # noqa: BLE001 — record failure, keep the worker alive
                     session.rollback()
-                    _mark(session, job_id, "error", str(exc)[:500])
+                    final_status = _retry_or_fail(session, job_id, str(exc)[:500])
                     log(logger, logging.ERROR, "ingest.job_failed", job_id=job_id, kind=job.kind, client_id=job.client_id, error=str(exc)[:500])
         except Exception:  # noqa: BLE001 — DB hiccup etc.; back off and retry
             stop.wait(POLL_INTERVAL)
