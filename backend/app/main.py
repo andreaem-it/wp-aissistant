@@ -384,6 +384,10 @@ def _hash_conversation_token(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
 
+def _hash_session_token(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
 def _create_conversation(session: Session, client_id: int, visitor_id: str) -> tuple[Conversation, str]:
     """Create a visitor conversation and return its one-time plaintext access token.
 
@@ -414,13 +418,22 @@ def _require_conversation_token(conv: Conversation, token: str | None) -> None:
 
 def _get_operator_session(session: Session, token: str) -> OperatorSession | None:
     """Resolve an active session and eagerly remove it when its absolute TTL has elapsed."""
+    digest = _hash_session_token(token)
     op_session = session.exec(
-        select(OperatorSession).where(OperatorSession.token == token)
+        select(OperatorSession).where(
+            or_(OperatorSession.token_hash == digest, OperatorSession.token == token)
+        )
     ).first()
     if op_session and op_session.expires_at <= datetime.utcnow():
         session.delete(op_session)
         session.commit()
         return None
+    if op_session and op_session.token:
+        # Transparent rolling upgrade for a pre-0015 plaintext row.
+        op_session.token_hash = digest
+        op_session.token = None
+        session.add(op_session)
+        session.commit()
     return op_session
 
 
@@ -2195,7 +2208,7 @@ def operator_login(email: str = Body(...), password: str = Body(...), session: S
     session.add(OperatorSession(
         operator_id=operator.id,
         client_id=operator.client_id,
-        token=token,
+        token_hash=_hash_session_token(token),
         expires_at=datetime.utcnow() + OPERATOR_SESSION_TTL,
     ))
     session.commit()

@@ -188,11 +188,16 @@ class AuthToken(SQLModel, table=True):
 
 
 class OperatorSession(SQLModel, table=True):
-    """Opaque bearer token issued at login, with a finite lifetime and explicit logout."""
+    """Operator bearer session. Only a SHA-256 digest is stored for newly issued tokens.
+
+    `token` is a nullable legacy column kept during the rolling migration so sessions issued
+    by the previous release remain valid once and are upgraded on first use.
+    """
     id: Optional[int] = Field(default=None, primary_key=True)
     operator_id: int = Field(index=True, foreign_key="operator.id")
     client_id: int = Field(index=True, foreign_key="client.id")
-    token: str = Field(index=True, unique=True)
+    token: Optional[str] = Field(default=None, index=True, unique=True)
+    token_hash: str = Field(default="", index=True, unique=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     expires_at: datetime = Field(default_factory=lambda: datetime.utcnow() + timedelta(days=30))
 
