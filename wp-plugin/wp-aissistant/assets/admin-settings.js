@@ -6,6 +6,7 @@
   const title = preview.querySelector("strong");
   const subtitle = preview.querySelector("small");
   const welcome = preview.querySelector(".wpai-preview-body span");
+  const disclosure = preview.querySelector(".wpai-preview-disclosure-copy");
   const launcher = stage.querySelector(".wpai-preview-launcher span");
   const colorOutput = document.getElementById("wpai-color-value");
 
@@ -15,6 +16,7 @@
       if (this.dataset.preview === "title") title.textContent = value || "AI Assistant";
       if (this.dataset.preview === "subtitle") subtitle.textContent = value || "Di solito risponde subito";
       if (this.dataset.preview === "welcome") welcome.textContent = value || "Ciao! Come posso aiutarti oggi?";
+      if (this.dataset.preview === "disclosure") disclosure.textContent = value || "Stai parlando con un assistente virtuale basato su intelligenza artificiale.";
       if (this.dataset.preview === "launcher") launcher.textContent = value;
       if (this.dataset.preview === "color") {
         stage.style.setProperty("--wpai-preview-color", value);

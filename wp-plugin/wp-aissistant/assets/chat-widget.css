@@ -57,6 +57,8 @@
 #wpai-messages { flex: 1; min-height: 0; overflow-y: auto; padding: 18px 16px; scroll-behavior: smooth; }
 #wpai-messages::-webkit-scrollbar { width: 5px; }
 #wpai-messages::-webkit-scrollbar-thumb { background: var(--wpai-border); border-radius: 99px; }
+.wpai-disclosure { margin:0 8px 15px; color:var(--wpai-muted); font-size:10px; line-height:1.45; text-align:center; }
+.wpai-disclosure a { color:inherit; text-decoration:underline; text-underline-offset:2px; }
 .wpai-msg { width: fit-content; max-width: 84%; margin-bottom: 10px; padding: 10px 13px; border-radius: 16px; line-height: 1.5; white-space: pre-wrap; animation: wpai-message-in .3s cubic-bezier(.16,1,.3,1) both; }
 .wpai-msg.user { margin-left: auto; border-bottom-right-radius: 5px; color: var(--wpai-accent-contrast); background: var(--wpai-accent); }
 .wpai-msg.assistant { border-bottom-left-radius: 5px; background: var(--wpai-surface-soft); color: var(--wpai-text); }
@@ -95,8 +97,6 @@
 .wpai-ticket-offer>i { display:grid; place-items:center; width:30px; height:30px; border-radius:9px; color:var(--wpai-accent); background:color-mix(in srgb,var(--wpai-accent) 12%,transparent); }
 .wpai-ticket-offer strong,.wpai-ticket-offer span { display:block; }.wpai-ticket-offer strong { margin-bottom:3px; font-size:12.5px; }.wpai-ticket-offer span { color:var(--wpai-muted); font-size:11.5px; line-height:1.45; }
 .wpai-ticket-offer button { grid-column:2; justify-self:start; padding:8px 11px; border:0; border-radius:9px; color:var(--wpai-accent-contrast); background:var(--wpai-accent); font-size:11.5px; font-weight:700; cursor:pointer; }.wpai-ticket-offer button:disabled { cursor:wait; opacity:.65; }
-.wpai-privacy { padding: 0 13px 10px; color: var(--wpai-muted); font-size: 10.5px; text-align: center; }
-.wpai-privacy a { color: var(--wpai-accent); }
 
 #wpai-root.wpai-theme-dark { --wpai-surface:#17181d; --wpai-surface-soft:#23252c; --wpai-text:#f5f6f8; --wpai-muted:#a7abb5; --wpai-border:rgba(255,255,255,.1); --wpai-shadow:0 28px 80px rgba(0,0,0,.48); }
 @media (prefers-color-scheme: dark) { #wpai-root.wpai-theme-auto { --wpai-surface:#17181d; --wpai-surface-soft:#23252c; --wpai-text:#f5f6f8; --wpai-muted:#a7abb5; --wpai-border:rgba(255,255,255,.1); --wpai-shadow:0 28px 80px rgba(0,0,0,.48); } }

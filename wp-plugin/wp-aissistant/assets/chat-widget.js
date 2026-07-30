@@ -589,6 +589,22 @@
     const messages = document.createElement("div");
     messages.id = "wpai-messages";
     messages.setAttribute("aria-live", "polite");
+    const disclosure = document.createElement("div");
+    disclosure.className = "wpai-disclosure";
+    disclosure.appendChild(document.createTextNode(
+      WPAI.aiDisclosure || "Stai parlando con un assistente virtuale basato su intelligenza artificiale."
+    ));
+    if (WPAI.privacyUrl) {
+      disclosure.appendChild(document.createTextNode(" Proseguendo accetti la nostra "));
+      const privacyLink = document.createElement("a");
+      privacyLink.href = safeHttpUrl(WPAI.privacyUrl);
+      privacyLink.target = "_blank";
+      privacyLink.rel = "noopener";
+      privacyLink.textContent = "privacy policy";
+      disclosure.appendChild(privacyLink);
+      disclosure.appendChild(document.createTextNode("."));
+    }
+    messages.appendChild(disclosure);
 
     const form = document.createElement("form");
     form.id = "wpai-form";
@@ -611,21 +627,6 @@
     win.appendChild(messages);
     win.appendChild(form);
     root.appendChild(win);
-
-    // GDPR: privacy notice with a link to the site's policy, if configured (built via DOM)
-    if (WPAI.privacyUrl) {
-      const note = document.createElement("div");
-      note.className = "wpai-privacy";
-      note.appendChild(document.createTextNode("Continuando accetti la "));
-      const a = document.createElement("a");
-      a.href = /^https?:\/\//i.test(WPAI.privacyUrl) ? WPAI.privacyUrl : "#";
-      a.target = "_blank";
-      a.rel = "noopener";
-      a.textContent = "privacy policy";
-      note.appendChild(a);
-      note.appendChild(document.createTextNode("."));
-      win.appendChild(note);
-    }
 
     function setOpen(open) {
       win.classList.toggle("open", open);

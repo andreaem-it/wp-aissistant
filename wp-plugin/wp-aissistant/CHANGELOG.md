@@ -12,6 +12,9 @@ Tutte le modifiche rilevanti del plugin WP AIssistant.
   mostra una card che permette al visitatore di aprire volontariamente un ticket.
 - La proposta di ticket persiste durante refresh e navigazione; dopo l'apertura viene
   raccolta l'email per notificare la risposta dell'operatore.
+- Aggiunta un'informativa AI personalizzabile, centrata prima del messaggio iniziale.
+  L'accettazione della Privacy Policy è stata spostata nello stesso testo e rimossa
+  dalla zona sotto il campo di scrittura.
 
 ## [1.0.1] - 2026-07-30
 

@@ -43,6 +43,8 @@ Richiede un'istanza del backend WP AIssistant raggiungibile e una API Key del cl
   orario impostato in WordPress.
 * Fuori orario il widget non effettua un passaggio live automatico: propone invece
   l'apertura esplicita di un ticket asincrono con notifica email.
+* Nuova informativa AI personalizzabile mostrata prima della conversazione; nello stesso
+  punto viene mostrato anche il link alla Privacy Policy.
 
 = 1.0.1 =
 * La cronologia della conversazione viene ripristinata navigando tra le pagine o

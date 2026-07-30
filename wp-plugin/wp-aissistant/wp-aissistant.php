@@ -59,6 +59,7 @@ function wpai_sanitize_settings($input) {
         'widget_title' => sanitize_text_field($input['widget_title'] ?? ''),
         'widget_subtitle' => sanitize_text_field($input['widget_subtitle'] ?? ''),
         'widget_welcome' => sanitize_textarea_field($input['widget_welcome'] ?? ''),
+        'widget_ai_disclosure' => sanitize_textarea_field($input['widget_ai_disclosure'] ?? ''),
         'widget_launcher_label' => sanitize_text_field($input['widget_launcher_label'] ?? ''),
         'widget_privacy_url' => esc_url_raw($input['widget_privacy_url'] ?? ''),
         'widget_image' => esc_url_raw($input['widget_image'] ?? ''),
@@ -142,6 +143,10 @@ function wpai_settings_page() {
                     <textarea id="widget_welcome" data-preview="welcome" name="<?php echo esc_attr(WPAI_OPTION); ?>[widget_welcome]" rows="3" placeholder="Ciao! Come posso aiutarti oggi?"><?php echo esc_textarea($opts['widget_welcome'] ?? ''); ?></textarea>
                     <small>Appare all'apertura della chat, prima del primo messaggio.</small>
                 </label>
+                <label class="wpai-field" for="widget_ai_disclosure"><span>Informativa AI</span>
+                    <textarea id="widget_ai_disclosure" data-preview="disclosure" name="<?php echo esc_attr(WPAI_OPTION); ?>[widget_ai_disclosure]" rows="2" placeholder="Stai parlando con un assistente virtuale basato su intelligenza artificiale."><?php echo esc_textarea($opts['widget_ai_disclosure'] ?? ''); ?></textarea>
+                    <small>Appare in alto nella conversazione. Se hai configurato la Privacy Policy, il relativo consenso viene aggiunto automaticamente.</small>
+                </label>
                 <div class="wpai-field"><span>Avatar</span><div class="wpai-media-row">
                         <img id="wpai-image-preview" src="<?php echo esc_url($image ?: wpai_widget_image()); ?>" alt="" />
                         <input type="hidden" id="widget_image" name="<?php echo esc_attr(WPAI_OPTION); ?>[widget_image]" value="<?php echo esc_attr($image); ?>" />
@@ -216,7 +221,7 @@ function wpai_settings_page() {
                 <div class="wpai-preview-stage" id="wpai-preview-stage">
                     <div class="wpai-preview-window" id="wpai-preview-window">
                         <div class="wpai-preview-header"><img src="<?php echo esc_url(wpai_widget_image()); ?>" alt=""><div><strong><?php echo esc_html(wpai_widget_title()); ?></strong><small><?php echo esc_html(wpai_setting('widget_subtitle', 'Di solito risponde subito')); ?></small></div><i class="fa-solid fa-xmark"></i></div>
-                        <div class="wpai-preview-body"><span><?php echo esc_html(wpai_setting('widget_welcome', 'Ciao! Come posso aiutarti oggi?')); ?></span></div>
+                        <div class="wpai-preview-body"><small class="wpai-preview-disclosure"><span class="wpai-preview-disclosure-copy"><?php echo esc_html(wpai_setting('widget_ai_disclosure', 'Stai parlando con un assistente virtuale basato su intelligenza artificiale.')); ?></span><?php echo wpai_opt('widget_privacy_url') ? ' Proseguendo accetti la nostra privacy policy.' : ''; ?></small><span><?php echo esc_html(wpai_setting('widget_welcome', 'Ciao! Come posso aiutarti oggi?')); ?></span></div>
                         <div class="wpai-preview-input">Scrivi un messaggio… <i class="fa-solid fa-arrow-up"></i></div>
                     </div>
                     <div class="wpai-preview-launcher"><span><?php echo esc_html(wpai_setting('widget_launcher_label')); ?></span><i class="fa-solid fa-comment-dots"></i></div>
@@ -297,6 +302,7 @@ add_action('wp_enqueue_scripts', function () {
         'privacyUrl' => wpai_opt('widget_privacy_url'),
         'subtitle' => wpai_setting('widget_subtitle', 'Di solito risponde subito'),
         'welcome' => wpai_setting('widget_welcome', 'Ciao! Come posso aiutarti oggi?'),
+        'aiDisclosure' => wpai_setting('widget_ai_disclosure', 'Stai parlando con un assistente virtuale basato su intelligenza artificiale.'),
         'launcherLabel' => wpai_setting('widget_launcher_label'),
         'color' => wpai_setting('widget_color', '#635bff'),
         'theme' => wpai_setting('widget_theme', 'light'),
