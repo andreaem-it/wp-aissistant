@@ -356,10 +356,19 @@ function wpai_add_to_cart() {
         wp_send_json_error(['message' => 'Non è stato possibile aggiungere il prodotto.'], 409);
     }
 
+    ob_start();
+    woocommerce_mini_cart();
+    $mini_cart = ob_get_clean();
+    $fragments = apply_filters('woocommerce_add_to_cart_fragments', [
+        'div.widget_shopping_cart_content' => '<div class="widget_shopping_cart_content">' . $mini_cart . '</div>',
+    ]);
+
     wp_send_json_success([
         'message' => 'Aggiunto al carrello',
         'cart_count' => WC()->cart->get_cart_contents_count(),
         'cart_url' => wc_get_cart_url(),
+        'fragments' => $fragments,
+        'cart_hash' => WC()->cart->get_cart_hash(),
     ]);
 }
 add_action('wp_ajax_wpai_add_to_cart', 'wpai_add_to_cart');

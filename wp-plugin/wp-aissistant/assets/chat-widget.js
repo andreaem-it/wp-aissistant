@@ -118,7 +118,14 @@
           }
           addButton.textContent = "✓ Aggiunto";
           addButton.classList.add("is-added");
-          if (window.jQuery) window.jQuery(document.body).trigger("wc_fragment_refresh");
+          if (window.jQuery) {
+            window.jQuery(document.body).trigger("added_to_cart", [
+              result.data.fragments || {},
+              result.data.cart_hash || "",
+              window.jQuery(addButton),
+            ]);
+            window.jQuery(document.body).trigger("wc_fragment_refresh");
+          }
           document.body.dispatchEvent(new CustomEvent("wpai_cart_updated", {detail: result.data}));
           addMessage(container, "assistant", `${p.title || "Il prodotto"} è stato aggiunto al carrello.`);
         } catch (error) {
