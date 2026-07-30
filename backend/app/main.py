@@ -605,7 +605,35 @@ def _build_system(context: list[str]) -> str:
         "the context below. Call escalate_to_human ONLY when: the answer to a substantive "
         "question isn't in the context, or the request needs human authority (refunds, "
         "complaints, account changes). Do not escalate greetings or vague messages — ask "
-        "the user to clarify instead.\n\nContext:\n" + "\n---\n".join(context)
+        "the user to clarify instead. You cannot modify the WooCommerce cart, place orders, "
+        "apply coupons, or calculate a new cart total. Never claim that you performed one of "
+        "these actions. When a visitor asks to add a product to the cart, tell them to use the "
+        "\"Aggiungi al carrello\" button on the product card; only the site can confirm that "
+        "the operation succeeded.\n\nContext:\n" + "\n---\n".join(context)
+    )
+
+
+_CART_MUTATION_RE = re.compile(
+    r"\b(?:aggiung(?:i|ilo|ila|imi|ere)|metti|inserisci|add)\b.*\b(?:carrello|cart)\b"
+    r"|\b(?:aggiungilo|aggiungila|aggiungili|aggiungile|aggiungimi)\b",
+    re.IGNORECASE,
+)
+
+
+def _is_cart_mutation_request(message: str) -> bool:
+    """Cart writes are performed by WooCommerce in the widget, never by the model."""
+    return bool(_CART_MUTATION_RE.search(message or ""))
+
+
+def _cart_instruction_reply(products: list[dict]) -> str:
+    if products:
+        return (
+            "Per aggiungere davvero il prodotto usa il pulsante “Aggiungi al carrello” "
+            "nella scheda qui sotto. Ti confermerò l’operazione solo dopo la risposta di WooCommerce."
+        )
+    return (
+        "Posso aiutarti a trovare il prodotto, ma non ne ho identificato uno con certezza. "
+        "Indicami il nome esatto: potrai aggiungerlo dal pulsante nella sua scheda."
     )
 
 
@@ -926,6 +954,28 @@ def chat_stream_endpoint(
                 yield _sse({"type": "done", "conversation_id": conv.id, "message_id": reply_msg.id, "products": []})
                 return
 
+            if _is_cart_mutation_request(message):
+                try:
+                    products = retrieve_products(s, client_id, message)
+                except LLMUnavailableError:
+                    products = []
+                reply_text = _cart_instruction_reply(products)
+                reply_msg = Message(conversation_id=conv.id, role="assistant", content=reply_text)
+                s.add(reply_msg)
+                conv.updated_at = datetime.utcnow()
+                s.add(conv)
+                s.commit()
+                s.refresh(reply_msg)
+                _log_ai_response(s, client_id, conv.id, "cart_action_required", message_id=reply_msg.id)
+                yield _sse({"type": "token", "text": reply_text})
+                yield _sse({
+                    "type": "done",
+                    "conversation_id": conv.id,
+                    "message_id": reply_msg.id,
+                    "products": products,
+                })
+                return
+
             retrieval_meta: list[dict] = []
             buffer = ""
             decided = False
@@ -1069,6 +1119,28 @@ def chat_endpoint(
             session, client_id=client.id, conv=conv, data=data
         )
         return {"conversation_id": conv.id, "conversation_token": access_token, "status": "open", "reply": reply_text, "products": [], "message_id": reply_msg.id}
+
+    if _is_cart_mutation_request(message):
+        try:
+            products = retrieve_products(session, client.id, message)
+        except LLMUnavailableError:
+            products = []
+        reply_text = _cart_instruction_reply(products)
+        reply_msg = Message(conversation_id=conv.id, role="assistant", content=reply_text)
+        session.add(reply_msg)
+        conv.updated_at = datetime.utcnow()
+        session.add(conv)
+        session.commit()
+        session.refresh(reply_msg)
+        _log_ai_response(session, client.id, conv.id, "cart_action_required", message_id=reply_msg.id)
+        return {
+            "conversation_id": conv.id,
+            "conversation_token": access_token,
+            "status": "open",
+            "reply": reply_text,
+            "products": products,
+            "message_id": reply_msg.id,
+        }
 
     retrieval_meta: list[dict] = []
     try:

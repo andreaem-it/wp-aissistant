@@ -69,11 +69,17 @@
 .wpai-typing span:nth-child(3) { animation-delay: .26s; }
 
 .wpai-products { display: grid; gap: 8px; margin: 2px 0 12px; }
-.wpai-product-card { display: flex; align-items: center; gap: 11px; max-width: 88%; padding: 8px; border: 1px solid var(--wpai-border); border-radius: 15px; color: var(--wpai-text); background: var(--wpai-surface); text-decoration: none; transition: transform .2s, border-color .2s, box-shadow .2s; animation: wpai-message-in .3s both; }
+.wpai-product-card { display: grid; gap: 7px; max-width: 88%; padding: 8px; border: 1px solid var(--wpai-border); border-radius: 15px; color: var(--wpai-text); background: var(--wpai-surface); transition: transform .2s, border-color .2s, box-shadow .2s; animation: wpai-message-in .3s both; }
 .wpai-product-card:hover { border-color: color-mix(in srgb, var(--wpai-accent) 45%, transparent); transform: translateY(-2px); box-shadow: 0 8px 24px rgba(20,24,40,.08); }
+.wpai-product-link { display:flex; align-items:center; gap:11px; color:inherit; text-decoration:none; }
 .wpai-product-card img { width: 50px; height: 50px; flex: 0 0 auto; border-radius: 11px; background: var(--wpai-surface-soft); object-fit: cover; }
 .wpai-product-title { font-size: 13px; line-height: 1.35; }
 .wpai-product-price { margin-top: 3px; color: var(--wpai-accent); font-size: 13px; font-weight: 750; }
+.wpai-add-to-cart { width:100%; padding:8px 10px; border:0; border-radius:10px; background:var(--wpai-accent); color:#fff; font:inherit; font-size:12px; font-weight:700; cursor:pointer; transition:filter .2s, transform .2s; }
+.wpai-add-to-cart:hover { filter:brightness(.94); }
+.wpai-add-to-cart:active { transform:scale(.98); }
+.wpai-add-to-cart:disabled { cursor:default; opacity:.78; }
+.wpai-add-to-cart.is-added { background:#16865c; }
 
 #wpai-form { display: flex; align-items: center; gap: 8px; margin: 0 12px 11px; padding: 7px 7px 7px 13px; border: 1px solid var(--wpai-border); border-radius: 16px; background: var(--wpai-surface); transition: border-color .2s, box-shadow .2s; }
 #wpai-form:focus-within { border-color: color-mix(in srgb, var(--wpai-accent) 55%, transparent); box-shadow: 0 0 0 4px color-mix(in srgb, var(--wpai-accent) 10%, transparent); }

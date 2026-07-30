@@ -2,6 +2,12 @@
 
 Tutte le modifiche rilevanti del plugin WP AIssistant.
 
+## [1.1.1] - 2026-07-30
+
+- Aggiunta un'azione WooCommerce verificata nelle card prodotto.
+- Impedite conferme non verificate su carrello, checkout, coupon e totale.
+- I prodotti variabili, raggruppati ed esterni richiedono la selezione nella pagina prodotto.
+
 ## [1.1.0] - 2026-07-30
 
 - Aggiunta in wp-admin la configurazione della disponibilità del supporto umano:

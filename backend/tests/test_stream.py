@@ -47,6 +47,29 @@ def test_stream_answered_logs_ai_response(client, tenant):
         assert logs[0].outcome == "answered"
 
 
+def test_stream_cart_request_never_claims_unverified_success(client, tenant, monkeypatch):
+    monkeypatch.setattr(
+        main,
+        "retrieve_products",
+        lambda session, client_id, query: [{
+            "title": "Polo",
+            "price": "20",
+            "image_url": "",
+            "product_url": "https://shop.example/product/polo/",
+        }],
+    )
+    r = client.post(
+        "/chat/stream",
+        headers=tenant["key"],
+        json={"visitor_id": "cart-v1", "message": "Aggiungi la Polo al carrello"},
+    )
+    events = _events(r)
+    reply = "".join(e["text"] for e in events if e["type"] == "token")
+    assert "usa il pulsante" in reply
+    assert "Hai aggiunto" not in reply
+    assert events[-1]["products"][0]["title"] == "Polo"
+
+
 def test_stream_keyword_escalation_no_tokens(client, tenant):
     r = client.post("/chat/stream", headers=tenant["key"], json={"visitor_id": "v1", "message": "vorrei un rimborso"})
     events = _events(r)

@@ -3,7 +3,7 @@ Tags: ai, chatbot, customer-support, woocommerce, rag
 Requires at least: 5.8
 Tested up to: 6.5
 Requires PHP: 7.4
-Stable tag: 1.1.0
+Stable tag: 1.1.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -37,6 +37,11 @@ Richiede un'istanza del backend WP AIssistant raggiungibile e una API Key del cl
 4. In *AI Assistant → Sincronizzazione* usa **Sincronizza ora** per il primo caricamento.
 
 == Changelog ==
+
+= 1.1.1 =
+* Corretto: l'assistente non dichiara più modifiche al carrello che non sono avvenute.
+* Nuovo: le schede prodotto aggiungono realmente gli articoli semplici al carrello WooCommerce.
+* Nuovo: i prodotti con varianti rimandano alla selezione delle opzioni.
 
 = 1.1.0 =
 * Nuovi orari del supporto umano configurabili per giorni e fascia oraria, nel fuso

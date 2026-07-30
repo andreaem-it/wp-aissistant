@@ -54,16 +54,18 @@
     const wrap = document.createElement("div");
     wrap.className = "wpai-products";
     for (const p of products) {
-      const card = document.createElement("a");
+      const card = document.createElement("div");
       card.className = "wpai-product-card";
-      card.href = safeHttpUrl(p.product_url);
-      card.target = "_blank";
-      card.rel = "noopener";
+      const productLink = document.createElement("a");
+      productLink.className = "wpai-product-link";
+      productLink.href = safeHttpUrl(p.product_url);
+      productLink.target = "_blank";
+      productLink.rel = "noopener";
       if (p.image_url) {
         const img = document.createElement("img");
         img.src = safeHttpUrl(p.image_url);
         img.alt = "";
-        card.appendChild(img);
+        productLink.appendChild(img);
       }
       const info = document.createElement("div");
       info.className = "wpai-product-info";
@@ -77,7 +79,55 @@
         price.textContent = p.price + " €";
         info.appendChild(price);
       }
-      card.appendChild(info);
+      productLink.appendChild(info);
+      card.appendChild(productLink);
+
+      const addButton = document.createElement("button");
+      addButton.type = "button";
+      addButton.className = "wpai-add-to-cart";
+      addButton.textContent = "Aggiungi al carrello";
+      let optionsUrl = "";
+      addButton.addEventListener("click", async () => {
+        if (optionsUrl) {
+          window.location.assign(optionsUrl);
+          return;
+        }
+        if (addButton.disabled) return;
+        addButton.disabled = true;
+        addButton.textContent = "Aggiungo…";
+        try {
+          const response = await fetch(WPAI.ajaxUrl, {
+            method: "POST",
+            headers: {"Content-Type": "application/x-www-form-urlencoded"},
+            body: new URLSearchParams({
+              action: "wpai_add_to_cart",
+              nonce: WPAI.cartNonce,
+              product_url: p.product_url,
+            }),
+          });
+          const result = await response.json();
+          if (!response.ok || !result.success) {
+            const error = result && result.data ? result.data : {};
+            if (error.product_url) {
+              optionsUrl = error.product_url;
+              addButton.textContent = "Scegli le opzioni";
+              addButton.disabled = false;
+              return;
+            }
+            throw new Error(error.message || "Aggiunta non riuscita");
+          }
+          addButton.textContent = "✓ Aggiunto";
+          addButton.classList.add("is-added");
+          if (window.jQuery) window.jQuery(document.body).trigger("wc_fragment_refresh");
+          document.body.dispatchEvent(new CustomEvent("wpai_cart_updated", {detail: result.data}));
+          addMessage(container, "assistant", `${p.title || "Il prodotto"} è stato aggiunto al carrello.`);
+        } catch (error) {
+          addButton.textContent = "Riprova";
+          addButton.disabled = false;
+          addButton.title = error.message || "";
+        }
+      });
+      card.appendChild(addButton);
       wrap.appendChild(card);
     }
     container.appendChild(wrap);

@@ -2,13 +2,13 @@
 /**
  * Plugin Name: WP AIssistant
  * Description: Floating AI chat widget backed by a RAG backend, with automatic site content sync.
- * Version: 1.1.0
+ * Version: 1.1.1
  */
 
 if (!defined('ABSPATH')) exit;
 
 define('WPAI_OPTION', 'wpai_settings');
-define('WPAI_VERSION', '1.1.0'); // keep in sync with the "Version:" header above
+define('WPAI_VERSION', '1.1.1'); // keep in sync with the "Version:" header above
 
 // The backend is a single hosted service (not something each site owner runs), so its URL
 // isn't a setting — it's hardcoded here. Override only for local/staging testing by defining
@@ -298,6 +298,8 @@ add_action('wp_enqueue_scripts', function () {
         'title' => wpai_widget_title(),
         'image' => wpai_widget_image(),
         'ajaxUrl' => admin_url('admin-ajax.php'),
+        'cartNonce' => wp_create_nonce('wpai_cart'),
+        'cartUrl' => function_exists('wc_get_cart_url') ? wc_get_cart_url() : '',
         'loggedIn' => is_user_logged_in(),
         'privacyUrl' => wpai_opt('widget_privacy_url'),
         'subtitle' => wpai_setting('widget_subtitle', 'Di solito risponde subito'),
@@ -321,6 +323,47 @@ add_action('wp_enqueue_scripts', function () {
         'siteUrl' => home_url(),
     ]);
 });
+
+// Add a product from a chat card through WooCommerce itself. The widget only shows a
+// success state after WC()->cart->add_to_cart() has returned a real cart item key.
+function wpai_add_to_cart() {
+    check_ajax_referer('wpai_cart', 'nonce');
+    if (!function_exists('wc_get_product') || !function_exists('WC')) {
+        wp_send_json_error(['message' => 'WooCommerce non è disponibile.'], 503);
+    }
+
+    $product_url = esc_url_raw(wp_unslash($_POST['product_url'] ?? ''));
+    $product_id = $product_url ? url_to_postid($product_url) : 0;
+    $product = $product_id ? wc_get_product($product_id) : false;
+    if (!$product || $product->get_status() !== 'publish') {
+        wp_send_json_error(['message' => 'Prodotto non disponibile.'], 404);
+    }
+    if ($product->is_type(['variable', 'grouped', 'external'])) {
+        wp_send_json_error([
+            'message' => 'Scegli prima le opzioni del prodotto.',
+            'product_url' => get_permalink($product_id),
+        ], 409);
+    }
+    if (!$product->is_purchasable() || !$product->is_in_stock()) {
+        wp_send_json_error(['message' => 'Questo prodotto non è acquistabile al momento.'], 409);
+    }
+
+    if (function_exists('wc_load_cart') && (!WC()->cart || !WC()->session)) {
+        wc_load_cart();
+    }
+    $cart_item_key = WC()->cart ? WC()->cart->add_to_cart($product_id, 1) : false;
+    if (!$cart_item_key) {
+        wp_send_json_error(['message' => 'Non è stato possibile aggiungere il prodotto.'], 409);
+    }
+
+    wp_send_json_success([
+        'message' => 'Aggiunto al carrello',
+        'cart_count' => WC()->cart->get_cart_contents_count(),
+        'cart_url' => wc_get_cart_url(),
+    ]);
+}
+add_action('wp_ajax_wpai_add_to_cart', 'wpai_add_to_cart');
+add_action('wp_ajax_nopriv_wpai_add_to_cart', 'wpai_add_to_cart');
 
 // ---- Content builders ----
 
