@@ -628,8 +628,8 @@ def _is_cart_mutation_request(message: str) -> bool:
 def _cart_instruction_reply(products: list[dict]) -> str:
     if products:
         return (
-            "Per aggiungere davvero il prodotto usa il pulsante “Aggiungi al carrello” "
-            "nella scheda qui sotto. Ti confermerò l’operazione solo dopo la risposta di WooCommerce."
+            "Per aggiungere il prodotto, usa il pulsante “Aggiungi al carrello” "
+            "nella scheda qui sotto."
         )
     return (
         "Posso aiutarti a trovare il prodotto, ma non ne ho identificato uno con certezza. "

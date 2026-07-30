@@ -67,6 +67,7 @@ def test_stream_cart_request_never_claims_unverified_success(client, tenant, mon
     reply = "".join(e["text"] for e in events if e["type"] == "token")
     assert "usa il pulsante" in reply
     assert "Hai aggiunto" not in reply
+    assert "WooCommerce" not in reply
     assert events[-1]["products"][0]["title"] == "Polo"
 
 
