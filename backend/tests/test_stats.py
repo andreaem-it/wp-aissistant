@@ -82,6 +82,7 @@ def test_client_origins_are_normalized(client):
 def test_admin_problematic_lists_model_escalations(client, tenant, monkeypatch):
     # force the model to escalate so an 'escalated_model' turn is logged
     monkeypatch.setattr(main, "llm_chat", lambda system, history, message: {"escalate": "non lo so"})
+    monkeypatch.setattr(main, "_retrieval_is_in_scope", lambda meta: True)
     client.post("/chat", headers=tenant["key"], json={"visitor_id": "v1", "message": "domanda difficile"})
     items = client.get("/admin/problematic", headers=ADMIN).json()
     assert any(i["kind"] == "escalated_model" for i in items)

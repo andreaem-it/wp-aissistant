@@ -217,6 +217,9 @@ ALWAYS_ESCALATE_KEYWORDS = [
 MAX_CHAT_MESSAGE_CHARS = int(os.getenv("MAX_CHAT_MESSAGE_CHARS", "4000"))
 MAX_INGEST_TEXT_CHARS = int(os.getenv("MAX_INGEST_TEXT_CHARS", "2000000"))
 MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES", str(10 * 1024 * 1024)))
+# A substantive question must have at least one reasonably close knowledge-base result.
+# This is stricter than the retrieval cutoff so loose context cannot enable general chat.
+SCOPE_MAX_DISTANCE = float(os.getenv("SCOPE_MAX_DISTANCE", "0.62"))
 
 
 def _bounded_limit(value: int, *, default: int = 100, maximum: int = 500) -> int:
@@ -637,6 +640,29 @@ def _cart_instruction_reply(products: list[dict]) -> str:
     )
 
 
+_SMALL_TALK_RE = re.compile(
+    r"^\s*(?:ciao|salve|buongiorno|buonasera|hey|hello|hi|grazie|thanks|"
+    r"arrivederci|a presto|come stai|chi sei|cosa (?:sai|puoi) fare)[!?.\s]*$",
+    re.IGNORECASE,
+)
+_OUT_OF_SCOPE_REPLY = (
+    "Posso aiutarti con i prodotti, i servizi e l’assistenza relativi a questo sito. "
+    "Non posso rispondere a domande di cultura generale."
+)
+
+
+def _is_small_talk(message: str) -> bool:
+    return bool(_SMALL_TALK_RE.match(message or ""))
+
+
+def _retrieval_is_in_scope(retrieval_meta: list[dict]) -> bool:
+    """Require semantic evidence from this tenant's own knowledge base."""
+    return any(
+        item.get("selected") and float(item.get("distance", 1.0)) <= SCOPE_MAX_DISTANCE
+        for item in retrieval_meta
+    )
+
+
 def _trusted_callback_origin(allowed_origins: str, site_url, request) -> str:
     """The origin to call back for an order lookup — ONLY if it's one the client configured in
     allowed_origins. `site_url` is an attacker-controllable body param, so validating the chosen
@@ -989,6 +1015,30 @@ def chat_stream_endpoint(
             # mid-prefix.
             try:
                 context, retrieval_meta = retrieve_with_meta(s, client_id, message)
+                if not _is_small_talk(message) and not _retrieval_is_in_scope(retrieval_meta):
+                    full = _OUT_OF_SCOPE_REPLY
+                    reply_msg = Message(conversation_id=conv.id, role="assistant", content=full)
+                    s.add(reply_msg)
+                    conv.updated_at = datetime.utcnow()
+                    s.add(conv)
+                    s.commit()
+                    s.refresh(reply_msg)
+                    _log_ai_response(
+                        s,
+                        client_id,
+                        conv.id,
+                        "out_of_scope",
+                        retrieval_meta=retrieval_meta,
+                        message_id=reply_msg.id,
+                    )
+                    yield _sse({"type": "token", "text": full})
+                    yield _sse({
+                        "type": "done",
+                        "conversation_id": conv.id,
+                        "message_id": reply_msg.id,
+                        "products": [],
+                    })
+                    return
                 system = _build_system(context)
                 for kind, payload in llm_chat_stream(system, history, message):
                     if kind == "meta":
@@ -1145,6 +1195,33 @@ def chat_endpoint(
     retrieval_meta: list[dict] = []
     try:
         context, retrieval_meta = retrieve_with_meta(session, client.id, message)
+        if not _is_small_talk(message) and not _retrieval_is_in_scope(retrieval_meta):
+            reply_msg = Message(
+                conversation_id=conv.id,
+                role="assistant",
+                content=_OUT_OF_SCOPE_REPLY,
+            )
+            session.add(reply_msg)
+            conv.updated_at = datetime.utcnow()
+            session.add(conv)
+            session.commit()
+            session.refresh(reply_msg)
+            _log_ai_response(
+                session,
+                client.id,
+                conv.id,
+                "out_of_scope",
+                retrieval_meta=retrieval_meta,
+                message_id=reply_msg.id,
+            )
+            return {
+                "conversation_id": conv.id,
+                "conversation_token": access_token,
+                "status": "open",
+                "reply": _OUT_OF_SCOPE_REPLY,
+                "products": [],
+                "message_id": reply_msg.id,
+            }
         system = _build_system(context)
         result = llm_chat(system, history, message)
     except LLMUnavailableError as exc:

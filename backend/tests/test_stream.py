@@ -112,6 +112,7 @@ def test_stream_model_escalation_buffers_prefix(client, tenant, monkeypatch):
         yield ("delta", "non lo so")
         yield ("meta", {"model": "test", "latency_ms": 1, "tokens_prompt": 0, "tokens_completion": 0})
     monkeypatch.setattr(main, "llm_chat_stream", _escalating_stream)
+    monkeypatch.setattr(main, "_retrieval_is_in_scope", lambda meta: True)
 
     r = client.post("/chat/stream", headers=tenant["key"], json={"visitor_id": "v1", "message": "domanda difficile"})
     events = _events(r)
