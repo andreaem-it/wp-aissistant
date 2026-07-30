@@ -2,6 +2,19 @@
 
 Tutte le modifiche rilevanti del plugin WP AIssistant.
 
+## [1.0.0] - 2026-07-30
+
+- Widget completamente ridisegnato: animazioni di apertura e dei messaggi, typing indicator
+  animato, launcher esteso opzionale, micro-interazioni e layout mobile full-screen.
+- Nuove opzioni: colore principale, tema chiaro/scuro/automatico, posizione, intensità
+  delle animazioni, sottotitolo, messaggio di benvenuto ed etichetta del launcher.
+- Pagine wp-admin riprogettate con card, gerarchia visiva moderna, anteprima live,
+  riepilogo utilizzo e una pagina sincronizzazione più chiara.
+- Migliorata l'accessibilità con focus visibile, chiusura via Esc, stato ARIA, dialog
+  semantico, regione live e supporto completo a `prefers-reduced-motion`.
+- Il markup contenente titolo, avatar e testi configurabili non usa più template HTML:
+  tutti i nodi sono creati via DOM e i valori sono assegnati con `textContent`.
+
 ## [0.9.2] - 2026-07-29
 
 - Fix (sicurezza, critico): la API Key pubblica del widget non autorizza più da sola

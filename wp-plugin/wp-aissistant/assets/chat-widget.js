@@ -170,7 +170,8 @@
         el = document.createElement("div");
         el.id = "wpai-typing";
         el.className = "wpai-msg assistant wpai-typing";
-        el.textContent = `${WPAI.title} sta scrivendo...`;
+        el.setAttribute("aria-label", `${WPAI.title} sta scrivendo`);
+        for (let i = 0; i < 3; i++) el.appendChild(document.createElement("span"));
         container.appendChild(el);
         container.scrollTop = container.scrollHeight;
       }
@@ -378,25 +379,91 @@
   }
 
   function init() {
+    const root = document.createElement("div");
+    root.id = "wpai-root";
+    root.className = [
+      WPAI.position === "left" ? "wpai-left" : "wpai-right",
+      "wpai-theme-" + (["light", "dark", "auto"].includes(WPAI.theme) ? WPAI.theme : "light"),
+      "wpai-motion-" + (["subtle", "playful", "none"].includes(WPAI.motion) ? WPAI.motion : "subtle"),
+    ].join(" ");
+    root.style.setProperty("--wpai-accent", /^#[0-9a-f]{6}$/i.test(WPAI.color || "") ? WPAI.color : "#635bff");
+    document.body.appendChild(root);
+
     const toggle = document.createElement("button");
     toggle.id = "wpai-toggle";
-    toggle.innerHTML = '<i class="fa-solid fa-comment-dots"></i>';
-    document.body.appendChild(toggle);
+    toggle.type = "button";
+    toggle.setAttribute("aria-label", "Apri la chat");
+    toggle.setAttribute("aria-expanded", "false");
+    toggle.setAttribute("aria-controls", "wpai-window");
+    const toggleLabel = document.createElement("span");
+    toggleLabel.textContent = WPAI.launcherLabel || "";
+    const toggleIcon = document.createElement("i");
+    toggleIcon.className = "fa-solid fa-comment-dots";
+    toggleIcon.setAttribute("aria-hidden", "true");
+    if (WPAI.launcherLabel) {
+      toggle.classList.add("has-label");
+      toggle.appendChild(toggleLabel);
+    }
+    toggle.appendChild(toggleIcon);
+    root.appendChild(toggle);
 
     const win = document.createElement("div");
     win.id = "wpai-window";
-    win.innerHTML = `
-      <div id="wpai-header">
-        <img src="${WPAI.image}" alt="" />
-        <span>${WPAI.title}</span>
-      </div>
-      <div id="wpai-messages"></div>
-      <form id="wpai-form">
-        <input id="wpai-input" type="text" placeholder="Scrivi un messaggio..." autocomplete="off" />
-        <button type="submit">Invia</button>
-      </form>
-    `;
-    document.body.appendChild(win);
+    win.setAttribute("role", "dialog");
+    win.setAttribute("aria-modal", "false");
+    win.setAttribute("aria-label", "Chat con " + WPAI.title);
+
+    const header = document.createElement("div");
+    header.id = "wpai-header";
+    const avatar = document.createElement("img");
+    avatar.src = safeHttpUrl(WPAI.image);
+    avatar.alt = "";
+    const headerCopy = document.createElement("div");
+    headerCopy.className = "wpai-header-copy";
+    const heading = document.createElement("strong");
+    heading.textContent = WPAI.title;
+    const subtitle = document.createElement("small");
+    subtitle.textContent = WPAI.subtitle;
+    headerCopy.appendChild(heading);
+    headerCopy.appendChild(subtitle);
+    const close = document.createElement("button");
+    close.id = "wpai-close";
+    close.type = "button";
+    close.setAttribute("aria-label", "Chiudi la chat");
+    const closeIcon = document.createElement("i");
+    closeIcon.className = "fa-solid fa-xmark";
+    closeIcon.setAttribute("aria-hidden", "true");
+    close.appendChild(closeIcon);
+    header.appendChild(avatar);
+    header.appendChild(headerCopy);
+    header.appendChild(close);
+
+    const messages = document.createElement("div");
+    messages.id = "wpai-messages";
+    messages.setAttribute("aria-live", "polite");
+    if (WPAI.welcome) addMessage(messages, "assistant", WPAI.welcome);
+
+    const form = document.createElement("form");
+    form.id = "wpai-form";
+    const input = document.createElement("input");
+    input.id = "wpai-input";
+    input.type = "text";
+    input.placeholder = "Scrivi un messaggio…";
+    input.autocomplete = "off";
+    input.setAttribute("aria-label", "Messaggio");
+    const send = document.createElement("button");
+    send.type = "submit";
+    send.setAttribute("aria-label", "Invia messaggio");
+    const sendIcon = document.createElement("i");
+    sendIcon.className = "fa-solid fa-arrow-up";
+    sendIcon.setAttribute("aria-hidden", "true");
+    send.appendChild(sendIcon);
+    form.appendChild(input);
+    form.appendChild(send);
+    win.appendChild(header);
+    win.appendChild(messages);
+    win.appendChild(form);
+    root.appendChild(win);
 
     // GDPR: privacy notice with a link to the site's policy, if configured (built via DOM)
     if (WPAI.privacyUrl) {
@@ -413,11 +480,23 @@
       win.appendChild(note);
     }
 
-    toggle.addEventListener("click", () => win.classList.toggle("open"));
+    function setOpen(open) {
+      win.classList.toggle("open", open);
+      root.classList.toggle("wpai-is-open", open);
+      toggle.setAttribute("aria-expanded", String(open));
+      toggle.setAttribute("aria-label", open ? "Chiudi la chat" : "Apri la chat");
+      toggleIcon.className = open ? "fa-solid fa-xmark" : "fa-solid fa-comment-dots";
+      if (open) window.setTimeout(() => input.focus(), 180);
+    }
 
-    const messages = win.querySelector("#wpai-messages");
-    const form = win.querySelector("#wpai-form");
-    const input = win.querySelector("#wpai-input");
+    toggle.addEventListener("click", () => setOpen(!win.classList.contains("open")));
+    close.addEventListener("click", () => setOpen(false));
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && win.classList.contains("open")) {
+        setOpen(false);
+        toggle.focus();
+      }
+    });
 
     form.addEventListener("submit", async (e) => {
       e.preventDefault();

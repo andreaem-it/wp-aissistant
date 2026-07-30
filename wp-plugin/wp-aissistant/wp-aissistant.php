@@ -2,13 +2,13 @@
 /**
  * Plugin Name: WP AIssistant
  * Description: Floating AI chat widget backed by a RAG backend, with automatic site content sync.
- * Version: 0.9.2
+ * Version: 1.0.0
  */
 
 if (!defined('ABSPATH')) exit;
 
 define('WPAI_OPTION', 'wpai_settings');
-define('WPAI_VERSION', '0.9.2'); // keep in sync with the "Version:" header above
+define('WPAI_VERSION', '1.0.0'); // keep in sync with the "Version:" header above
 
 // The backend is a single hosted service (not something each site owner runs), so its URL
 // isn't a setting — it's hardcoded here. Override only for local/staging testing by defining
@@ -37,6 +37,32 @@ function wpai_widget_image() {
     return wpai_opt('widget_image') ?: plugins_url('assets/default-avatar.svg', __FILE__);
 }
 
+function wpai_setting($key, $default = '') {
+    $value = wpai_opt($key);
+    return $value === '' ? $default : $value;
+}
+
+function wpai_sanitize_settings($input) {
+    $input = is_array($input) ? $input : [];
+    $themes = ['light', 'dark', 'auto'];
+    $positions = ['right', 'left'];
+    $motions = ['subtle', 'playful', 'none'];
+
+    return [
+        'api_key' => sanitize_text_field($input['api_key'] ?? ''),
+        'widget_title' => sanitize_text_field($input['widget_title'] ?? ''),
+        'widget_subtitle' => sanitize_text_field($input['widget_subtitle'] ?? ''),
+        'widget_welcome' => sanitize_textarea_field($input['widget_welcome'] ?? ''),
+        'widget_launcher_label' => sanitize_text_field($input['widget_launcher_label'] ?? ''),
+        'widget_privacy_url' => esc_url_raw($input['widget_privacy_url'] ?? ''),
+        'widget_image' => esc_url_raw($input['widget_image'] ?? ''),
+        'widget_color' => sanitize_hex_color($input['widget_color'] ?? '') ?: '#635bff',
+        'widget_theme' => in_array($input['widget_theme'] ?? '', $themes, true) ? $input['widget_theme'] : 'light',
+        'widget_position' => in_array($input['widget_position'] ?? '', $positions, true) ? $input['widget_position'] : 'right',
+        'widget_motion' => in_array($input['widget_motion'] ?? '', $motions, true) ? $input['widget_motion'] : 'subtle',
+    ];
+}
+
 // ---- Admin menu: top-level "AI Assistant" with Impostazioni + Sincronizzazione ----
 
 add_action('admin_menu', function () {
@@ -46,7 +72,7 @@ add_action('admin_menu', function () {
 });
 
 add_action('admin_init', function () {
-    register_setting('wpai', WPAI_OPTION);
+    register_setting('wpai', WPAI_OPTION, ['sanitize_callback' => 'wpai_sanitize_settings']);
 });
 
 // Fetch the current plan + monthly usage from the backend (best-effort; returns null on error).
@@ -65,96 +91,129 @@ function wpai_settings_page() {
     $opts = get_option(WPAI_OPTION, []);
     $image = $opts['widget_image'] ?? '';
     $usage = wpai_fetch_usage();
+    $pct = $usage && !empty($usage['limit']) ? min(100, round($usage['used'] / $usage['limit'] * 100)) : 0;
     ?>
-    <div class="wrap">
-        <h1>AI Assistant — Impostazioni</h1>
-
-        <?php if ($usage) : ?>
-            <div class="wpai-admin-card">
-                <h2>Piano — <?php echo esc_html($usage['plan'] ?: '—'); ?></h2>
-                <?php if (!empty($usage['limit'])) : $pct = min(100, round($usage['used'] / $usage['limit'] * 100)); ?>
-                    <p><strong><?php echo (int) $usage['used']; ?></strong> / <?php echo (int) $usage['limit']; ?> messaggi questo mese
-                       <span style="color:#666;">(<?php echo (int) $usage['remaining']; ?> rimanenti)</span></p>
-                    <div class="wpai-bar"><div class="wpai-bar-fill" style="width:<?php echo esc_attr($pct); ?>%;<?php echo $pct >= 100 ? 'background:#d97706;' : ''; ?>"></div></div>
-                <?php else : ?>
-                    <p><strong><?php echo (int) $usage['used']; ?></strong> messaggi questo mese (nessun limite)</p>
-                <?php endif; ?>
+    <div class="wrap wpai-admin">
+        <header class="wpai-admin-hero">
+            <div>
+                <span class="wpai-eyebrow"><i class="fa-solid fa-wand-magic-sparkles"></i> WP AIssistant</span>
+                <h1>Il tuo assistente, con il carattere del tuo brand.</h1>
+                <p>Configura aspetto, tono e comportamento del widget. Le modifiche sono visibili nell'anteprima prima di salvarle.</p>
             </div>
-        <?php elseif (wpai_opt('api_key')) : ?>
-            <div class="wpai-admin-card"><p>Impossibile recuperare il piano dal backend. Verifica l'API Key.</p></div>
-        <?php endif; ?>
+            <span class="wpai-version">v<?php echo esc_html(WPAI_VERSION); ?></span>
+        </header>
+        <nav class="wpai-admin-nav" aria-label="Sezioni AI Assistant">
+            <a class="is-active" href="<?php echo esc_url(admin_url('admin.php?page=wp-aissistant')); ?>"><i class="fa-solid fa-sliders"></i> Personalizzazione</a>
+            <a href="<?php echo esc_url(admin_url('admin.php?page=wp-aissistant-sync')); ?>"><i class="fa-solid fa-rotate"></i> Sincronizzazione</a>
+        </nav>
 
+        <div class="wpai-admin-grid">
         <form method="post" action="options.php">
             <?php settings_fields('wpai'); ?>
-            <table class="form-table">
-                <tr>
-                    <th><label for="api_key">API Key</label></th>
-                    <td><input type="text" id="api_key" name="<?php echo esc_attr(WPAI_OPTION); ?>[api_key]"
-                               value="<?php echo esc_attr($opts['api_key'] ?? ''); ?>" class="regular-text" />
-                        <p class="description">La trovi nel pannello operatore → Profilo.</p></td>
-                </tr>
-                <tr>
-                    <th><label for="widget_title">Titolo widget</label></th>
-                    <td><input type="text" id="widget_title" name="<?php echo esc_attr(WPAI_OPTION); ?>[widget_title]"
-                               value="<?php echo esc_attr($opts['widget_title'] ?? ''); ?>" class="regular-text" placeholder="AI Assistant" /></td>
-                </tr>
-                <tr>
-                    <th><label for="widget_privacy_url">URL Privacy Policy</label></th>
-                    <td><input type="url" id="widget_privacy_url" name="<?php echo esc_attr(WPAI_OPTION); ?>[widget_privacy_url]"
-                               value="<?php echo esc_attr($opts['widget_privacy_url'] ?? ''); ?>" class="regular-text" placeholder="https://tuosito.it/privacy" />
-                        <p class="description">Se impostato, il widget mostra un avviso "Continuando accetti la privacy policy" con il link (GDPR).</p></td>
-                </tr>
-                <tr>
-                    <th><label for="widget_image">Immagine widget</label></th>
-                    <td>
-                        <img id="wpai-image-preview" src="<?php echo esc_url($image); ?>" style="max-width:60px;max-height:60px;display:<?php echo $image ? 'block' : 'none'; ?>;margin-bottom:8px;" />
+            <section class="wpai-admin-card">
+                <div class="wpai-card-heading"><span class="wpai-step">01</span><div><h2>Connessione</h2><p>Collega il sito al tuo account WP AIssistant.</p></div></div>
+                <label class="wpai-field" for="api_key"><span>API Key</span>
+                    <input type="password" id="api_key" name="<?php echo esc_attr(WPAI_OPTION); ?>[api_key]" value="<?php echo esc_attr($opts['api_key'] ?? ''); ?>" autocomplete="off" />
+                    <small>La trovi nel pannello operatore, nella sezione Profilo.</small>
+                </label>
+            </section>
+
+            <section class="wpai-admin-card">
+                <div class="wpai-card-heading"><span class="wpai-step">02</span><div><h2>Identità</h2><p>Dai un nome e una voce riconoscibile all'assistente.</p></div></div>
+                <div class="wpai-fields-two">
+                    <label class="wpai-field" for="widget_title"><span>Nome assistente</span>
+                        <input type="text" id="widget_title" data-preview="title" name="<?php echo esc_attr(WPAI_OPTION); ?>[widget_title]" value="<?php echo esc_attr($opts['widget_title'] ?? ''); ?>" placeholder="AI Assistant" />
+                    </label>
+                    <label class="wpai-field" for="widget_subtitle"><span>Stato / sottotitolo</span>
+                        <input type="text" id="widget_subtitle" data-preview="subtitle" name="<?php echo esc_attr(WPAI_OPTION); ?>[widget_subtitle]" value="<?php echo esc_attr($opts['widget_subtitle'] ?? ''); ?>" placeholder="Di solito risponde subito" />
+                    </label>
+                </div>
+                <label class="wpai-field" for="widget_welcome"><span>Messaggio di benvenuto</span>
+                    <textarea id="widget_welcome" data-preview="welcome" name="<?php echo esc_attr(WPAI_OPTION); ?>[widget_welcome]" rows="3" placeholder="Ciao! Come posso aiutarti oggi?"><?php echo esc_textarea($opts['widget_welcome'] ?? ''); ?></textarea>
+                    <small>Appare all'apertura della chat, prima del primo messaggio.</small>
+                </label>
+                <div class="wpai-field"><span>Avatar</span><div class="wpai-media-row">
+                        <img id="wpai-image-preview" src="<?php echo esc_url($image ?: wpai_widget_image()); ?>" alt="" />
                         <input type="hidden" id="widget_image" name="<?php echo esc_attr(WPAI_OPTION); ?>[widget_image]" value="<?php echo esc_attr($image); ?>" />
-                        <button type="button" class="button" id="wpai-image-select">Scegli immagine</button>
-                        <button type="button" class="button" id="wpai-image-clear" style="display:<?php echo $image ? 'inline-block' : 'none'; ?>;">Rimuovi</button>
-                    </td>
-                </tr>
-            </table>
-            <?php submit_button(); ?>
+                        <div><button type="button" class="button" id="wpai-image-select">Scegli immagine</button>
+                        <button type="button" class="button button-link-delete" id="wpai-image-clear"<?php echo $image ? '' : ' hidden'; ?>>Rimuovi</button></div>
+                </div></div>
+            </section>
+
+            <section class="wpai-admin-card">
+                <div class="wpai-card-heading"><span class="wpai-step">03</span><div><h2>Look & feel</h2><p>Adatta il widget al design del sito.</p></div></div>
+                <div class="wpai-fields-two">
+                    <label class="wpai-field" for="widget_color"><span>Colore principale</span><div class="wpai-color-control">
+                        <input type="color" id="widget_color" data-preview="color" name="<?php echo esc_attr(WPAI_OPTION); ?>[widget_color]" value="<?php echo esc_attr($opts['widget_color'] ?? '#635bff'); ?>" />
+                        <output id="wpai-color-value"><?php echo esc_html($opts['widget_color'] ?? '#635bff'); ?></output>
+                    </div></label>
+                    <label class="wpai-field" for="widget_position"><span>Posizione</span><select id="widget_position" data-preview="position" name="<?php echo esc_attr(WPAI_OPTION); ?>[widget_position]">
+                        <option value="right"<?php selected($opts['widget_position'] ?? 'right', 'right'); ?>>In basso a destra</option>
+                        <option value="left"<?php selected($opts['widget_position'] ?? 'right', 'left'); ?>>In basso a sinistra</option>
+                    </select></label>
+                    <label class="wpai-field" for="widget_theme"><span>Tema</span><select id="widget_theme" data-preview="theme" name="<?php echo esc_attr(WPAI_OPTION); ?>[widget_theme]">
+                        <option value="light"<?php selected($opts['widget_theme'] ?? 'light', 'light'); ?>>Chiaro</option>
+                        <option value="dark"<?php selected($opts['widget_theme'] ?? 'light', 'dark'); ?>>Scuro</option>
+                        <option value="auto"<?php selected($opts['widget_theme'] ?? 'light', 'auto'); ?>>Segui il dispositivo</option>
+                    </select></label>
+                    <label class="wpai-field" for="widget_motion"><span>Animazioni</span><select id="widget_motion" name="<?php echo esc_attr(WPAI_OPTION); ?>[widget_motion]">
+                        <option value="subtle"<?php selected($opts['widget_motion'] ?? 'subtle', 'subtle'); ?>>Fluide</option>
+                        <option value="playful"<?php selected($opts['widget_motion'] ?? 'subtle', 'playful'); ?>>Vivaci</option>
+                        <option value="none"<?php selected($opts['widget_motion'] ?? 'subtle', 'none'); ?>>Disattivate</option>
+                    </select></label>
+                </div>
+                <label class="wpai-field" for="widget_launcher_label"><span>Etichetta del pulsante</span>
+                    <input type="text" id="widget_launcher_label" data-preview="launcher" name="<?php echo esc_attr(WPAI_OPTION); ?>[widget_launcher_label]" value="<?php echo esc_attr($opts['widget_launcher_label'] ?? ''); ?>" placeholder="Come possiamo aiutarti?" />
+                    <small>Lascia vuoto per mostrare soltanto l'icona.</small>
+                </label>
+            </section>
+
+            <section class="wpai-admin-card">
+                <div class="wpai-card-heading"><span class="wpai-step">04</span><div><h2>Privacy</h2><p>Collega l'informativa mostrata nel widget.</p></div></div>
+                <label class="wpai-field" for="widget_privacy_url"><span>URL Privacy Policy</span>
+                    <input type="url" id="widget_privacy_url" name="<?php echo esc_attr(WPAI_OPTION); ?>[widget_privacy_url]" value="<?php echo esc_attr($opts['widget_privacy_url'] ?? ''); ?>" placeholder="https://tuosito.it/privacy" />
+                </label>
+            </section>
+            <div class="wpai-savebar"><span>Le modifiche vengono applicate al widget dopo il salvataggio.</span><?php submit_button('Salva modifiche', 'primary', 'submit', false); ?></div>
         </form>
+        <aside class="wpai-admin-aside">
+            <div class="wpai-preview-card">
+                <div class="wpai-preview-label"><span>Anteprima live</span><span class="wpai-live-dot">Live</span></div>
+                <div class="wpai-preview-stage" id="wpai-preview-stage">
+                    <div class="wpai-preview-window" id="wpai-preview-window">
+                        <div class="wpai-preview-header"><img src="<?php echo esc_url(wpai_widget_image()); ?>" alt=""><div><strong><?php echo esc_html(wpai_widget_title()); ?></strong><small><?php echo esc_html(wpai_setting('widget_subtitle', 'Di solito risponde subito')); ?></small></div><i class="fa-solid fa-xmark"></i></div>
+                        <div class="wpai-preview-body"><span><?php echo esc_html(wpai_setting('widget_welcome', 'Ciao! Come posso aiutarti oggi?')); ?></span></div>
+                        <div class="wpai-preview-input">Scrivi un messaggio… <i class="fa-solid fa-arrow-up"></i></div>
+                    </div>
+                    <div class="wpai-preview-launcher"><span><?php echo esc_html(wpai_setting('widget_launcher_label')); ?></span><i class="fa-solid fa-comment-dots"></i></div>
+                </div>
+            </div>
+            <div class="wpai-admin-card wpai-usage-card">
+                <div class="wpai-card-heading"><div><h2><?php echo $usage ? esc_html(ucfirst($usage['plan'] ?: 'Piano attivo')) : 'Stato account'; ?></h2><p><?php echo $usage ? 'Utilizzo del mese corrente' : 'Connessione al servizio'; ?></p></div></div>
+                <?php if ($usage) : ?><div class="wpai-usage-numbers"><strong><?php echo (int) $usage['used']; ?></strong><span><?php echo !empty($usage['limit']) ? 'di ' . (int) $usage['limit'] . ' messaggi' : 'messaggi, nessun limite'; ?></span></div>
+                    <?php if (!empty($usage['limit'])) : ?><div class="wpai-bar"><div class="wpai-bar-fill<?php echo $pct >= 100 ? ' is-full' : ''; ?>" style="width:<?php echo esc_attr($pct); ?>%"></div></div><small><?php echo (int) $usage['remaining']; ?> messaggi rimanenti</small><?php endif; ?>
+                <?php elseif (wpai_opt('api_key')) : ?><p class="wpai-alert">Impossibile recuperare il piano. Verifica l'API Key.</p>
+                <?php else : ?><p>Inserisci l'API Key per attivare il widget e visualizzare il consumo.</p><?php endif; ?>
+            </div>
+        </aside>
+        </div>
     </div>
-    <script>
-    jQuery(function ($) {
-        var frame;
-        $('#wpai-image-select').on('click', function (e) {
-            e.preventDefault();
-            if (frame) { frame.open(); return; }
-            frame = wp.media({ title: 'Scegli immagine widget', multiple: false });
-            frame.on('select', function () {
-                var attachment = frame.state().get('selection').first().toJSON();
-                $('#widget_image').val(attachment.url);
-                $('#wpai-image-preview').attr('src', attachment.url).show();
-                $('#wpai-image-clear').show();
-            });
-            frame.open();
-        });
-        $('#wpai-image-clear').on('click', function (e) {
-            e.preventDefault();
-            $('#widget_image').val('');
-            $('#wpai-image-preview').hide();
-            $(this).hide();
-        });
-    });
-    </script>
     <?php
 }
 
 function wpai_sync_page() {
     ?>
-    <div class="wrap">
-        <h1>AI Assistant — Sincronizzazione</h1>
-        <p>Invia al backend i contenuti del sito (pagine, articoli<?php echo function_exists('WC') ? ', prodotti' : ''; ?>) e le informazioni generali. I nuovi contenuti vengono comunque sincronizzati in automatico alla pubblicazione; usa questo per il primo caricamento o un re-sync completo.</p>
+    <div class="wrap wpai-admin">
+        <header class="wpai-admin-hero"><div><span class="wpai-eyebrow"><i class="fa-solid fa-arrows-rotate"></i> Knowledge base</span><h1>Contenuti sempre aggiornati.</h1><p>Allinea pagine, articoli<?php echo function_exists('WC') ? ' e prodotti WooCommerce' : ''; ?> con la conoscenza dell'assistente.</p></div><span class="wpai-version">v<?php echo esc_html(WPAI_VERSION); ?></span></header>
+        <nav class="wpai-admin-nav" aria-label="Sezioni AI Assistant"><a href="<?php echo esc_url(admin_url('admin.php?page=wp-aissistant')); ?>"><i class="fa-solid fa-sliders"></i> Personalizzazione</a><a class="is-active" href="<?php echo esc_url(admin_url('admin.php?page=wp-aissistant-sync')); ?>"><i class="fa-solid fa-rotate"></i> Sincronizzazione</a></nav>
+        <section class="wpai-admin-card wpai-sync-card"><div class="wpai-sync-intro"><div class="wpai-sync-icon"><i class="fa-solid fa-cloud-arrow-up"></i></div><div><h2>Sincronizzazione completa</h2><p>I nuovi contenuti vengono già acquisiti alla pubblicazione. Avvia una sincronizzazione completa dopo l'installazione o quando hai modificato molti contenuti.</p></div></div>
         <?php if (!wpai_opt('api_key')) : ?>
-            <div class="wpai-admin-card"><p>Imposta prima l'<strong>API Key</strong> in Impostazioni.</p></div>
+            <div class="wpai-alert">Imposta prima l'<strong>API Key</strong> in Personalizzazione.</div>
         <?php else : ?>
-            <p><button class="button button-primary" id="wpai-sync-start">Sincronizza ora</button>
-               <span id="wpai-sync-progress" style="margin-left:12px;color:#666;"></span></p>
+            <div class="wpai-sync-actions"><button class="button button-primary" id="wpai-sync-start"><i class="fa-solid fa-rotate"></i> Sincronizza ora</button><span id="wpai-sync-progress" aria-live="polite">Pronto per iniziare</span></div>
             <div id="wpai-sync-list" class="wpai-sync-list"></div>
         <?php endif; ?>
+        </section>
     </div>
     <?php
 }
@@ -163,6 +222,8 @@ add_action('admin_enqueue_scripts', function ($hook) {
     // settings page needs the media picker
     if ($hook === 'toplevel_page_wp-aissistant') {
         wp_enqueue_media();
+        wp_enqueue_script('wpai-admin-settings', plugins_url('assets/admin-settings.js', __FILE__), ['jquery'], WPAI_VERSION, true);
+        wp_localize_script('wpai-admin-settings', 'WPAI_ADMIN', ['defaultImage' => plugins_url('assets/default-avatar.svg', __FILE__)]);
     }
     // sync page needs the realtime sync script
     if ($hook === 'ai-assistant_page_wp-aissistant-sync') {
@@ -175,20 +236,7 @@ add_action('admin_enqueue_scripts', function ($hook) {
     // small shared admin CSS on our pages
     if (strpos((string) $hook, 'wp-aissistant') !== false) {
         wp_enqueue_style('wpai-fontawesome', WPAI_FONTAWESOME_URL, [], null);
-        wp_register_style('wpai-admin', false);
-        wp_enqueue_style('wpai-admin');
-        wp_add_inline_style('wpai-admin', '
-            .wpai-admin-card{background:#fff;border:1px solid #dcdcde;border-radius:6px;padding:14px 16px;margin:14px 0;max-width:640px;}
-            .wpai-bar{height:8px;background:#f0f0f1;border-radius:999px;overflow:hidden;max-width:420px;}
-            .wpai-bar-fill{height:100%;background:#2271b1;}
-            .wpai-sync-list{margin-top:14px;max-width:640px;}
-            .wpai-sync-row{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 12px;border:1px solid #e0e0e0;border-radius:6px;margin-bottom:6px;background:#fff;font-size:13px;}
-            .wpai-sync-row .status{font-size:12px;color:#666;white-space:nowrap;}
-            .wpai-sync-row.done{border-color:#c6e6c6;}
-            .wpai-sync-row.done .status{color:#1e7e34;}
-            .wpai-sync-row.error{border-color:#f0c0c0;}
-            .wpai-sync-row.error .status{color:#b32d2e;}
-        ');
+        wp_enqueue_style('wpai-admin', plugins_url('assets/admin.css', __FILE__), [], WPAI_VERSION);
     }
 });
 
@@ -213,6 +261,13 @@ add_action('wp_enqueue_scripts', function () {
         'ajaxUrl' => admin_url('admin-ajax.php'),
         'loggedIn' => is_user_logged_in(),
         'privacyUrl' => wpai_opt('widget_privacy_url'),
+        'subtitle' => wpai_setting('widget_subtitle', 'Di solito risponde subito'),
+        'welcome' => wpai_setting('widget_welcome', 'Ciao! Come posso aiutarti oggi?'),
+        'launcherLabel' => wpai_setting('widget_launcher_label'),
+        'color' => wpai_setting('widget_color', '#635bff'),
+        'theme' => wpai_setting('widget_theme', 'light'),
+        'position' => wpai_setting('widget_position', 'right'),
+        'motion' => wpai_setting('widget_motion', 'subtle'),
         // The Origin/Referer header the backend would otherwise fall back to never carries a
         // path, so a subdirectory install (e.g. example.com/shop/) would build a wrong
         // order-lookup callback URL. Send the real site URL explicitly instead.
