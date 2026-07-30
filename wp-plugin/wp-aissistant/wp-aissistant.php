@@ -2,13 +2,13 @@
 /**
  * Plugin Name: WP AIssistant
  * Description: Floating AI chat widget backed by a RAG backend, with automatic site content sync.
- * Version: 1.0.1
+ * Version: 1.1.0
  */
 
 if (!defined('ABSPATH')) exit;
 
 define('WPAI_OPTION', 'wpai_settings');
-define('WPAI_VERSION', '1.0.1'); // keep in sync with the "Version:" header above
+define('WPAI_VERSION', '1.1.0'); // keep in sync with the "Version:" header above
 
 // The backend is a single hosted service (not something each site owner runs), so its URL
 // isn't a setting — it's hardcoded here. Override only for local/staging testing by defining
@@ -47,6 +47,12 @@ function wpai_sanitize_settings($input) {
     $themes = ['light', 'dark', 'auto'];
     $positions = ['right', 'left'];
     $motions = ['subtle', 'playful', 'none'];
+    $support_days = array_values(array_intersect(
+        array_map('absint', (array) ($input['support_days'] ?? [])),
+        [1, 2, 3, 4, 5, 6, 7]
+    ));
+    $support_start = preg_match('/^\d{2}:\d{2}$/', $input['support_start'] ?? '') ? $input['support_start'] : '09:00';
+    $support_end = preg_match('/^\d{2}:\d{2}$/', $input['support_end'] ?? '') ? $input['support_end'] : '18:00';
 
     return [
         'api_key' => sanitize_text_field($input['api_key'] ?? ''),
@@ -60,6 +66,10 @@ function wpai_sanitize_settings($input) {
         'widget_theme' => in_array($input['widget_theme'] ?? '', $themes, true) ? $input['widget_theme'] : 'light',
         'widget_position' => in_array($input['widget_position'] ?? '', $positions, true) ? $input['widget_position'] : 'right',
         'widget_motion' => in_array($input['widget_motion'] ?? '', $motions, true) ? $input['widget_motion'] : 'subtle',
+        'support_hours_enabled' => empty($input['support_hours_enabled']) ? '0' : '1',
+        'support_days' => $support_days,
+        'support_start' => sanitize_text_field($support_start),
+        'support_end' => sanitize_text_field($support_end),
     ];
 }
 
@@ -169,7 +179,31 @@ function wpai_settings_page() {
             </section>
 
             <section class="wpai-admin-card">
-                <div class="wpai-card-heading"><span class="wpai-step">04</span><div><h2>Privacy</h2><p>Collega l'informativa mostrata nel widget.</p></div></div>
+                <div class="wpai-card-heading"><span class="wpai-step">04</span><div><h2>Disponibilità operatori</h2><p>Decidi quando la chat può passare in tempo reale al supporto umano.</p></div></div>
+                <label class="wpai-switch-row" for="support_hours_enabled">
+                    <span><strong>Usa gli orari del supporto</strong><small>Fuori orario il visitatore potrà aprire un ticket asincrono.</small></span>
+                    <input type="checkbox" id="support_hours_enabled" name="<?php echo esc_attr(WPAI_OPTION); ?>[support_hours_enabled]" value="1"<?php checked($opts['support_hours_enabled'] ?? '0', '1'); ?> />
+                </label>
+                <div class="wpai-support-schedule" id="wpai-support-schedule">
+                    <div class="wpai-field"><span>Giorni attivi</span><div class="wpai-day-picker">
+                    <?php
+                    $day_labels = [1 => 'Lun', 2 => 'Mar', 3 => 'Mer', 4 => 'Gio', 5 => 'Ven', 6 => 'Sab', 7 => 'Dom'];
+                    $selected_days = $opts['support_days'] ?? [1, 2, 3, 4, 5];
+                    foreach ($day_labels as $day_value => $day_label) :
+                    ?>
+                        <label><input type="checkbox" name="<?php echo esc_attr(WPAI_OPTION); ?>[support_days][]" value="<?php echo (int) $day_value; ?>"<?php checked(in_array($day_value, $selected_days, true)); ?> /><span><?php echo esc_html($day_label); ?></span></label>
+                    <?php endforeach; ?>
+                    </div></div>
+                    <div class="wpai-fields-two">
+                        <label class="wpai-field" for="support_start"><span>Dalle</span><input type="time" id="support_start" name="<?php echo esc_attr(WPAI_OPTION); ?>[support_start]" value="<?php echo esc_attr($opts['support_start'] ?? '09:00'); ?>" /></label>
+                        <label class="wpai-field" for="support_end"><span>Alle</span><input type="time" id="support_end" name="<?php echo esc_attr(WPAI_OPTION); ?>[support_end]" value="<?php echo esc_attr($opts['support_end'] ?? '18:00'); ?>" /></label>
+                    </div>
+                    <p class="wpai-timezone-note"><i class="fa-solid fa-earth-europe"></i> Fuso orario: <strong><?php echo esc_html(wp_timezone_string()); ?></strong>, configurato nelle impostazioni generali di WordPress.</p>
+                </div>
+            </section>
+
+            <section class="wpai-admin-card">
+                <div class="wpai-card-heading"><span class="wpai-step">05</span><div><h2>Privacy</h2><p>Collega l'informativa mostrata nel widget.</p></div></div>
                 <label class="wpai-field" for="widget_privacy_url"><span>URL Privacy Policy</span>
                     <input type="url" id="widget_privacy_url" name="<?php echo esc_attr(WPAI_OPTION); ?>[widget_privacy_url]" value="<?php echo esc_attr($opts['widget_privacy_url'] ?? ''); ?>" placeholder="https://tuosito.it/privacy" />
                 </label>
@@ -268,6 +302,13 @@ add_action('wp_enqueue_scripts', function () {
         'theme' => wpai_setting('widget_theme', 'light'),
         'position' => wpai_setting('widget_position', 'right'),
         'motion' => wpai_setting('widget_motion', 'subtle'),
+        'support' => [
+            'enabled' => wpai_setting('support_hours_enabled', '0') === '1',
+            'days' => array_map('intval', (array) wpai_setting('support_days', [1, 2, 3, 4, 5])),
+            'start' => wpai_setting('support_start', '09:00'),
+            'end' => wpai_setting('support_end', '18:00'),
+            'timezone' => wp_timezone_string(),
+        ],
         // The Origin/Referer header the backend would otherwise fall back to never carries a
         // path, so a subdirectory install (e.g. example.com/shop/) would build a wrong
         // order-lookup callback URL. Send the real site URL explicitly instead.

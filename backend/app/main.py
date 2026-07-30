@@ -791,6 +791,7 @@ def _deterministic_chat_action(
     client_name: str,
     conv: Conversation,
     message: str,
+    support_available: bool = True,
 ) -> str | None:
     """Handle transport-independent early exits before retrieval/LLM work."""
     if conv.status == "escalated":
@@ -798,6 +799,8 @@ def _deterministic_chat_action(
     lowered = message.lower()
     keyword_hit = next((k for k in ALWAYS_ESCALATE_KEYWORDS if k in lowered), None)
     if keyword_hit:
+        if not support_available:
+            return "ticket_offered"
         _escalate(
             session,
             client_id,
@@ -850,6 +853,7 @@ def chat_stream_endpoint(
     conversation_token: str | None = Body(None),
     wp_user_token: str | None = Body(None),
     site_url: str | None = Body(None),
+    support_available: bool = Body(True),
     client: Client = Depends(rate_limit_chat),
     session: Session = Depends(get_session),
 ):
@@ -895,12 +899,20 @@ def chat_stream_endpoint(
                 client_name=client_name,
                 conv=conv,
                 message=message,
+                support_available=support_available,
             )
             if early_action == "escalated":
                 yield _sse({"type": "escalated", "conversation_id": conv.id})
                 return
             if early_action == "quota_exceeded":
                 yield _sse({"type": "quota_exceeded", "conversation_id": conv.id})
+                return
+            if early_action == "ticket_offered":
+                yield _sse({
+                    "type": "ticket_offered",
+                    "conversation_id": conv.id,
+                    "reason": "richiede intervento umano",
+                })
                 return
 
             detected = _detect_order_lookup(history, message)
@@ -945,6 +957,9 @@ def chat_stream_endpoint(
                         yield _sse({"type": "token", "text": payload})
             except LLMUnavailableError as exc:
                 reason = "assistente AI non disponibile al momento"
+                if not support_available:
+                    yield _sse({"type": "ticket_offered", "conversation_id": conv.id, "reason": reason})
+                    return
                 _escalate(s, client_id, client_name, conv, reason, outcome="escalated_llm_down",
                           trigger="llm_down", retrieval_meta=retrieval_meta, error=str(exc))
                 yield _sse({"type": "escalated", "conversation_id": conv.id})
@@ -959,6 +974,9 @@ def chat_stream_endpoint(
 
             if is_escalation:
                 reason = full[len(ESCALATE_PREFIX):].strip() or "unspecified"
+                if not support_available:
+                    yield _sse({"type": "ticket_offered", "conversation_id": conv.id, "reason": reason})
+                    return
                 _escalate(s, client_id, client_name, conv, reason, outcome="escalated_model",
                           trigger="model", retrieval_meta=retrieval_meta, llm_meta=meta)
                 yield _sse({"type": "escalated", "conversation_id": conv.id})
@@ -1010,6 +1028,7 @@ def chat_endpoint(
     conversation_token: str | None = Body(None),
     wp_user_token: str | None = Body(None),
     site_url: str | None = Body(None),
+    support_available: bool = Body(True),
     client: Client = Depends(rate_limit_chat),
     session: Session = Depends(get_session),
 ):
@@ -1027,11 +1046,20 @@ def chat_endpoint(
         client_name=client.name,
         conv=conv,
         message=message,
+        support_available=support_available,
     )
     if early_action == "escalated":
         return {"conversation_id": conv.id, "conversation_token": access_token, "status": "escalated", "reply": None}
     if early_action == "quota_exceeded":
         return {"conversation_id": conv.id, "conversation_token": access_token, "status": "quota_exceeded", "reply": None}
+    if early_action == "ticket_offered":
+        return {
+            "conversation_id": conv.id,
+            "conversation_token": access_token,
+            "status": "ticket_offered",
+            "reply": None,
+            "reason": "richiede intervento umano",
+        }
 
     detected = _detect_order_lookup(history, message)
     if detected:
@@ -1050,6 +1078,14 @@ def chat_endpoint(
     except LLMUnavailableError as exc:
         # model provider unreachable after retries — hand off instead of failing the request
         reason = "assistente AI non disponibile al momento"
+        if not support_available:
+            return {
+                "conversation_id": conv.id,
+                "conversation_token": access_token,
+                "status": "ticket_offered",
+                "reply": None,
+                "reason": reason,
+            }
         conv.status = "escalated"
         conv.updated_at = datetime.utcnow()
         session.add(conv)
@@ -1064,6 +1100,14 @@ def chat_endpoint(
         return {"conversation_id": conv.id, "conversation_token": access_token, "status": "escalated", "reply": None}
 
     if "escalate" in result:
+        if not support_available:
+            return {
+                "conversation_id": conv.id,
+                "conversation_token": access_token,
+                "status": "ticket_offered",
+                "reply": None,
+                "reason": result["escalate"],
+            }
         conv.status = "escalated"
         conv.updated_at = datetime.utcnow()
         session.add(conv)
@@ -1154,6 +1198,33 @@ def chat_contact(
     session.add(conv)
     session.commit()
     return {"ok": True}
+
+
+@app.post("/chat/ticket")
+def chat_ticket(
+    conversation_id: int = Body(...),
+    conversation_token: str | None = Body(None),
+    reason: str = Body("richiesta del visitatore fuori orario"),
+    client: Client = Depends(require_client),
+    session: Session = Depends(get_session),
+):
+    """Open an asynchronous support ticket after an out-of-hours handoff was offered."""
+    conv = session.get(Conversation, conversation_id)
+    if not conv or conv.client_id != client.id:
+        raise HTTPException(404, "conversation not found")
+    _require_conversation_token(conv, conversation_token)
+    if conv.status == "escalated":
+        return {"ok": True, "conversation_id": conv.id}
+    _escalate(
+        session,
+        client.id,
+        client.name,
+        conv,
+        reason.strip()[:500] or "richiesta del visitatore fuori orario",
+        outcome="escalated_model",
+        trigger="ticket",
+    )
+    return {"ok": True, "conversation_id": conv.id}
 
 
 # transient "operator is typing" state: {conversation_id: (operator_name, monotonic_ts)}.

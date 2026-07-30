@@ -2,6 +2,17 @@
 
 Tutte le modifiche rilevanti del plugin WP AIssistant.
 
+## [1.1.0] - 2026-07-30
+
+- Aggiunta in wp-admin la configurazione della disponibilità del supporto umano:
+  attivazione, giorni della settimana e orario di inizio/fine nel fuso WordPress.
+- Il widget calcola la disponibilità lato browser, gestendo anche turni notturni che
+  attraversano la mezzanotte.
+- Fuori orario un'escalation non apre più automaticamente una conversazione live:
+  mostra una card che permette al visitatore di aprire volontariamente un ticket.
+- La proposta di ticket persiste durante refresh e navigazione; dopo l'apertura viene
+  raccolta l'email per notificare la risposta dell'operatore.
+
 ## [1.0.1] - 2026-07-30
 
 - Il widget ricarica lo storico della conversazione esistente dal backend e riprende

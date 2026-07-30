@@ -28,9 +28,18 @@
   const color = document.getElementById("widget_color");
   const position = document.getElementById("widget_position");
   const theme = document.getElementById("widget_theme");
+  const supportEnabled = document.getElementById("support_hours_enabled");
+  const supportSchedule = document.getElementById("wpai-support-schedule");
   stage.style.setProperty("--wpai-preview-color", color.value);
   stage.dataset.position = position.value;
   preview.dataset.theme = theme.value;
+
+  function updateSupportSchedule() {
+    if (!supportEnabled || !supportSchedule) return;
+    supportSchedule.classList.toggle("is-disabled", !supportEnabled.checked);
+  }
+  if (supportEnabled) supportEnabled.addEventListener("change", updateSupportSchedule);
+  updateSupportSchedule();
 
   let frame;
   $("#wpai-image-select").on("click", function (event) {

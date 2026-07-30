@@ -5,6 +5,7 @@
   const ESCALATED_KEY = "wpai_escalated_shown";
   const CONTACT_KEY = "wpai_contact_given";
   const OPEN_KEY = "wpai_chat_open";
+  const TICKET_OFFER_KEY = "wpai_ticket_offer";
 
   function visitorId() {
     let id = localStorage.getItem(VISITOR_KEY);
@@ -164,6 +165,101 @@
     container.scrollTop = container.scrollHeight;
   }
 
+  function supportAvailable() {
+    const support = WPAI.support || {};
+    if (!support.enabled) return true;
+    try {
+      const parts = new Intl.DateTimeFormat("en-US", {
+        timeZone: support.timezone,
+        weekday: "short",
+        hour: "2-digit",
+        minute: "2-digit",
+        hourCycle: "h23",
+      }).formatToParts(new Date());
+      const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+      const dayMap = {Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6, Sun: 7};
+      const day = dayMap[values.weekday];
+      const minute = Number(values.hour) * 60 + Number(values.minute);
+      const toMinute = (value) => {
+        const [hour, min] = String(value).split(":").map(Number);
+        return hour * 60 + min;
+      };
+      const start = toMinute(support.start);
+      const end = toMinute(support.end);
+      const days = (support.days || []).map(Number);
+      if (start <= end) return days.includes(day) && minute >= start && minute < end;
+      const previousDay = day === 1 ? 7 : day - 1;
+      return (days.includes(day) && minute >= start) || (days.includes(previousDay) && minute < end);
+    } catch (error) {
+      return true;
+    }
+  }
+
+  function rememberTicketOffer(conversationId, reason) {
+    localStorage.setItem(TICKET_OFFER_KEY, JSON.stringify({
+      conversationId: String(conversationId),
+      reason: reason || "richiesta del visitatore fuori orario",
+    }));
+  }
+
+  function savedTicketOffer(conversationId) {
+    try {
+      const offer = JSON.parse(localStorage.getItem(TICKET_OFFER_KEY) || "null");
+      return offer && offer.conversationId === String(conversationId) ? offer : null;
+    } catch (error) {
+      return null;
+    }
+  }
+
+  function addTicketOffer(container, conversationId, reason) {
+    if (!conversationId || container.querySelector(".wpai-ticket-offer")) return;
+    rememberTicketOffer(conversationId, reason);
+    const wrap = document.createElement("div");
+    wrap.className = "wpai-ticket-offer";
+    const icon = document.createElement("i");
+    icon.className = "fa-regular fa-clock";
+    icon.setAttribute("aria-hidden", "true");
+    const copy = document.createElement("div");
+    const title = document.createElement("strong");
+    title.textContent = "Il supporto umano ora è offline";
+    const description = document.createElement("span");
+    description.textContent = "Puoi aprire un ticket: un operatore ti risponderà appena torna disponibile.";
+    copy.appendChild(title);
+    copy.appendChild(description);
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = "Apri un ticket";
+    button.addEventListener("click", async () => {
+      button.disabled = true;
+      button.textContent = "Apertura…";
+      try {
+        const res = await fetch(`${WPAI.backendUrl}/chat/ticket`, {
+          method: "POST",
+          headers: {"Content-Type": "application/json", Authorization: `Bearer ${WPAI.apiKey}`},
+          body: JSON.stringify({
+            conversation_id: Number(conversationId),
+            conversation_token: localStorage.getItem(CONV_TOKEN_KEY),
+            reason: reason || "richiesta del visitatore fuori orario",
+          }),
+        });
+        if (!res.ok) throw new Error("ticket failed");
+        localStorage.removeItem(TICKET_OFFER_KEY);
+        localStorage.setItem(ESCALATED_KEY, String(conversationId));
+        wrap.remove();
+        addMessage(container, "system", "Ticket aperto. Lascia la tua email per ricevere la risposta dell'operatore.");
+        addContactForm(container, conversationId);
+      } catch (error) {
+        button.disabled = false;
+        button.textContent = "Riprova ad aprire il ticket";
+      }
+    });
+    wrap.appendChild(icon);
+    wrap.appendChild(copy);
+    wrap.appendChild(button);
+    container.appendChild(wrap);
+    container.scrollTop = container.scrollHeight;
+  }
+
   function setTyping(container, on) {
     let el = container.querySelector("#wpai-typing");
     if (on) {
@@ -208,6 +304,7 @@
           conversation_token: conversationId ? localStorage.getItem(CONV_TOKEN_KEY) : null,
           wp_user_token: await userToken(),
           site_url: WPAI.siteUrl,
+          support_available: supportAvailable(),
         }),
       });
     } finally {
@@ -235,6 +332,8 @@
       }
     } else if (data.status === "quota_exceeded") {
       addMessage(messages, "system", "Il limite di messaggi è stato raggiunto. Riprova più tardi o contatta il supporto.");
+    } else if (data.status === "ticket_offered") {
+      addTicketOffer(messages, data.conversation_id, data.reason);
     } else {
       localStorage.removeItem(ESCALATED_KEY);
       addMessage(messages, "assistant", data.reply);
@@ -262,6 +361,7 @@
           conversation_token: conversationId ? localStorage.getItem(CONV_TOKEN_KEY) : null,
           wp_user_token: await userToken(),
           site_url: WPAI.siteUrl,
+          support_available: supportAvailable(),
         }),
       });
     } catch (e) {
@@ -307,6 +407,9 @@
       } else if (evt.type === "quota_exceeded") {
         setTyping(messages, false);
         addMessage(messages, "system", "Il limite di messaggi è stato raggiunto. Riprova più tardi o contatta il supporto.");
+      } else if (evt.type === "ticket_offered") {
+        setTyping(messages, false);
+        addTicketOffer(messages, convId, evt.reason);
       } else if (evt.type === "done") {
         setTyping(messages, false);
         localStorage.removeItem(ESCALATED_KEY);
@@ -415,6 +518,8 @@
       }
       setOperatorTyping(messages, data.operator_typing);
       startPolling(conversationId, messages);
+      const offer = savedTicketOffer(conversationId);
+      if (offer) addTicketOffer(messages, conversationId, offer.reason);
       return history.length > 0;
     } catch (error) {
       return false;

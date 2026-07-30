@@ -58,6 +58,30 @@ def test_stream_keyword_escalation_no_tokens(client, tenant):
     assert len(tickets) == 1
 
 
+def test_stream_out_of_hours_offers_ticket_without_escalating(client, tenant):
+    r = client.post(
+        "/chat/stream",
+        headers=tenant["key"],
+        json={"visitor_id": "v1", "message": "vorrei un rimborso", "support_available": False},
+    )
+    events = _events(r)
+    assert events[-1]["type"] == "ticket_offered"
+    assert client.get("/tickets", headers=tenant["op"]).json() == []
+
+    started = events[0]
+    opened = client.post(
+        "/chat/ticket",
+        headers=tenant["key"],
+        json={
+            "conversation_id": started["conversation_id"],
+            "conversation_token": started["conversation_token"],
+            "reason": events[-1]["reason"],
+        },
+    )
+    assert opened.status_code == 200
+    assert len(client.get("/tickets", headers=tenant["op"]).json()) == 1
+
+
 def test_stream_model_escalation_buffers_prefix(client, tenant, monkeypatch):
     def _escalating_stream(system, history, message):
         yield ("delta", "ESCALATE: ")

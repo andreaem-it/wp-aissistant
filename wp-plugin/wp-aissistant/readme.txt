@@ -3,7 +3,7 @@ Tags: ai, chatbot, customer-support, woocommerce, rag
 Requires at least: 5.8
 Tested up to: 6.5
 Requires PHP: 7.4
-Stable tag: 1.0.1
+Stable tag: 1.1.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -37,6 +37,12 @@ Richiede un'istanza del backend WP AIssistant raggiungibile e una API Key del cl
 4. In *AI Assistant → Sincronizzazione* usa **Sincronizza ora** per il primo caricamento.
 
 == Changelog ==
+
+= 1.1.0 =
+* Nuovi orari del supporto umano configurabili per giorni e fascia oraria, nel fuso
+  orario impostato in WordPress.
+* Fuori orario il widget non effettua un passaggio live automatico: propone invece
+  l'apertura esplicita di un ticket asincrono con notifica email.
 
 = 1.0.1 =
 * La cronologia della conversazione viene ripristinata navigando tra le pagine o
