@@ -2,6 +2,10 @@
 
 Tutte le modifiche rilevanti del plugin WP AIssistant.
 
+## [1.1.2] - 2026-07-30
+
+- Aggiornamento immediato dei fragment WooCommerce e dei mini-carrelli del tema.
+
 ## [1.1.1] - 2026-07-30
 
 - Aggiunta un'azione WooCommerce verificata nelle card prodotto.
