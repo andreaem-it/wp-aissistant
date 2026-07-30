@@ -3,7 +3,7 @@ Tags: ai, chatbot, customer-support, woocommerce, rag
 Requires at least: 5.8
 Tested up to: 6.5
 Requires PHP: 7.4
-Stable tag: 1.0.0
+Stable tag: 1.0.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -37,6 +37,11 @@ Richiede un'istanza del backend WP AIssistant raggiungibile e una API Key del cl
 4. In *AI Assistant → Sincronizzazione* usa **Sincronizza ora** per il primo caricamento.
 
 == Changelog ==
+
+= 1.0.1 =
+* La cronologia della conversazione viene ripristinata navigando tra le pagine o
+  aggiornando il browser; viene mantenuto anche lo stato aperto/chiuso del widget.
+* Corretto il doppio contorno di focus visibile dentro il campo messaggio.
 
 = 1.0.0 =
 * Nuovo widget 2026: animazioni fluide, apertura accessibile, tema chiaro/scuro/automatico,

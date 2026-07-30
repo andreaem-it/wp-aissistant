@@ -2,6 +2,14 @@
 
 Tutte le modifiche rilevanti del plugin WP AIssistant.
 
+## [1.0.1] - 2026-07-30
+
+- Il widget ricarica lo storico della conversazione esistente dal backend e riprende
+  immediatamente il polling quando l'utente aggiorna la pagina o naviga nel sito.
+- Lo stato aperto/chiuso della chat viene mantenuto in `localStorage`.
+- Rimosso il secondo focus ring applicato direttamente all'input: resta quello accessibile
+  e correttamente allineato del contenitore del composer.
+
 ## [1.0.0] - 2026-07-30
 
 - Widget completamente ridisegnato: animazioni di apertura e dei messaggi, typing indicator

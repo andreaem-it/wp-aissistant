@@ -4,6 +4,7 @@
   const CONV_TOKEN_KEY = "wpai_conversation_token";
   const ESCALATED_KEY = "wpai_escalated_shown";
   const CONTACT_KEY = "wpai_contact_given";
+  const OPEN_KEY = "wpai_chat_open";
 
   function visitorId() {
     let id = localStorage.getItem(VISITOR_KEY);
@@ -378,6 +379,48 @@
     }, 3000);
   }
 
+  async function restoreConversation(messages) {
+    const conversationId = localStorage.getItem(CONV_KEY);
+    const conversationToken = localStorage.getItem(CONV_TOKEN_KEY);
+    if (!conversationId || !conversationToken) return false;
+
+    try {
+      const res = await fetch(
+        `${WPAI.backendUrl}/conversations/${conversationId}/messages?after_id=0`,
+        {
+          headers: {
+            Authorization: `Bearer ${WPAI.apiKey}`,
+            "X-Conversation-Token": conversationToken,
+          },
+        }
+      );
+      if (!res.ok) {
+        if ([403, 404].includes(res.status)) {
+          localStorage.removeItem(CONV_KEY);
+          localStorage.removeItem(CONV_TOKEN_KEY);
+          localStorage.removeItem(ESCALATED_KEY);
+        }
+        return false;
+      }
+
+      const data = await res.json();
+      const history = Array.isArray(data.messages) ? data.messages : [];
+      for (const message of history) {
+        lastMessageId = Math.max(lastMessageId, Number(message.id) || 0);
+        if (message.role === "user") addMessage(messages, "user", message.content);
+        if (["assistant", "operator"].includes(message.role)) {
+          addMessage(messages, "assistant", message.content);
+        }
+        if (message.role === "system") addMessage(messages, "system", message.content);
+      }
+      setOperatorTyping(messages, data.operator_typing);
+      startPolling(conversationId, messages);
+      return history.length > 0;
+    } catch (error) {
+      return false;
+    }
+  }
+
   function init() {
     const root = document.createElement("div");
     root.id = "wpai-root";
@@ -441,7 +484,6 @@
     const messages = document.createElement("div");
     messages.id = "wpai-messages";
     messages.setAttribute("aria-live", "polite");
-    if (WPAI.welcome) addMessage(messages, "assistant", WPAI.welcome);
 
     const form = document.createElement("form");
     form.id = "wpai-form";
@@ -486,6 +528,7 @@
       toggle.setAttribute("aria-expanded", String(open));
       toggle.setAttribute("aria-label", open ? "Chiudi la chat" : "Apri la chat");
       toggleIcon.className = open ? "fa-solid fa-xmark" : "fa-solid fa-comment-dots";
+      localStorage.setItem(OPEN_KEY, open ? "1" : "0");
       if (open) window.setTimeout(() => input.focus(), 180);
     }
 
@@ -497,6 +540,11 @@
         toggle.focus();
       }
     });
+
+    restoreConversation(messages).then((restored) => {
+      if (!restored && WPAI.welcome) addMessage(messages, "assistant", WPAI.welcome);
+    });
+    if (localStorage.getItem(OPEN_KEY) === "1") setOpen(true);
 
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
