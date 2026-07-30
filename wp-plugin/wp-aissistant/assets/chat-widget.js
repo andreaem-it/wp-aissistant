@@ -256,16 +256,28 @@
     localStorage.setItem(TICKET_OFFER_KEY, JSON.stringify({
       conversationId: String(conversationId),
       reason: reason || "richiesta del visitatore fuori orario",
+      createdAt: Date.now(),
     }));
   }
 
   function savedTicketOffer(conversationId) {
     try {
       const offer = JSON.parse(localStorage.getItem(TICKET_OFFER_KEY) || "null");
-      return offer && offer.conversationId === String(conversationId) ? offer : null;
+      const isCurrentConversation = offer && offer.conversationId === String(conversationId);
+      const isRecent = offer && Number(offer.createdAt) > Date.now() - 24 * 60 * 60 * 1000;
+      if (isCurrentConversation && isRecent) return offer;
+      localStorage.removeItem(TICKET_OFFER_KEY);
+      return null;
     } catch (error) {
+      localStorage.removeItem(TICKET_OFFER_KEY);
       return null;
     }
+  }
+
+  function clearTicketOffer(container) {
+    localStorage.removeItem(TICKET_OFFER_KEY);
+    const offer = container.querySelector(".wpai-ticket-offer");
+    if (offer) offer.remove();
   }
 
   function addTicketOffer(container, conversationId, reason) {
@@ -278,9 +290,9 @@
     icon.setAttribute("aria-hidden", "true");
     const copy = document.createElement("div");
     const title = document.createElement("strong");
-    title.textContent = "Il supporto umano ora è offline";
+    title.textContent = "Per questa richiesta serve un operatore";
     const description = document.createElement("span");
-    description.textContent = "Puoi aprire un ticket: un operatore ti risponderà appena torna disponibile.";
+    description.textContent = "Il supporto è offline. Apri un ticket e ti risponderemo appena disponibile.";
     copy.appendChild(title);
     copy.appendChild(description);
     const button = document.createElement("button");
@@ -713,6 +725,9 @@
       e.preventDefault();
       const text = input.value.trim();
       if (!text) return;
+      // A ticket offer belongs only to the escalation turn that produced it. If the visitor
+      // continues the conversation normally, it must not look like a global availability alert.
+      clearTicketOffer(messages);
       addMessage(messages, "user", text);
       input.value = "";
       try {

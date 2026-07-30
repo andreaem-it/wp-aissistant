@@ -2,6 +2,12 @@
 
 Tutte le modifiche rilevanti del plugin WP AIssistant.
 
+## [1.1.3] - 2026-07-30
+
+- L'offerta di ticket è ora legata esclusivamente al turno che ha richiesto l'escalation.
+- Le offerte obsolete vengono rimosse e un nuovo messaggio normale chiude la card.
+- Testo della card reso contestuale alla richiesta che necessita un operatore.
+
 ## [1.1.2] - 2026-07-30
 
 - Aggiornamento immediato dei fragment WooCommerce e dei mini-carrelli del tema.
