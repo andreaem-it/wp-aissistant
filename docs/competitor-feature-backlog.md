@@ -63,7 +63,7 @@ Queste funzionalità esistono già e non vanno reinserite come nuove feature:
 | CSAT post-conversazione | **Rilasciata:** voto 1–5 con commento facoltativo chiesto dal widget alla chiusura, distinto dal feedback sul singolo messaggio; report per AI/operatore/reparto/periodo con distribuzione e ultimi commenti. | Prossimo passo: invito al CSAT anche via email dopo un ticket. | Bassa |
 | Workflow no-code | **Rilasciata:** regole per tenant con 7 trigger, condizioni su vocabolario chiuso e 9 azioni (priorità, reparto, assegnazione anche a turno, tag, chiusura, escalation, email, webhook), anteprima a secco, log delle esecuzioni e guardia anti-cascata. | Prossimo passo: azioni ritardate (es. «dopo 24h senza risposta»). | Alta |
 | Messaggi proattivi contestuali | **Rilasciata:** quattro trigger (URL, tempo sulla pagina, intento di uscita, carrello), valutazione nel browser, frequenza configurabile, opt-out permanente del visitatore e contatori impression/chat aperte per regola. | Prossimo passo: A/B test fra due messaggi sulla stessa regola. | Media |
-| Lead capture e qualificazione | Trasforma il widget anche in strumento commerciale. | Form dinamici, consenso, scoring base, export CSV e webhook CRM. | Media |
+| Lead capture e qualificazione | **Rilasciata:** form dinamici per tenant (4 tipi di campo), consenso registrato con il lead, punteggio come somma dei punti dei campi compilati, elenco filtrabile, export CSV protetto da CSV injection ed evento webhook `lead.captured`. | Prossimo passo: connettori CRM diretti (HubSpot/Pipedrive). | Media |
 | Multilingua automatica | Necessaria per clienti internazionali. | Rilevamento lingua, risposta nella lingua dell'utente, testi widget localizzati e KB cross-language testata. | Media |
 | Analytics avanzate e suggerimenti KB | Rende misurabile il ROI e guida il miglioramento. | Deflection, resolution rate, first response time, temi senza risposta, gap KB e trend. | Alta |
 | API pubblica e webhooks gestibili | **Rilasciata:** API `/v1` versionata, chiavi scoped e revocabili con rate limit dedicato, webhook firmati HMAC con retry a backoff, log consegne nel panel e guardia SSRF. Documentazione in [`public-api.md`](public-api.md). | Prossimo passo: eventi su messaggio del visitatore e replay di una consegna dal panel. | Media |
@@ -115,7 +115,7 @@ Non iniziare lo sviluppo esteso prima del go/no-go sulla latenza del PoC.
 
 1. ✅ API pubblica e webhooks firmati.
 2. ✅ Workflow builder su trigger/condizioni/azioni.
-3. ✅ Messaggi proattivi — resta la lead qualification.
+3. ✅ Messaggi proattivi e lead qualification.
 4. Analytics avanzate e rilevamento automatico dei gap della knowledge base.
 5. Multilingua.
 

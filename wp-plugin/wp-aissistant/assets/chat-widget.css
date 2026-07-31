@@ -105,6 +105,21 @@
 .wpai-star:hover { background: color-mix(in srgb, var(--wpai-accent) 12%, transparent); }
 .wpai-rating.done { color: #16803c; font-size: 12.5px; }
 
+/* form di qualificazione (lead) */
+.wpai-lead-form { display: grid; gap: 8px; }
+.wpai-lead-field { display: grid; gap: 3px; font-size: 12px; color: var(--wpai-muted); }
+.wpai-lead-field input, .wpai-lead-field select {
+  padding: 8px 10px; border: 1px solid var(--wpai-border); border-radius: 9px;
+  background: var(--wpai-surface); color: var(--wpai-text); font-size: 13px;
+}
+.wpai-lead-consent { display: flex; gap: 7px; align-items: flex-start; font-size: 11.5px; color: var(--wpai-muted); line-height: 1.4; }
+.wpai-lead-consent input { margin-top: 2px; }
+.wpai-lead-form button {
+  justify-self: start; padding: 8px 14px; border: 0; border-radius: 9px; cursor: pointer;
+  background: var(--wpai-accent); color: var(--wpai-accent-contrast, #fff); font-size: 12.5px; font-weight: 700;
+}
+.wpai-lead-form button:disabled { opacity: .65; cursor: wait; }
+
 /* messaggio proattivo: bolla accanto al launcher, mai sopra la chat aperta */
 .wpai-proactive {
   position: fixed; bottom: 92px; max-width: 290px; z-index: 2147483000;

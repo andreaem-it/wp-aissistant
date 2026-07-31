@@ -218,6 +218,36 @@ class SlaPolicy(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
+class LeadForm(SQLModel, table=True):
+    """A short form the widget can show to qualify a visitor. `fields` is a JSON list of
+    {key,label,type,required,points}: the points are what makes the score explainable — it is
+    the sum of the points of the fields the visitor actually filled, not a black box."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    client_id: int = Field(index=True, foreign_key="client.id")
+    name: str
+    trigger: str = "escalation"  # escalation | chat_start
+    fields: str = "[]"  # JSON
+    intro: str = ""
+    consent_text: str = ""  # shown next to the checkbox; empty = no consent required
+    active: bool = True
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class Lead(SQLModel, table=True):
+    """A captured lead. `consent_text` is snapshotted from the form so we can always show what
+    the visitor actually agreed to, even after the form is edited."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    client_id: int = Field(index=True, foreign_key="client.id")
+    form_id: Optional[int] = Field(default=None, foreign_key="leadform.id", index=True)
+    conversation_id: Optional[int] = Field(default=None, foreign_key="conversation.id", index=True)
+    data: str = "{}"  # JSON of the submitted values
+    score: int = 0
+    consent: bool = False
+    consent_text: str = ""
+    created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+
+
 class ProactiveRule(SQLModel, table=True):
     """A contextual message the widget offers before the visitor asks anything.
 

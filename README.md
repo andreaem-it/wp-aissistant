@@ -90,6 +90,11 @@ Tre componenti indipendenti:
   visitatore), menzioni `@nome` con elenco delle citazioni non lette, indicatore di presenza sulla
   conversazione che avvisa quando un collega sta già scrivendo, e registro delle azioni
   (`/conversations/{id}/activity`) alimentato dall'audit log del tenant.
+- **Lead capture e qualificazione** — form brevi configurabili (testo, email, telefono, scelta)
+  mostrati dal widget all'escalation o all'avvio della chat, con testo di consenso registrato
+  insieme al lead. Il punteggio è la somma dei punti dei campi effettivamente compilati — nessun
+  peso nascosto, e i pesi non vengono mai inviati al browser. Elenco filtrabile nel panel,
+  export CSV (con neutralizzazione delle formule) ed evento `lead.captured` per il CRM.
 - **Messaggi proattivi** — il widget può proporre un messaggio prima che il visitatore scriva,
   con quattro trigger: pagina specifica (URL), tempo sulla pagina, intento di uscita e carrello
   pieno. Le regole vengono valutate nel browser (nessuna chiamata per pagina) e il visitatore
@@ -134,6 +139,8 @@ Tre componenti indipendenti:
   interno, con lo stato di lettura della menzione.
 - **Tag / ConversationTag** — etichette del tenant (manuali o generate dalla classificazione AI)
   e loro associazione multipla alle conversazioni.
+- **LeadForm / Lead** — form di qualificazione del tenant (campi, punti, consenso) e lead
+  raccolti, ciascuno con lo snapshot del consenso accettato.
 - **ProactiveRule** — messaggio contestuale del widget con trigger, filtro URL, frequenza e
   contatori di visualizzazioni/chat aperte.
 - **Workflow / WorkflowRun** — regole di automazione del tenant (trigger, condizioni e azioni
@@ -400,6 +407,12 @@ Auth via header `Authorization: Bearer <token>`. La colonna *Auth* indica quale 
 | `/chat/stream` | POST | 🔑 | Come `/chat` ma in streaming SSE (token progressivi); il widget lo usa con fallback su `/chat` |
 | `/chat/feedback` | POST | 🔑 | Valutazione 👍/👎 su una risposta AI (scoping per conversazione) |
 | `/chat/rating` | POST | 🔑 | CSAT del visitatore sull'intera conversazione (voto 1–5 + commento); reinviarlo aggiorna il precedente |
+| `/widget/lead-form` | GET | 🔑 | Form di qualificazione attivo per il momento indicato (senza i pesi del punteggio) |
+| `/widget/leads` | POST | 🔑 | Invio del form da parte del visitatore (consenso verificato lato server) |
+| `/lead-forms` | GET/POST | 👤 | Form di qualificazione del tenant |
+| `/lead-forms/{id}` | PATCH/DELETE | 👤 | Aggiorna o elimina un form (i lead raccolti restano) |
+| `/leads` | GET | 👤 | Lead raccolti, filtrabili per punteggio minimo e periodo |
+| `/leads/export` | GET | 👤 | Export CSV dei lead (una colonna per campo, formule neutralizzate) |
 | `/widget/proactive` | GET | 🔑 | Regole proattive attive per il widget (solo trigger e messaggio) |
 | `/widget/proactive/{id}/event` | POST | 🔑 | Conta una visualizzazione o una chat aperta dal messaggio |
 | `/proactive-rules` | GET/POST | 👤 | Messaggi proattivi del tenant, con i contatori di conversione |

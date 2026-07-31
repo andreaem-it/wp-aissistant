@@ -34,6 +34,8 @@ from .db import (
     InfoField,
     IngestJob,
     InternalNote,
+    Lead,
+    LeadForm,
     Message,
     NoteMention,
     Operator,
@@ -2769,6 +2771,10 @@ def _erase_conversation(session: Session, conv: Conversation) -> None:
         session.delete(link)
     for rating in session.exec(select(ConversationRating).where(ConversationRating.conversation_id == conv.id)).all():
         session.delete(rating)
+    # a lead carries what the visitor typed about themselves: erasing the conversation must
+    # erase it too, otherwise the "right to be forgotten" would leave the best data behind
+    for lead in session.exec(select(Lead).where(Lead.conversation_id == conv.id)).all():
+        session.delete(lead)
     session.flush()
     for note in session.exec(select(InternalNote).where(InternalNote.conversation_id == conv.id)).all():
         session.delete(note)
@@ -3420,6 +3426,338 @@ def list_knowledge_base(
             for p in products
         ],
     }
+
+
+# ---- Lead capture ------------------------------------------------------------------------
+
+LEAD_FIELD_TYPES = ("text", "email", "tel", "select")
+LEAD_TRIGGERS = ("escalation", "chat_start")
+MAX_LEAD_FIELDS = 8
+MAX_LEAD_VALUE_CHARS = 500
+
+
+def _clean_lead_fields(raw) -> list[dict]:
+    """A field is {key,label,type,required,points}. Points make the score explainable: it is
+    the sum of the points of the fields the visitor actually filled, nothing hidden."""
+    if not isinstance(raw, list) or not raw:
+        raise HTTPException(400, "serve almeno un campo")
+    if len(raw) > MAX_LEAD_FIELDS:
+        raise HTTPException(400, f"massimo {MAX_LEAD_FIELDS} campi")
+    clean, seen = [], set()
+    for item in raw:
+        if not isinstance(item, dict):
+            raise HTTPException(400, "ogni campo deve essere un oggetto")
+        label = str(item.get("label", "")).strip()[:80]
+        if not label:
+            raise HTTPException(400, "ogni campo deve avere un'etichetta")
+        key = _slugify(item.get("key") or label)
+        if key in seen:
+            raise HTTPException(400, f"chiave duplicata: {key}")
+        seen.add(key)
+        field_type = item.get("type", "text")
+        if field_type not in LEAD_FIELD_TYPES:
+            raise HTTPException(400, f"tipo campo non valido: {field_type}")
+        options = [str(o).strip()[:60] for o in (item.get("options") or []) if str(o).strip()][:10]
+        if field_type == "select" and not options:
+            raise HTTPException(400, "un campo a scelta richiede almeno un'opzione")
+        clean.append({
+            "key": key,
+            "label": label,
+            "type": field_type,
+            "required": bool(item.get("required")),
+            "points": min(max(int(item.get("points") or 0), 0), 50),
+            "options": options,
+        })
+    return clean
+
+
+def _lead_form_payload(form: LeadForm, *, public: bool = False) -> dict:
+    fields = json.loads(form.fields or "[]")
+    if public:
+        # the visitor never sees the scoring weights
+        fields = [{k: v for k, v in field.items() if k != "points"} for field in fields]
+        return {
+            "id": form.id,
+            "intro": form.intro,
+            "consent_text": form.consent_text,
+            "fields": fields,
+            "trigger": form.trigger,
+        }
+    return {
+        "id": form.id,
+        "name": form.name,
+        "trigger": form.trigger,
+        "intro": form.intro,
+        "consent_text": form.consent_text,
+        "fields": fields,
+        "active": form.active,
+        "created_at": _iso(form.created_at),
+    }
+
+
+@app.get("/widget/lead-form")
+def widget_lead_form(
+    trigger: str = "escalation",
+    client: Client = Depends(require_client),
+    session: Session = Depends(get_session),
+):
+    """The active form for this moment, or null. Scoring weights are stripped: they are a
+    business decision, not something to ship to the visitor's browser."""
+    if trigger not in LEAD_TRIGGERS:
+        raise HTTPException(400, "trigger non valido")
+    form = session.exec(
+        select(LeadForm)
+        .where(LeadForm.client_id == client.id, LeadForm.active.is_(True), LeadForm.trigger == trigger)
+        .order_by(LeadForm.id)
+    ).first()
+    return {"form": _lead_form_payload(form, public=True) if form else None}
+
+
+@app.post("/widget/leads")
+def widget_submit_lead(
+    form_id: int = Body(...),
+    data: dict = Body(...),
+    conversation_id: int | None = Body(None),
+    conversation_token: str | None = Body(None),
+    consent: bool = Body(False),
+    client: Client = Depends(rate_limit_chat),
+    session: Session = Depends(get_session),
+):
+    """Store a submission. Consent is enforced server-side when the form asks for it — a
+    frontend that forgets the checkbox must not be able to bypass it."""
+    form = session.get(LeadForm, form_id)
+    if not form or form.client_id != client.id or not form.active:
+        raise HTTPException(404, "form not found")
+    if form.consent_text and not consent:
+        raise HTTPException(400, "consenso richiesto")
+    conv = None
+    if conversation_id is not None:
+        conv = session.get(Conversation, conversation_id)
+        if not conv or conv.client_id != client.id:
+            raise HTTPException(404, "conversation not found")
+        _require_conversation_token(conv, conversation_token)
+
+    fields = json.loads(form.fields or "[]")
+    values, score = {}, 0
+    for field in fields:
+        raw = data.get(field["key"])
+        value = "" if raw is None else str(raw).strip()[:MAX_LEAD_VALUE_CHARS]
+        if field["required"] and not value:
+            raise HTTPException(400, f"campo obbligatorio mancante: {field['label']}")
+        if value:
+            values[field["key"]] = value
+            score += field.get("points", 0)
+    lead = Lead(
+        client_id=client.id,
+        form_id=form.id,
+        conversation_id=conv.id if conv else None,
+        data=json.dumps(values, ensure_ascii=False),
+        score=min(score, 100),
+        consent=bool(consent),
+        consent_text=form.consent_text,
+    )
+    session.add(lead)
+    session.commit()
+    session.refresh(lead)
+    log(logger, logging.INFO, "lead.captured", client_id=client.id, lead_id=lead.id, score=lead.score)
+    webhooks.emit(session, client.id, "lead.captured", {
+        "lead_id": lead.id,
+        "conversation_id": lead.conversation_id,
+        "score": lead.score,
+        "data": values,
+    })
+    return {"ok": True, "id": lead.id}
+
+
+@app.get("/lead-forms")
+def list_lead_forms(operator: Operator = Depends(require_operator), session: Session = Depends(get_session)):
+    rows = session.exec(
+        select(LeadForm).where(LeadForm.client_id == operator.client_id).order_by(LeadForm.id)
+    ).all()
+    return {
+        "triggers": list(LEAD_TRIGGERS),
+        "field_types": list(LEAD_FIELD_TYPES),
+        "forms": [_lead_form_payload(row) for row in rows],
+    }
+
+
+@app.post("/lead-forms")
+def create_lead_form(
+    name: str = Body(...),
+    fields: list = Body(...),
+    trigger: str = Body("escalation"),
+    intro: str = Body(""),
+    consent_text: str = Body(""),
+    active: bool = Body(True),
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
+    clean_name = name.strip()[:80]
+    if not clean_name:
+        raise HTTPException(400, "name required")
+    if trigger not in LEAD_TRIGGERS:
+        raise HTTPException(400, "trigger non valido")
+    form = LeadForm(
+        client_id=operator.client_id,
+        name=clean_name,
+        trigger=trigger,
+        fields=json.dumps(_clean_lead_fields(fields)),
+        intro=intro.strip()[:300],
+        consent_text=consent_text.strip()[:500],
+        active=active,
+    )
+    session.add(form)
+    session.commit()
+    session.refresh(form)
+    _audit(
+        session, "operator", operator.email, "lead_form.create",
+        target=f"lead_form:{form.id}", client_id=operator.client_id,
+    )
+    return _lead_form_payload(form)
+
+
+@app.patch("/lead-forms/{form_id}")
+def update_lead_form(
+    form_id: int,
+    name: str | None = Body(None),
+    fields: list | None = Body(None),
+    trigger: str | None = Body(None),
+    intro: str | None = Body(None),
+    consent_text: str | None = Body(None),
+    active: bool | None = Body(None),
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
+    form = session.get(LeadForm, form_id)
+    if not form or form.client_id != operator.client_id:
+        raise HTTPException(404, "form not found")
+    if name is not None:
+        clean = name.strip()[:80]
+        if not clean:
+            raise HTTPException(400, "name required")
+        form.name = clean
+    if trigger is not None:
+        if trigger not in LEAD_TRIGGERS:
+            raise HTTPException(400, "trigger non valido")
+        form.trigger = trigger
+    if fields is not None:
+        form.fields = json.dumps(_clean_lead_fields(fields))
+    if intro is not None:
+        form.intro = intro.strip()[:300]
+    if consent_text is not None:
+        form.consent_text = consent_text.strip()[:500]
+    if active is not None:
+        form.active = active
+    form.updated_at = datetime.utcnow()
+    session.add(form)
+    session.commit()
+    _audit(
+        session, "operator", operator.email, "lead_form.update",
+        target=f"lead_form:{form_id}", client_id=operator.client_id,
+    )
+    return _lead_form_payload(form)
+
+
+@app.delete("/lead-forms/{form_id}")
+def delete_lead_form(
+    form_id: int,
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
+    """The captured leads survive the form: they are the tenant's data, not the form's."""
+    form = session.get(LeadForm, form_id)
+    if not form or form.client_id != operator.client_id:
+        raise HTTPException(404, "form not found")
+    for lead in session.exec(select(Lead).where(Lead.form_id == form.id)).all():
+        lead.form_id = None
+        session.add(lead)
+    session.flush()
+    session.delete(form)
+    session.commit()
+    _audit(
+        session, "operator", operator.email, "lead_form.delete",
+        target=f"lead_form:{form_id}", client_id=operator.client_id,
+    )
+    return {"ok": True}
+
+
+def _lead_query(client_id: int, min_score: int | None, days: int | None):
+    query = select(Lead).where(Lead.client_id == client_id)
+    if min_score is not None:
+        query = query.where(Lead.score >= min_score)
+    if days:
+        query = query.where(Lead.created_at >= datetime.utcnow() - timedelta(days=days))
+    return query
+
+
+@app.get("/leads")
+def list_leads(
+    min_score: int | None = None,
+    days: int | None = None,
+    limit: int = 100,
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
+    rows = session.exec(
+        _lead_query(operator.client_id, min_score, days)
+        .order_by(Lead.id.desc())
+        .limit(_bounded_limit(limit))
+    ).all()
+    return [
+        {
+            "id": row.id,
+            "conversation_id": row.conversation_id,
+            "form_id": row.form_id,
+            "score": row.score,
+            "consent": row.consent,
+            "consent_text": row.consent_text,
+            "data": json.loads(row.data or "{}"),
+            "created_at": _iso(row.created_at),
+        }
+        for row in rows
+    ]
+
+
+def _csv_cell(value) -> str:
+    """Quote for CSV and neutralise formula injection: a cell starting with = + - @ is executed
+    by spreadsheet apps when the export is opened, so prefix it with a quote."""
+    text = "" if value is None else str(value)
+    if text[:1] in ("=", "+", "-", "@"):
+        text = "'" + text
+    return '"' + text.replace('"', '""') + '"'
+
+
+@app.get("/leads/export")
+def export_leads(
+    min_score: int | None = None,
+    days: int | None = None,
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
+    """CSV of the captured leads, one column per field key seen in the period."""
+    rows = session.exec(_lead_query(operator.client_id, min_score, days).order_by(Lead.id)).all()
+    parsed = [(row, json.loads(row.data or "{}")) for row in rows]
+    keys: list[str] = []
+    for _, data in parsed:
+        for key in data:
+            if key not in keys:
+                keys.append(key)
+    header = ["id", "created_at", "conversation_id", "score", "consent", *keys]
+    lines = [",".join(_csv_cell(h) for h in header)]
+    for row, data in parsed:
+        lines.append(",".join(_csv_cell(v) for v in [
+            row.id, _iso(row.created_at), row.conversation_id or "", row.score,
+            "sì" if row.consent else "no", *[data.get(key, "") for key in keys],
+        ]))
+    _audit(
+        session, "operator", operator.email, "lead.export",
+        client_id=operator.client_id, detail={"leads": len(parsed)},
+    )
+    return Response(
+        content="﻿" + "\n".join(lines),  # BOM: Excel apre l'UTF-8 correttamente
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="lead.csv"'},
+    )
 
 
 # ---- Proactive messages ------------------------------------------------------------------

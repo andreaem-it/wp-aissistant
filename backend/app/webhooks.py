@@ -46,6 +46,7 @@ EVENTS = (
     "conversation.closed",
     "conversation.rated",
     "sla.breached",
+    "lead.captured",
 )
 
 TIMEOUT_SECONDS = float(os.getenv("WEBHOOK_TIMEOUT_SECONDS", "5"))

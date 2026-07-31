@@ -7,6 +7,7 @@
   const OPEN_KEY = "wpai_chat_open";
   const TICKET_OFFER_KEY = "wpai_ticket_offer";
   const RATED_KEY = "wpai_conversation_rated";
+  const LEAD_KEY = "wpai_lead_form_shown";
   const PROACTIVE_KEY = "wpai_proactive_seen";
   const PROACTIVE_SESSION_KEY = "wpai_proactive_session_";
   const PROACTIVE_OPTOUT_KEY = "wpai_proactive_optout";
@@ -301,6 +302,123 @@
     wrap.appendChild(label);
     wrap.appendChild(stars);
     wrap.appendChild(form);
+    container.appendChild(wrap);
+    container.scrollTop = container.scrollHeight;
+  }
+
+  // ---- Form di qualificazione (lead) ----------------------------------------------------
+  //
+  // Mostrato una sola volta per conversazione, dopo l'escalation. Il consenso, quando il form
+  // lo prevede, è obbligatorio anche lato server: qui il bottone resta disabilitato finché non
+  // è spuntato, ma la verifica vera non sta nel browser.
+
+  function leadFormShown(conversationId) {
+    return localStorage.getItem(LEAD_KEY) === String(conversationId);
+  }
+
+  async function addLeadForm(container, conversationId) {
+    if (!conversationId || leadFormShown(conversationId)) return;
+    let form;
+    try {
+      const res = await fetch(`${WPAI.backendUrl}/widget/lead-form?trigger=escalation`, {
+        headers: { Authorization: `Bearer ${WPAI.apiKey}` },
+      });
+      if (!res.ok) return;
+      form = (await res.json()).form;
+    } catch (e) {
+      return; // nessun form: la conversazione prosegue normalmente
+    }
+    if (!form || !form.fields.length) return;
+    localStorage.setItem(LEAD_KEY, String(conversationId));
+
+    const wrap = document.createElement("div");
+    wrap.className = "wpai-contact";
+    if (form.intro) {
+      const intro = document.createElement("div");
+      intro.className = "wpai-contact-label";
+      intro.textContent = form.intro;
+      wrap.appendChild(intro);
+    }
+
+    const el = document.createElement("form");
+    el.className = "wpai-lead-form";
+    const inputs = {};
+    for (const field of form.fields) {
+      const label = document.createElement("label");
+      label.className = "wpai-lead-field";
+      const caption = document.createElement("span");
+      caption.textContent = field.label + (field.required ? " *" : "");
+      let control;
+      if (field.type === "select") {
+        control = document.createElement("select");
+        const empty = document.createElement("option");
+        empty.value = "";
+        empty.textContent = "—";
+        control.appendChild(empty);
+        for (const option of field.options || []) {
+          const opt = document.createElement("option");
+          opt.value = option;
+          opt.textContent = option;
+          control.appendChild(opt);
+        }
+      } else {
+        control = document.createElement("input");
+        control.type = field.type === "email" ? "email" : field.type === "tel" ? "tel" : "text";
+      }
+      control.required = Boolean(field.required);
+      inputs[field.key] = control;
+      label.appendChild(caption);
+      label.appendChild(control);
+      el.appendChild(label);
+    }
+
+    let consentBox = null;
+    if (form.consent_text) {
+      const consentLabel = document.createElement("label");
+      consentLabel.className = "wpai-lead-consent";
+      consentBox = document.createElement("input");
+      consentBox.type = "checkbox";
+      const consentText = document.createElement("span");
+      consentText.textContent = form.consent_text;
+      consentLabel.appendChild(consentBox);
+      consentLabel.appendChild(consentText);
+      el.appendChild(consentLabel);
+    }
+
+    const submit = document.createElement("button");
+    submit.type = "submit";
+    submit.textContent = "Invia";
+    el.appendChild(submit);
+
+    el.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      submit.disabled = true;
+      submit.textContent = "Invio…";
+      const data = {};
+      for (const [key, control] of Object.entries(inputs)) data[key] = control.value;
+      try {
+        const res = await fetch(`${WPAI.backendUrl}/widget/leads`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${WPAI.apiKey}` },
+          body: JSON.stringify({
+            form_id: form.id,
+            conversation_id: Number(conversationId),
+            conversation_token: localStorage.getItem(CONV_TOKEN_KEY),
+            data,
+            consent: consentBox ? consentBox.checked : false,
+          }),
+        });
+        if (!res.ok) throw new Error("invio non riuscito");
+        wrap.innerHTML = '<i class="fa-solid fa-check"></i> Grazie, ti ricontattiamo presto.';
+        wrap.className = "wpai-contact done";
+      } catch (e2) {
+        // niente conferme ottimistiche: se non è stato registrato, dillo e lascia riprovare
+        submit.disabled = false;
+        submit.textContent = "Riprova";
+      }
+    });
+
+    wrap.appendChild(el);
     container.appendChild(wrap);
     container.scrollTop = container.scrollHeight;
   }
@@ -635,6 +753,7 @@
         localStorage.setItem(ESCALATED_KEY, String(data.conversation_id));
         addMessage(messages, "system", "La tua richiesta è stata inoltrata a un operatore, ti risponderemo qui appena possibile.");
         addContactForm(messages, data.conversation_id);
+        addLeadForm(messages, data.conversation_id);
       }
     } else if (data.status === "quota_exceeded") {
       addMessage(messages, "system", "Il limite di messaggi è stato raggiunto. Riprova più tardi o contatta il supporto.");
@@ -709,6 +828,7 @@
           localStorage.setItem(ESCALATED_KEY, String(convId));
           addMessage(messages, "system", "La tua richiesta è stata inoltrata a un operatore, ti risponderemo qui appena possibile.");
           addContactForm(messages, convId);
+          addLeadForm(messages, convId);
         }
       } else if (evt.type === "quota_exceeded") {
         setTyping(messages, false);

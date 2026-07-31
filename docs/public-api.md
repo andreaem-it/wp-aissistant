@@ -128,6 +128,7 @@ Un endpoint riceve gli eventi selezionati; senza selezione li riceve tutti.
 | `conversation.closed` | La conversazione viene chiusa |
 | `conversation.rated` | Il visitatore lascia il voto CSAT |
 | `sla.breached` | Una scadenza SLA viene superata |
+| `lead.captured` | Un visitatore compila il form di qualificazione (payload con punteggio e campi) |
 
 Corpo della richiesta (`POST`, `application/json`):
 
