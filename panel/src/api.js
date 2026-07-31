@@ -109,6 +109,13 @@ export const api = {
   infoFields: () => call("/info-fields"),
   createInfoField: (label) => call("/info-fields", { method: "POST", body: { label } }),
   deleteInfoField: (id) => call(`/info-fields/${id}`, { method: "DELETE" }),
+  workflows: () => call("/workflows"),
+  createWorkflow: (body) => call("/workflows", { method: "POST", body }),
+  updateWorkflow: (id, body) => call(`/workflows/${id}`, { method: "PATCH", body }),
+  deleteWorkflow: (id) => call(`/workflows/${id}`, { method: "DELETE" }),
+  workflowRuns: (id) => call(`/workflows/${id}/runs`),
+  previewWorkflow: (id, conversation_id) =>
+    call(`/workflows/${id}/preview`, { method: "POST", body: { conversation_id } }),
   apiKeys: () => call("/api-keys"),
   createApiKey: (name, scopes) => call("/api-keys", { method: "POST", body: { name, scopes } }),
   revokeApiKey: (id) => call(`/api-keys/${id}`, { method: "DELETE" }),

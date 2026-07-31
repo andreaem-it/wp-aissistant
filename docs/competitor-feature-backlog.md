@@ -61,7 +61,7 @@ Queste funzionalità esistono già e non vanno reinserite come nuove feature:
 | Note interne, menzioni e collision detection | **Rilasciata:** note interne tenant-scoped mai esposte al visitatore, menzioni `@nome` con stato di lettura, presenza sulla conversazione con avviso di risposta in corso e registro azioni per conversazione. | Prossimo passo: notifica push/email sulle menzioni. | Media |
 | Tag e classificazione automatica | **Rilasciata:** tag manuali tenant-scoped con associazione multipla e filtri, classificazione AI (intento/argomento/urgenza) in coda dopo l'escalation o su richiesta, vocabolario chiuso e fallback che lascia la conversazione non classificata. Report per tag e intento in `/stats`. | Prossimo passo: regole automatiche basate sui tag. | Media |
 | CSAT post-conversazione | **Rilasciata:** voto 1–5 con commento facoltativo chiesto dal widget alla chiusura, distinto dal feedback sul singolo messaggio; report per AI/operatore/reparto/periodo con distribuzione e ultimi commenti. | Prossimo passo: invito al CSAT anche via email dopo un ticket. | Bassa |
-| Workflow no-code | È una lacuna forte rispetto ai prodotti maturi. | Trigger, condizioni e azioni per escalation, tag, assegnazione, webhook ed email. | Alta |
+| Workflow no-code | **Rilasciata:** regole per tenant con 7 trigger, condizioni su vocabolario chiuso e 9 azioni (priorità, reparto, assegnazione anche a turno, tag, chiusura, escalation, email, webhook), anteprima a secco, log delle esecuzioni e guardia anti-cascata. | Prossimo passo: azioni ritardate (es. «dopo 24h senza risposta»). | Alta |
 | Messaggi proattivi contestuali | Aumenta conversioni e riduce abbandono. | Trigger per URL, tempo sulla pagina, carrello e intento di uscita; frequenza limitata e consenso. | Media |
 | Lead capture e qualificazione | Trasforma il widget anche in strumento commerciale. | Form dinamici, consenso, scoring base, export CSV e webhook CRM. | Media |
 | Multilingua automatica | Necessaria per clienti internazionali. | Rilevamento lingua, risposta nella lingua dell'utente, testi widget localizzati e KB cross-language testata. | Media |
@@ -114,7 +114,7 @@ Non iniziare lo sviluppo esteso prima del go/no-go sulla latenza del PoC.
 ### Ciclo 3 — Automazione e crescita
 
 1. ✅ API pubblica e webhooks firmati.
-2. Workflow builder su trigger/condizioni/azioni.
+2. ✅ Workflow builder su trigger/condizioni/azioni.
 3. Messaggi proattivi e lead qualification.
 4. Analytics avanzate e rilevamento automatico dei gap della knowledge base.
 5. Multilingua.

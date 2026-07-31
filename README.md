@@ -90,6 +90,14 @@ Tre componenti indipendenti:
   visitatore), menzioni `@nome` con elenco delle citazioni non lette, indicatore di presenza sulla
   conversazione che avvisa quando un collega sta già scrivendo, e registro delle azioni
   (`/conversations/{id}/activity`) alimentato dall'audit log del tenant.
+- **Automazioni no-code** — regole «quando succede X, se vale Y, fai Z» configurabili dal panel:
+  trigger sugli eventi della conversazione (creazione, escalation, risposta, chiusura,
+  valutazione, classificazione AI, violazione SLA), condizioni su stato/priorità/reparto/
+  assegnatario/intento/urgenza/tag/voto CSAT, e azioni su priorità, reparto, assegnazione
+  (anche a turno), tag, chiusura, escalation, email e webhook. Il vocabolario è chiuso e
+  validato al salvataggio — una regola incomprensibile viene rifiutata subito, non applicata a
+  metà — e ogni valutazione finisce nel log delle esecuzioni, anche quando le condizioni non
+  sono soddisfatte. Le azioni che generano nuovi eventi non possono innescare cascate infinite.
 - **Viste salvate** — ogni operatore può salvare la combinazione corrente di filtri e
   ordinamento con un nome (es. «Urgenti non assegnate») e riaprirla con un clic. Una vista può
   essere personale o condivisa con il tenant; in entrambi i casi solo chi l'ha creata può
@@ -120,6 +128,8 @@ Tre componenti indipendenti:
   interno, con lo stato di lettura della menzione.
 - **Tag / ConversationTag** — etichette del tenant (manuali o generate dalla classificazione AI)
   e loro associazione multipla alle conversazioni.
+- **Workflow / WorkflowRun** — regole di automazione del tenant (trigger, condizioni e azioni
+  come JSON validato) e registro di ogni valutazione, con le azioni effettivamente applicate.
 - **ApiKey** — credenziale server-to-server dell'API pubblica: scoped, revocabile, salvata come
   digest (distinta dalla `api_key` pubblica del widget).
 - **WebhookEndpoint / WebhookDelivery** — destinazioni firmate del tenant e log/coda delle
@@ -382,6 +392,10 @@ Auth via header `Authorization: Bearer <token>`. La colonna *Auth* indica quale 
 | `/chat/stream` | POST | 🔑 | Come `/chat` ma in streaming SSE (token progressivi); il widget lo usa con fallback su `/chat` |
 | `/chat/feedback` | POST | 🔑 | Valutazione 👍/👎 su una risposta AI (scoping per conversazione) |
 | `/chat/rating` | POST | 🔑 | CSAT del visitatore sull'intera conversazione (voto 1–5 + commento); reinviarlo aggiorna il precedente |
+| `/workflows` | GET/POST | 👤 | Automazioni del tenant + vocabolario (trigger, campi, operatori, azioni) |
+| `/workflows/{id}` | PATCH/DELETE | 👤 | Aggiorna o elimina una regola (con il suo storico) |
+| `/workflows/{id}/preview` | POST | 👤 | Prova a secco su una conversazione reale: dice se scatterebbe e cosa farebbe, senza applicare nulla |
+| `/workflows/{id}/runs` | GET | 👤 | Log delle esecuzioni (esito, azioni applicate, errori) |
 | `/api-keys` | GET/POST | 👤 | Chiavi dell'API pubblica (la chiave in chiaro è restituita una sola volta) |
 | `/api-keys/{id}` | DELETE | 👤 | Revoca una chiave |
 | `/webhooks` | GET/POST | 👤 | Endpoint webhook del tenant ed eventi disponibili |

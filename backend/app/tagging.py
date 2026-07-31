@@ -156,6 +156,13 @@ def classify_conversation(session: Session, conv: Conversation) -> dict | None:
         client_id=conv.client_id, conversation_id=conv.id,
         intent=conv.ai_intent, urgency=conv.ai_urgency,
     )
+    # local import: events → workflows → tagging would be a cycle at module level
+    from . import events
+
+    events.emit(session, conv.client_id, "conversation.classified", {
+        "conversation_id": conv.id, "intent": conv.ai_intent,
+        "topic": conv.ai_topic, "urgency": conv.ai_urgency,
+    }, conv=conv)
     return {
         "intent": conv.ai_intent,
         "topic": conv.ai_topic,

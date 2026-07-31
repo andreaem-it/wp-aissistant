@@ -47,6 +47,8 @@ from .db import (
     Ticket,
     WebhookDelivery,
     WebhookEndpoint,
+    Workflow,
+    WorkflowRun,
     engine,
     get_session,
     init_db,
@@ -72,6 +74,8 @@ from .ratelimit import make_limiter
 from .security import hash_password, password_needs_rehash, verify_password
 from . import tagging
 from . import webhooks
+from . import events
+from . import workflows
 from .worker import requeue_stale, run_worker
 
 setup_logging()
@@ -473,9 +477,9 @@ def _create_conversation(session: Session, client_id: int, visitor_id: str) -> t
     session.commit()
     session.refresh(conv)
     # the access token never leaves this function: webhooks carry the conversation id only
-    webhooks.emit(session, client_id, "conversation.created", {
+    events.emit(session, client_id, "conversation.created", {
         "conversation_id": conv.id, "visitor_id": conv.visitor_id,
-    })
+    }, conv=conv)
     return conv, token
 
 
@@ -785,7 +789,7 @@ def _format_order_reply(data: dict) -> str:
 
 
 def _escalate(session, client_id, client_name, conv, reason, *, outcome, trigger,
-              retrieval_meta=None, llm_meta=None, error=None):
+              retrieval_meta=None, llm_meta=None, error=None, depth=0):
     """Shared escalation: mark the conversation escalated, open a ticket, log + count the
     escalation, record the AI-response diagnostics, and notify operators. Used by both the
     sync /chat and the streaming /chat/stream so the two stay in lockstep."""
@@ -818,9 +822,9 @@ def _escalate(session, client_id, client_name, conv, reason, *, outcome, trigger
     metrics.escalations_total.labels(trigger=trigger).inc()
     _log_ai_response(session, client_id, conv.id, outcome, retrieval_meta=retrieval_meta, llm_meta=llm_meta)
     notify_new_ticket(client_name, conv.id, ticket.id, reason)
-    webhooks.emit(session, client_id, "conversation.escalated", {
+    events.emit(session, client_id, "conversation.escalated", {
         "conversation_id": conv.id, "ticket_id": ticket.id, "reason": reason, "trigger": trigger,
-    })
+    }, conv=conv, depth=depth)
     return ticket
 
 
@@ -1490,10 +1494,10 @@ def chat_rating(
     session.add(rating)
     session.commit()
     log(logger, logging.INFO, "csat.recorded", client_id=client.id, conversation_id=conv.id, score=score)
-    webhooks.emit(session, client.id, "conversation.rated", {
+    events.emit(session, client.id, "conversation.rated", {
         "conversation_id": conv.id, "score": rating.score, "comment": rating.comment,
         "resolved_by": rating.resolved_by,
-    })
+    }, conv=conv)
     return {"ok": True}
 
 
@@ -2425,9 +2429,9 @@ def check_sla_breaches(session: Session) -> int:
                 detail={"target": target, "due_at": _iso(due_at)},
             )
             notify_sla_breach(client_name, conv.id, target, _iso(due_at) or "")
-            webhooks.emit(session, conv.client_id, "sla.breached", {
+            events.emit(session, conv.client_id, "sla.breached", {
                 "conversation_id": conv.id, "target": target, "due_at": _iso(due_at),
-            })
+            }, conv=conv)
     session.commit()
     return breaches
 
@@ -2721,9 +2725,9 @@ def reply_conversation(
     session.commit()
     _audit(session, "operator", operator.email, "conversation.reply", target=f"conversation:{conversation_id}", client_id=operator.client_id)
     _notify_visitor_reply(session, operator.client_id, conv)
-    webhooks.emit(session, operator.client_id, "conversation.replied", {
+    events.emit(session, operator.client_id, "conversation.replied", {
         "conversation_id": conv.id, "via": "panel", "operator": _operator_name(operator),
-    })
+    }, conv=conv)
     return {"ok": True}
 
 
@@ -2749,7 +2753,7 @@ def set_conversation_status(
     session.commit()
     _audit(session, "operator", operator.email, f"conversation.{status}", target=f"conversation:{conversation_id}", client_id=operator.client_id)
     if status == "closed":
-        webhooks.emit(session, operator.client_id, "conversation.closed", {"conversation_id": conv.id})
+        events.emit(session, operator.client_id, "conversation.closed", {"conversation_id": conv.id}, conv=conv)
     return {"ok": True, "status": status}
 
 
@@ -3417,6 +3421,195 @@ def list_knowledge_base(
     }
 
 
+# ---- Workflows (no-code automations) -----------------------------------------------------
+
+
+def _workflow_payload(workflow: Workflow) -> dict:
+    return {
+        "id": workflow.id,
+        "name": workflow.name,
+        "trigger": workflow.trigger,
+        "conditions": json.loads(workflow.conditions or "[]"),
+        "actions": json.loads(workflow.actions or "[]"),
+        "active": workflow.active,
+        "position": workflow.position,
+        "run_count": workflow.run_count,
+        "last_run_at": _iso(workflow.last_run_at),
+    }
+
+
+@app.get("/workflows")
+def list_workflows(operator: Operator = Depends(require_operator), session: Session = Depends(get_session)):
+    """Rules plus the vocabulary the panel needs to build the editor, so triggers, fields,
+    operators and actions are never duplicated (and never drift) in the frontend."""
+    rows = session.exec(
+        select(Workflow).where(Workflow.client_id == operator.client_id)
+        .order_by(Workflow.position, Workflow.id)
+    ).all()
+    return {
+        "catalog": {
+            "triggers": list(workflows.TRIGGERS),
+            "condition_fields": list(workflows.CONDITION_FIELDS),
+            "condition_ops": list(workflows.CONDITION_OPS),
+            "action_types": list(workflows.ACTION_TYPES),
+        },
+        "workflows": [_workflow_payload(row) for row in rows],
+    }
+
+
+@app.post("/workflows")
+def create_workflow(
+    name: str = Body(...),
+    trigger: str = Body(...),
+    conditions: list = Body([]),
+    actions: list = Body([]),
+    active: bool = Body(True),
+    position: int = Body(0),
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
+    clean_name = name.strip()[:80]
+    if not clean_name:
+        raise HTTPException(400, "name required")
+    if trigger not in workflows.TRIGGERS:
+        raise HTTPException(400, "trigger non valido")
+    try:
+        clean_conditions = workflows.validate_conditions(conditions)
+        clean_actions = workflows.validate_actions(session, operator.client_id, actions)
+    except workflows.WorkflowConfigError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    workflow = Workflow(
+        client_id=operator.client_id,
+        name=clean_name,
+        trigger=trigger,
+        conditions=json.dumps(clean_conditions),
+        actions=json.dumps(clean_actions),
+        active=active,
+        position=position,
+    )
+    session.add(workflow)
+    session.commit()
+    session.refresh(workflow)
+    _audit(
+        session, "operator", operator.email, "workflow.create",
+        target=f"workflow:{workflow.id}", client_id=operator.client_id,
+        detail={"trigger": trigger, "actions": [a["type"] for a in clean_actions]},
+    )
+    return _workflow_payload(workflow)
+
+
+@app.patch("/workflows/{workflow_id}")
+def update_workflow(
+    workflow_id: int,
+    name: str | None = Body(None),
+    trigger: str | None = Body(None),
+    conditions: list | None = Body(None),
+    actions: list | None = Body(None),
+    active: bool | None = Body(None),
+    position: int | None = Body(None),
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
+    workflow = session.get(Workflow, workflow_id)
+    if not workflow or workflow.client_id != operator.client_id:
+        raise HTTPException(404, "workflow not found")
+    if name is not None:
+        clean_name = name.strip()[:80]
+        if not clean_name:
+            raise HTTPException(400, "name required")
+        workflow.name = clean_name
+    if trigger is not None:
+        if trigger not in workflows.TRIGGERS:
+            raise HTTPException(400, "trigger non valido")
+        workflow.trigger = trigger
+    try:
+        if conditions is not None:
+            workflow.conditions = json.dumps(workflows.validate_conditions(conditions))
+        if actions is not None:
+            workflow.actions = json.dumps(workflows.validate_actions(session, operator.client_id, actions))
+    except workflows.WorkflowConfigError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    if active is not None:
+        workflow.active = active
+    if position is not None:
+        workflow.position = position
+    workflow.updated_at = datetime.utcnow()
+    session.add(workflow)
+    session.commit()
+    _audit(
+        session, "operator", operator.email, "workflow.update",
+        target=f"workflow:{workflow_id}", client_id=operator.client_id,
+    )
+    return _workflow_payload(workflow)
+
+
+@app.delete("/workflows/{workflow_id}")
+def delete_workflow(
+    workflow_id: int,
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
+    workflow = session.get(Workflow, workflow_id)
+    if not workflow or workflow.client_id != operator.client_id:
+        raise HTTPException(404, "workflow not found")
+    for run in session.exec(select(WorkflowRun).where(WorkflowRun.workflow_id == workflow.id)).all():
+        session.delete(run)
+    session.flush()
+    session.delete(workflow)
+    session.commit()
+    _audit(
+        session, "operator", operator.email, "workflow.delete",
+        target=f"workflow:{workflow_id}", client_id=operator.client_id,
+    )
+    return {"ok": True}
+
+
+@app.post("/workflows/{workflow_id}/preview")
+def preview_workflow(
+    workflow_id: int,
+    conversation_id: int = Body(..., embed=True),
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
+    """Dry run against a real conversation: says whether the rule would match and what it would
+    do, without applying anything."""
+    workflow = session.get(Workflow, workflow_id)
+    if not workflow or workflow.client_id != operator.client_id:
+        raise HTTPException(404, "workflow not found")
+    conv = _require_conversation(session, operator.client_id, conversation_id)
+    return workflows.preview(session, workflow, conv)
+
+
+@app.get("/workflows/{workflow_id}/runs")
+def list_workflow_runs(
+    workflow_id: int,
+    limit: int = 50,
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
+    workflow = session.get(Workflow, workflow_id)
+    if not workflow or workflow.client_id != operator.client_id:
+        raise HTTPException(404, "workflow not found")
+    rows = session.exec(
+        select(WorkflowRun)
+        .where(WorkflowRun.workflow_id == workflow.id)
+        .order_by(WorkflowRun.id.desc())
+        .limit(_bounded_limit(limit, default=50))
+    ).all()
+    return [
+        {
+            "id": row.id,
+            "conversation_id": row.conversation_id,
+            "event": row.event,
+            "matched": row.matched,
+            "applied": json.loads(row.applied or "[]"),
+            "error": row.error,
+            "created_at": _iso(row.created_at),
+        }
+        for row in rows
+    ]
+
+
 # ---- Public API: scoped keys ------------------------------------------------------------
 #
 # Distinct from the widget `Client.api_key`, which is embedded in a public page and only
@@ -3673,7 +3866,7 @@ def v1_reply(
         target=f"conversation:{conversation_id}", client_id=key.client_id,
     )
     _notify_visitor_reply(session, key.client_id, conv)
-    webhooks.emit(session, key.client_id, "conversation.replied", {"conversation_id": conv.id, "via": "api"})
+    events.emit(session, key.client_id, "conversation.replied", {"conversation_id": conv.id, "via": "api"}, conv=conv)
     return {"ok": True}
 
 
@@ -3698,7 +3891,7 @@ def v1_set_status(
         target=f"conversation:{conversation_id}", client_id=key.client_id,
     )
     if status == "closed":
-        webhooks.emit(session, key.client_id, "conversation.closed", {"conversation_id": conv.id})
+        events.emit(session, key.client_id, "conversation.closed", {"conversation_id": conv.id}, conv=conv)
     return {"ok": True, "status": status}
 
 

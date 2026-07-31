@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { MessageSquare, Ticket as TicketIcon, FileText, BarChart3, LogOut, Settings as SettingsIcon, Plug } from "lucide-react";
+import { MessageSquare, Ticket as TicketIcon, FileText, BarChart3, LogOut, Settings as SettingsIcon, Plug, Workflow as WorkflowIcon } from "lucide-react";
 import { getToken, setToken, clearToken, getEmail, setEmail, api } from "./api.js";
 import Conversations from "./Conversations.jsx";
 import Tickets from "./Tickets.jsx";
@@ -9,6 +9,7 @@ import Profile from "./Profile.jsx";
 import Signup from "./Signup.jsx";
 import Settings from "./Settings.jsx";
 import Developers from "./Developers.jsx";
+import Automations from "./Automations.jsx";
 import { VerifyEmail, ResetPassword, ForgotPassword } from "./Auth.jsx";
 
 const TABS = [
@@ -17,6 +18,7 @@ const TABS = [
   { key: "upload", label: "Knowledge base", Icon: FileText, Component: Upload },
   { key: "stats", label: "Statistiche", Icon: BarChart3, Component: Stats },
   { key: "settings", label: "Configurazione", Icon: SettingsIcon, Component: Settings },
+  { key: "automations", label: "Automazioni", Icon: WorkflowIcon, Component: Automations },
   { key: "developers", label: "API e webhook", Icon: Plug, Component: Developers },
 ];
 

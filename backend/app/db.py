@@ -218,6 +218,39 @@ class SlaPolicy(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
+class Workflow(SQLModel, table=True):
+    """A tenant automation: when `trigger` fires, if every condition matches, run the actions.
+    `conditions` and `actions` are JSON lists validated against a closed vocabulary (see
+    app/workflows.py) — a rule that can't be understood is refused at save time, never
+    half-applied at run time."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    client_id: int = Field(index=True, foreign_key="client.id")
+    name: str
+    trigger: str = Field(index=True)
+    conditions: str = "[]"  # JSON list of {field, op, value}, ANDed
+    actions: str = "[]"  # JSON list of {type, ...params}, applied in order
+    active: bool = True
+    position: int = 0
+    run_count: int = 0
+    last_run_at: Optional[datetime] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class WorkflowRun(SQLModel, table=True):
+    """One evaluation of a workflow. Non-matching evaluations are recorded too: "why didn't my
+    automation fire?" is the first question an operator asks."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    client_id: int = Field(index=True, foreign_key="client.id")
+    workflow_id: int = Field(index=True, foreign_key="workflow.id")
+    conversation_id: Optional[int] = Field(default=None, foreign_key="conversation.id", index=True)
+    event: str
+    matched: bool = False
+    applied: str = "[]"  # JSON list of the actions actually applied
+    error: str = ""
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 class ApiKey(SQLModel, table=True):
     """Scoped credential for the public API (`/v1/…`), separate from the widget `Client.api_key`:
     that one is public by design and identifies only the tenant, this one authorizes server-side
