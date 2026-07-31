@@ -51,6 +51,7 @@ from .llm import embed
 from .logging_config import log, request_id_var, setup_logging
 from . import metrics
 from .notify import notify_new_ticket
+from .production_config import enforce_production_config, production_warnings
 from .rag import extract_text, retrieve, retrieve_products, retrieve_with_meta
 from .ratelimit import make_limiter
 from .security import hash_password, password_needs_rehash, verify_password
@@ -101,6 +102,9 @@ def _run_purge(stop: threading.Event) -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    config_warnings = enforce_production_config(os.environ)
+    for warning in config_warnings:
+        log(logger, logging.WARNING, "production.config_warning", warning=warning)
     init_db()
     with Session(engine) as session:
         rebuild_allowed_origins(session)
@@ -1989,6 +1993,10 @@ def admin_health(session: Session = Depends(get_session)):
         "migration": migration,
         "models": {"chat": CHAT_MODEL, "embed": EMBED_MODEL},
         "email": email_service.config_status(),
+        "production_config": {
+            "strict": os.getenv("STRICT_PRODUCTION_CONFIG", "false").lower() == "true",
+            "warnings": production_warnings(os.environ),
+        },
         "version": os.getenv("APP_VERSION", "dev"),
     }
 

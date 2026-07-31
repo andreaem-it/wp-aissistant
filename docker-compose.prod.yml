@@ -59,6 +59,7 @@ services:
       ADMIN_API_KEY: ${ADMIN_API_KEY:?set ADMIN_API_KEY in the environment}
       # production posture: restrict CORS and configure per-client origins via the admin API
       CORS_ALLOW_ALL: "false"
+      STRICT_PRODUCTION_CONFIG: "true"
       PANEL_ORIGINS: ${PANEL_ORIGINS:-}
       # the backend has no published ports (reachable only from caddy on the internal network),
       # so it can trust X-Forwarded-* — needed for per-IP rate limiting to see the real client IP

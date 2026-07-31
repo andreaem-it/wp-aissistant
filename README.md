@@ -250,6 +250,7 @@ docker compose -f docker-compose.prod.yml up -d
 | `REDIS_URL` | *(non impostato)* | Store condiviso per il rate limiter (necessario in multi-worker); se assente usa l'in-memory per-processo. Fail-open se Redis è irraggiungibile |
 | `PANEL_ORIGINS` | `http://localhost:5173` | Origin del panel ammessi dal CORS (comma-separated) |
 | `CORS_ALLOW_ALL` | `true` | `true` riflette qualsiasi Origin; `false` applica l'allowlist |
+| `STRICT_PRODUCTION_CONFIG` | `false` | Se `true`, impedisce l'avvio con secret deboli, CORS aperto o dipendenze production mancanti |
 | `INGEST_WORKER_ENABLED` | `true` | Avvia il worker di ingest nel processo dell'app (coda condivisa via Postgres) |
 | `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` | *(non impostati)* | Abilitano `/billing/*`; se assenti il billing è disattivato — setup in [`deploy/STRIPE.md`](deploy/STRIPE.md) |
 | `DOCS_ENABLED` | `false` | Espone `/docs`, `/redoc`, `/openapi.json` (off di default in prod) |
