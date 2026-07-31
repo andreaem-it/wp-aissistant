@@ -9,6 +9,8 @@ esce dal suo perimetro (rimborsi, reclami, modifiche account, domande fuori cont
 
 > **Stato:** MVP funzionante. Vedi [Roadmap MVP → Produzione](#roadmap-mvp--produzione)
 > per i lavori necessari prima del rilascio in produzione.
+> La roadmap di prodotto aggiornata è in
+> [`docs/competitor-feature-backlog.md`](docs/competitor-feature-backlog.md).
 
 ## Architettura
 
