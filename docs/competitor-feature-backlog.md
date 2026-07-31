@@ -44,7 +44,7 @@ Queste funzionalità esistono già e non vanno reinserite come nuove feature:
 
 | Feature | Stato | Impatto | Complessità | Criterio di completamento |
 |---|---|---:|---:|---|
-| Valutazione sistematica RAG | Parziale | Alto | Media | Dataset di domande attese/fuori ambito per tenant, metriche retrieval e answer quality, soglie documentate e regression test. |
+| Valutazione sistematica RAG | Implementata, dataset tenant da popolare | Alto | Media | Suite live in `backend/evals/`: dataset per tenant, metriche retrieval e answer quality, soglia CI e regression test. |
 | Monitoraggio e alerting operativo | Parziale | Alto | Media | Alert su error rate, latenza, coda ingest, provider AI, email e webhook; runbook e storico incidenti. |
 | Backup, restore e disaster recovery | Da fare | Alto | Media | Backup automatici verificati, prova di ripristino e RPO/RTO dichiarati. |
 | Hardening produzione | Parziale | Alto | Bassa | CORS ristretto, domini definitivi, secret rotation, endpoint tecnici protetti e checklist release. |

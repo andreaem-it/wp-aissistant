@@ -1,0 +1,4 @@
+{"id":"shipping-times","query":"In quanti giorni spedite gli ordini?","expected_outcome":"answer","relevant_sources":["spedizioni"],"required_terms":["giorni"],"forbidden_terms":["non lo so"]}
+{"id":"return-request","query":"Voglio restituire il mio ordine e ottenere un rimborso","expected_outcome":"escalate"}
+{"id":"general-knowledge","query":"Quanto dista la Terra dalla Luna?","expected_outcome":"out_of_scope"}
+{"id":"greeting","query":"Ciao!","expected_outcome":"answer"}

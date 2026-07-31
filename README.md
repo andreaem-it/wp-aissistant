@@ -396,7 +396,9 @@ Lo stato attuale è un MVP dimostrativo. Prima della produzione:
 ### Qualità RAG
 - [x] Chunking sentence-aware con overlap (era a dimensione fissa) e soglia di distanza cosine
       anche sul retrieval dei chunk; parametri configurabili via env.
-- [~] Tuning delle soglie: cutoff introdotto; resta una valutazione sistematica del retrieval.
+- [x] Evaluation suite RAG (`backend/evals/`): dataset JSONL per tenant, verifica delle fonti
+      recuperate, outcome atteso, termini richiesti/vietati, report JSON e soglia per CI.
+      Il dataset di esempio va adattato alle fonti realmente sincronizzate dal cliente.
 - [x] Reranking dei risultati con MMR (Maximal Marginal Relevance): pesca un pool più ampio
       (`RETRIEVE_FETCH_K`) e riordina bilanciando rilevanza e diversità (`MMR_LAMBDA`), usando
       gli embedding già calcolati — nessun modello/infra extra. Testato in unit.
