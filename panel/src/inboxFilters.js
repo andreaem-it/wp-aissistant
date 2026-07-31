@@ -7,8 +7,23 @@ export const EMPTY_FILTERS = {
   assignment: "", // "" | "unassigned" | id operatore
   department_id: "",
   sla_state: "",
+  tag_id: "",
+  intent: "",
+  urgency: "",
   sort: "recent",
 };
+
+export const INTENT_LABELS = {
+  informazione: "Informazione",
+  acquisto: "Acquisto",
+  ordine: "Ordine",
+  reso: "Reso",
+  reclamo: "Reclamo",
+  assistenza_tecnica: "Assistenza tecnica",
+  altro: "Altro",
+};
+
+export const URGENCY_LABELS = { bassa: "Bassa", media: "Media", alta: "Alta" };
 
 /** Filtri nel formato salvato/accettato dal backend (senza l'ordinamento). */
 export function toApiFilters(filters) {
@@ -17,6 +32,9 @@ export function toApiFilters(filters) {
   if (filters.priority) out.priority = filters.priority;
   if (filters.department_id) out.department_id = Number(filters.department_id);
   if (filters.sla_state) out.sla_state = filters.sla_state;
+  if (filters.tag_id) out.tag_id = Number(filters.tag_id);
+  if (filters.intent) out.intent = filters.intent;
+  if (filters.urgency) out.urgency = filters.urgency;
   if (filters.assignment === "unassigned") out.unassigned = true;
   else if (filters.assignment) out.assigned_operator_id = Number(filters.assignment);
   return out;
@@ -36,6 +54,9 @@ export function fromApiFilters(saved, sort) {
     priority: source.priority || "",
     department_id: source.department_id ? String(source.department_id) : "",
     sla_state: source.sla_state || "",
+    tag_id: source.tag_id ? String(source.tag_id) : "",
+    intent: source.intent || "",
+    urgency: source.urgency || "",
     assignment: source.unassigned
       ? "unassigned"
       : source.assigned_operator_id

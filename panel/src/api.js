@@ -79,6 +79,12 @@ export const api = {
   createSlaPolicy: (body) => call("/sla-policies", { method: "POST", body }),
   updateSlaPolicy: (id, body) => call(`/sla-policies/${id}`, { method: "PATCH", body }),
   deleteSlaPolicy: (id) => call(`/sla-policies/${id}`, { method: "DELETE" }),
+  tags: () => call("/tags"),
+  createTag: (name, color = "") => call("/tags", { method: "POST", body: { name, color } }),
+  deleteTag: (id) => call(`/tags/${id}`, { method: "DELETE" }),
+  tagConversation: (id, body) => call(`/conversations/${id}/tags`, { method: "POST", body }),
+  untagConversation: (id, tagId) => call(`/conversations/${id}/tags/${tagId}`, { method: "DELETE" }),
+  classifyConversation: (id) => call(`/conversations/${id}/classify`, { method: "POST" }),
   notes: (id) => call(`/conversations/${id}/notes`),
   createNote: (id, body, mentions = []) =>
     call(`/conversations/${id}/notes`, { method: "POST", body: { body, mentions } }),

@@ -105,6 +105,11 @@ class Conversation(SQLModel, table=True):
     # set once the breach alert has been sent, so the monitor notifies at most once per target
     first_response_breach_notified: bool = False
     resolution_breach_notified: bool = False
+    # ---- AI classification (advisory: it never changes status, priority or routing) ----
+    ai_intent: str = ""
+    ai_topic: str = ""
+    ai_urgency: str = ""  # bassa | media | alta
+    ai_classified_at: Optional[datetime] = None
 
 
 class Message(SQLModel, table=True):
@@ -210,6 +215,27 @@ class SlaPolicy(SQLModel, table=True):
     first_response_minutes: int = 60
     resolution_minutes: int = 480
     active: bool = True
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class Tag(SQLModel, table=True):
+    """Tenant-scoped label for conversations. `source` records whether a human created it or
+    the AI classifier did, so the two can be told apart in reports and filters."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    client_id: int = Field(index=True, foreign_key="client.id")
+    name: str
+    color: str = ""  # optional hex, e.g. "#5b4fe8"
+    source: str = "manual"  # manual | ai
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class ConversationTag(SQLModel, table=True):
+    """Many-to-many between conversations and tags (a conversation can carry several)."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    client_id: int = Field(index=True, foreign_key="client.id")
+    conversation_id: int = Field(index=True, foreign_key="conversation.id")
+    tag_id: int = Field(index=True, foreign_key="tag.id")
+    source: str = "manual"  # manual | ai
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 

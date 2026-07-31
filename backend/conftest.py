@@ -18,6 +18,7 @@ os.environ.setdefault("STRIPE_SECRET_KEY", "sk_test_dummy")  # Stripe calls are 
 os.environ.setdefault("STRIPE_WEBHOOK_SECRET", "whsec_dummy")
 os.environ.setdefault("METRICS_TOKEN", "metrics-test")  # /metrics is token-gated
 os.environ.setdefault("SLA_MONITOR_ENABLED", "false")  # tests call check_sla_breaches directly
+os.environ.setdefault("AI_CLASSIFY_ENABLED", "false")  # no LLM call behind an escalation in tests
 
 _TEST_DB = os.environ.get("TEST_DATABASE_URL")
 if _TEST_DB:

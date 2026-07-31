@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Inbox, MessageCircle, Send, Save, CheckCircle2, RotateCcw, Trash2, Timer, Bookmark, Users,
-  StickyNote, AtSign, History, AlertTriangle,
+  StickyNote, AtSign, History, AlertTriangle, Tag as TagIcon, Sparkles,
 } from "lucide-react";
 import { api } from "./api.js";
 import { SLA_STATE_CLASS, SLA_STATE_LABELS, describeSla } from "./sla.js";
 import { actionLabel, actorLabel, formatMoment } from "./activity.js";
 import {
   EMPTY_FILTERS,
+  INTENT_LABELS,
+  URGENCY_LABELS,
   fromApiFilters,
   hasActiveFilters,
   matchesView,
@@ -82,6 +84,12 @@ export default function Conversations() {
   const [presence, setPresence] = useState({ others: [], conflict: false });
   const [mentions, setMentions] = useState([]);
 
+  const [tags, setTags] = useState([]);
+  const [tagDraft, setTagDraft] = useState("");
+  const [classifying, setClassifying] = useState(false);
+  const [tagError, setTagError] = useState("");
+
+  const loadTags = useCallback(() => api.tags().then(setTags).catch(() => setTags([])), []);
   const loadMentions = useCallback(
     () => api.mentions().then(setMentions).catch(() => setMentions([])),
     [],
@@ -100,7 +108,54 @@ export default function Conversations() {
     api.departments().then(setDepartments).catch(() => {});
     loadViews();
     loadMentions();
-  }, [loadViews, loadMentions]);
+    loadTags();
+  }, [loadViews, loadMentions, loadTags]);
+
+  const addTag = async (e) => {
+    e.preventDefault();
+    const name = tagDraft.trim();
+    if (!name || !selected) return;
+    try {
+      await api.tagConversation(selected, { name });
+      setTagDraft("");
+      setTagError("");
+      await Promise.all([loadList(), loadTags()]);
+    } catch {
+      setTagError("Impossibile aggiungere il tag.");
+    }
+  };
+  const attachTag = async (tagId) => {
+    if (!tagId || !selected) return;
+    try {
+      await api.tagConversation(selected, { tag_id: Number(tagId) });
+      setTagError("");
+      await loadList();
+    } catch {
+      setTagError("Impossibile aggiungere il tag.");
+    }
+  };
+  const removeTag = async (tagId) => {
+    if (!selected) return;
+    await api.untagConversation(selected, tagId);
+    await loadList();
+  };
+  const classify = async () => {
+    if (!selected) return;
+    setClassifying(true);
+    setTagError("");
+    try {
+      await api.classifyConversation(selected);
+      await Promise.all([loadList(), loadTags()]);
+    } catch (err) {
+      setTagError(
+        err.status === 503
+          ? "Classificazione non disponibile in questo momento: la conversazione resta invariata."
+          : "Classificazione non riuscita.",
+      );
+    } finally {
+      setClassifying(false);
+    }
+  };
 
   const applyView = (view) => {
     setViewForm(null);
@@ -360,6 +415,17 @@ export default function Conversations() {
         <select aria-label="Stato SLA" value={filters.sla_state} onChange={(e) => setFilters((f) => ({ ...f, sla_state: e.target.value }))}>
           <option value="">Tutti gli SLA</option><option value="violato">SLA violati</option><option value="in_scadenza">In scadenza</option><option value="ok">Nei tempi</option>
         </select>
+        <select aria-label="Tag" value={filters.tag_id} onChange={(e) => setFilters((f) => ({ ...f, tag_id: e.target.value }))}>
+          <option value="">Tutti i tag</option>{tags.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+        </select>
+        <select aria-label="Intento" value={filters.intent} onChange={(e) => setFilters((f) => ({ ...f, intent: e.target.value }))}>
+          <option value="">Tutti gli intenti</option>
+          {Object.entries(INTENT_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+        </select>
+        <select aria-label="Urgenza rilevata" value={filters.urgency} onChange={(e) => setFilters((f) => ({ ...f, urgency: e.target.value }))}>
+          <option value="">Tutte le urgenze</option>
+          {Object.entries(URGENCY_LABELS).map(([value, label]) => <option key={value} value={value}>Urgenza {label.toLowerCase()}</option>)}
+        </select>
         <select aria-label="Ordinamento" value={filters.sort} onChange={(e) => setFilters((f) => ({ ...f, sort: e.target.value }))}>
           <option value="recent">Più recenti</option><option value="oldest">Meno recenti</option><option value="priority">Priorità</option><option value="sla">Scadenza SLA</option>
         </select>
@@ -379,7 +445,7 @@ export default function Conversations() {
               <p>Nessuna conversazione con questi filtri.</p>
             </div>
           )}
-          {items.map(({ conversation: c, last_message, sla }) => (
+          {items.map(({ conversation: c, last_message, sla, tags: convTags = [] }) => (
             <button
               key={c.id}
               className={"wpai-conv-item" + (c.id === selected ? " active" : "")}
@@ -393,6 +459,13 @@ export default function Conversations() {
                 </div>
                 <div className="preview">{last_message || "—"}</div>
                 <div className="meta">{departments.find((d) => d.id === c.department_id)?.name || "Nessun reparto"} · {operators.find((o) => o.id === c.assigned_operator_id)?.name || "Non assegnata"}</div>
+                {convTags.length > 0 && (
+                  <div className="wpai-tag-row">
+                    {convTags.map((t) => (
+                      <span key={t.id} className={"wpai-tag" + (t.source === "ai" ? " ai" : "")}>{t.name}</span>
+                    ))}
+                  </div>
+                )}
               </div>
             </button>
           ))}
@@ -486,6 +559,56 @@ export default function Conversations() {
                 </select>
               </div>
             </div>
+            <div className="wpai-card">
+              <div className="wpai-card-title" style={{ marginBottom: 10 }}>
+                <TagIcon size={15} /> Tag e classificazione
+              </div>
+              <div className="wpai-tag-row" style={{ marginBottom: 8 }}>
+                {(selectedRow?.tags || []).map((t) => (
+                  <span key={t.id} className={"wpai-tag" + (t.source === "ai" ? " ai" : "")}>
+                    {t.name}
+                    <button className="wpai-chip-x" aria-label={`Rimuovi il tag ${t.name}`} onClick={() => removeTag(t.id)}>×</button>
+                  </span>
+                ))}
+                {(selectedRow?.tags || []).length === 0 && (
+                  <span style={{ fontSize: 12.5, color: "var(--text-muted)" }}>Nessun tag.</span>
+                )}
+              </div>
+              <form onSubmit={addTag} style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
+                <input
+                  value={tagDraft}
+                  onChange={(e) => setTagDraft(e.target.value)}
+                  placeholder="Nuovo tag"
+                  aria-label="Nuovo tag"
+                  style={{ flex: 1, minWidth: 120 }}
+                />
+                <button className="wpai-btn ghost" type="submit" disabled={!tagDraft.trim()}>Aggiungi</button>
+              </form>
+              {tags.length > 0 && (
+                <select aria-label="Tag esistenti" value="" onChange={(e) => attachTag(e.target.value)} style={{ marginBottom: 8 }}>
+                  <option value="">Tag esistente…</option>
+                  {tags
+                    .filter((t) => !(selectedRow?.tags || []).some((x) => x.id === t.id))
+                    .map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                </select>
+              )}
+              {selectedRow?.classification ? (
+                <ul className="wpai-sla-list">
+                  <li>Intento: <b>{INTENT_LABELS[selectedRow.classification.intent] || "—"}</b></li>
+                  <li>Argomento: <b>{selectedRow.classification.topic || "—"}</b></li>
+                  <li>Urgenza rilevata: <b>{URGENCY_LABELS[selectedRow.classification.urgency] || "—"}</b></li>
+                </ul>
+              ) : (
+                <p style={{ fontSize: 12.5, color: "var(--text-muted)", margin: "0 0 8px" }}>
+                  Nessuna classificazione AI. È solo un suggerimento: non cambia stato, priorità o assegnazione.
+                </p>
+              )}
+              <button className="wpai-btn ghost" onClick={classify} disabled={classifying} style={{ marginTop: 8 }}>
+                <Sparkles size={14} /> {classifying ? "Classificazione…" : "Classifica con AI"}
+              </button>
+              {tagError && <p role="alert" style={{ fontSize: 12.5, color: "var(--red)", margin: "8px 0 0" }}>{tagError}</p>}
+            </div>
+
             <div className="wpai-card">
               <div className="wpai-card-title" style={{ marginBottom: 10 }}>
                 <StickyNote size={15} /> Note interne

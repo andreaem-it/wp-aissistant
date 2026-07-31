@@ -59,7 +59,7 @@ Queste funzionalità esistono già e non vanno reinserite come nuove feature:
 | Inbox con assegnazione, team e reparti | **Rilasciata:** assegnatario, reparto, priorità, filtri, ordinamenti e viste salvate personali/condivise. | — | Media |
 | SLA e regole di instradamento | **Rilasciata:** regole SLA per reparto/priorità, scadenze prima risposta e risoluzione con stato `ok`/`in scadenza`/`violato`, round-robin sui membri del reparto con fallback alla coda, alert+metriche sulle violazioni e filtri nell'inbox. | Prossimo passo: pausa SLA fuori orario di supporto. | Media |
 | Note interne, menzioni e collision detection | **Rilasciata:** note interne tenant-scoped mai esposte al visitatore, menzioni `@nome` con stato di lettura, presenza sulla conversazione con avviso di risposta in corso e registro azioni per conversazione. | Prossimo passo: notifica push/email sulle menzioni. | Media |
-| Tag e classificazione automatica | Abilita report e automazioni realmente utili. | Tag manuali + classificazione AI per intento, tema e urgenza. | Media |
+| Tag e classificazione automatica | **Rilasciata:** tag manuali tenant-scoped con associazione multipla e filtri, classificazione AI (intento/argomento/urgenza) in coda dopo l'escalation o su richiesta, vocabolario chiuso e fallback che lascia la conversazione non classificata. Report per tag e intento in `/stats`. | Prossimo passo: regole automatiche basate sui tag. | Media |
 | CSAT post-conversazione | Misura l'esito del supporto, non solo il singolo messaggio AI. | Voto 1–5, commento opzionale, report per AI/operatore/canale. | Bassa |
 | Workflow no-code | È una lacuna forte rispetto ai prodotti maturi. | Trigger, condizioni e azioni per escalation, tag, assegnazione, webhook ed email. | Alta |
 | Messaggi proattivi contestuali | Aumenta conversioni e riduce abbandono. | Trigger per URL, tempo sulla pagina, carrello e intento di uscita; frequenza limitata e consenso. | Media |
@@ -109,7 +109,7 @@ Non iniziare lo sviluppo esteso prima del go/no-go sulla latenza del PoC.
 1. ✅ Modello team/reparti e assegnazione.
 2. ✅ Priorità, SLA, routing e viste salvate.
 3. ✅ Note interne, menzioni e collision detection.
-4. Tag automatici e CSAT.
+4. ✅ Tag automatici — resta il CSAT.
 
 ### Ciclo 3 — Automazione e crescita
 

@@ -18,9 +18,10 @@ from datetime import datetime, timedelta
 from sqlmodel import Session, select
 
 from . import metrics
-from .db import Chunk, IngestJob, engine
+from .db import Chunk, Conversation, IngestJob, engine
 from .logging_config import log
 from .rag import ingest, ingest_product
+from .tagging import classify_conversation
 
 logger = logging.getLogger("wpai.worker")
 
@@ -48,6 +49,13 @@ def _process(session: Session, job: IngestJob) -> None:
             session, job.client_id, data["url"], data["title"],
             data["price"], data["image_url"], data["text"],
         )
+    elif job.kind == "classify":
+        # AI classification of a conversation. Best-effort by design: classify_conversation
+        # swallows provider errors and returns None, so a failing classifier never sends the
+        # job through the retry/error path meant for real ingest failures.
+        conv = session.get(Conversation, data["conversation_id"])
+        if conv and conv.client_id == job.client_id:
+            classify_conversation(session, conv)
     else:
         raise ValueError(f"unknown job kind: {job.kind}")
 

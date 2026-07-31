@@ -1,7 +1,11 @@
 import { useEffect, useState } from "react";
-import { MessagesSquare, UserCheck, CheckCircle2, Bot, Timer, Percent, ThumbsUp, ThumbsDown, ShieldCheck } from "lucide-react";
+import {
+  MessagesSquare, UserCheck, CheckCircle2, Bot, Timer, Percent, ThumbsUp, ThumbsDown, ShieldCheck,
+  Tag as TagIcon, Sparkles,
+} from "lucide-react";
 import { api } from "./api.js";
 import { MiniBars, Breakdown } from "./Charts.jsx";
+import { INTENT_LABELS } from "./inboxFilters.js";
 
 function pct(x) {
   return x === null || x === undefined ? "—" : `${Math.round(x * 100)}%`;
@@ -36,6 +40,11 @@ export default function Stats() {
     { label: "AI non disponibile", value: esc.llm_down },
   ];
 
+  const intentBreakdown = Object.entries(stats.classification?.by_intent || {}).map(([intent, value]) => ({
+    label: INTENT_LABELS[intent] || intent,
+    value,
+  }));
+
   const sla = stats.sla;
   const slaBreakdown = sla
     ? [
@@ -68,6 +77,29 @@ export default function Stats() {
           <Breakdown items={breakdown} />
         </div>
       </div>
+
+      {(stats.tags?.length > 0 || intentBreakdown.length > 0) && (
+        <div className="wpai-two-col">
+          <div className="wpai-card">
+            <div className="wpai-card-title"><TagIcon size={15} /> Tag più usati</div>
+            {stats.tags?.length > 0 ? (
+              <Breakdown items={stats.tags.map((t) => ({ label: t.source === "ai" ? `${t.name} (AI)` : t.name, value: t.conversations }))} />
+            ) : (
+              <p style={{ fontSize: 12.5, color: "var(--text-muted)", margin: "6px 0 0" }}>Nessun tag usato finora.</p>
+            )}
+          </div>
+          <div className="wpai-card">
+            <div className="wpai-card-title"><Sparkles size={15} /> Intenti rilevati</div>
+            {intentBreakdown.length > 0 ? (
+              <Breakdown items={intentBreakdown} />
+            ) : (
+              <p style={{ fontSize: 12.5, color: "var(--text-muted)", margin: "6px 0 0" }}>
+                Nessuna conversazione classificata.
+              </p>
+            )}
+          </div>
+        </div>
+      )}
 
       {sla && (
         <div className="wpai-two-col">

@@ -26,6 +26,7 @@ from .db import (
     Chunk,
     Client,
     Conversation,
+    ConversationTag,
     Department,
     DepartmentMember,
     InfoField,
@@ -40,6 +41,7 @@ from .db import (
     RoutingSetting,
     SavedView,
     SlaPolicy,
+    Tag,
     Ticket,
     engine,
     get_session,
@@ -51,6 +53,8 @@ from fastapi.responses import StreamingResponse
 import urllib.error
 import urllib.request
 
+from .llm import INTENTS as llm_intents
+from .llm import URGENCIES as llm_urgencies
 from .llm import ESCALATE_PREFIX, ORDER_LOOKUP_RE, LLMUnavailableError
 from .llm import chat as llm_chat
 from .llm import chat_stream as llm_chat_stream
@@ -62,6 +66,7 @@ from .production_config import enforce_production_config, production_warnings
 from .rag import extract_text, retrieve, retrieve_products, retrieve_with_meta
 from .ratelimit import make_limiter
 from .security import hash_password, password_needs_rehash, verify_password
+from . import tagging
 from .worker import requeue_stale, run_worker
 
 setup_logging()
@@ -784,6 +789,13 @@ def _escalate(session, client_id, client_name, conv, reason, *, outcome, trigger
             logger, logging.INFO, "routing.auto_assigned",
             client_id=client_id, conversation_id=conv.id, operator_id=assignee.id,
         )
+    # classify in the background: the operator opening the inbox finds intent/topic/urgency
+    # already there, and a slow or failing classifier never delays the escalation itself
+    if tagging.AI_CLASSIFY_ENABLED and conv.ai_classified_at is None:
+        try:
+            _enqueue(session, client_id, "classify", {"conversation_id": conv.id})
+        except Exception as exc:  # noqa: BLE001 — queuing a classification is never critical
+            log(logger, logging.WARNING, "classify.enqueue_failed", conversation_id=conv.id, error=str(exc))
     if error is not None:
         log(logger, logging.ERROR, "chat.llm_unavailable", client_id=client_id, conversation_id=conv.id, error=error)
     else:
@@ -1585,6 +1597,140 @@ def _filter_by_sla_state(query, state: str, now: datetime):
     return query.where(running, ~breached, ~warning)  # ok
 
 
+# ---- Tags & AI classification -----------------------------------------------------------
+
+
+@app.get("/tags")
+def list_tags(operator: Operator = Depends(require_operator), session: Session = Depends(get_session)):
+    rows = session.exec(
+        select(Tag).where(Tag.client_id == operator.client_id).order_by(Tag.name)
+    ).all()
+    return [{"id": t.id, "name": t.name, "color": t.color, "source": t.source} for t in rows]
+
+
+@app.post("/tags")
+def create_tag(
+    name: str = Body(...),
+    color: str = Body(""),
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
+    clean = tagging.clean_tag_name(name)
+    if not clean:
+        raise HTTPException(400, "name required")
+    if tagging.find_tag(session, operator.client_id, clean):
+        raise HTTPException(409, "tag already exists")
+    tag = tagging.get_or_create_tag(session, operator.client_id, clean, source="manual")
+    if tag is None:
+        raise HTTPException(400, "tag limit reached")
+    if color:
+        tag.color = color.strip()[:16]
+        session.add(tag)
+        session.commit()
+    _audit(
+        session, "operator", operator.email, "tag.create",
+        target=f"tag:{tag.id}", client_id=operator.client_id, detail={"name": tag.name},
+    )
+    return {"id": tag.id, "name": tag.name, "color": tag.color, "source": tag.source}
+
+
+@app.delete("/tags/{tag_id}")
+def delete_tag(
+    tag_id: int,
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
+    tag = session.get(Tag, tag_id)
+    if not tag or tag.client_id != operator.client_id:
+        raise HTTPException(404, "tag not found")
+    for link in session.exec(select(ConversationTag).where(ConversationTag.tag_id == tag.id)).all():
+        session.delete(link)
+    session.flush()
+    session.delete(tag)
+    session.commit()
+    _audit(
+        session, "operator", operator.email, "tag.delete",
+        target=f"tag:{tag_id}", client_id=operator.client_id,
+    )
+    return {"ok": True}
+
+
+@app.post("/conversations/{conversation_id}/tags")
+def tag_conversation(
+    conversation_id: int,
+    tag_id: int | None = Body(None),
+    name: str = Body(""),
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
+    """Attach an existing tag (`tag_id`) or create-and-attach one by name."""
+    conv = _require_conversation(session, operator.client_id, conversation_id)
+    if tag_id is not None:
+        tag = session.get(Tag, tag_id)
+        if not tag or tag.client_id != operator.client_id:
+            raise HTTPException(404, "tag not found")
+    else:
+        clean = tagging.clean_tag_name(name)
+        if not clean:
+            raise HTTPException(400, "tag_id or name required")
+        tag = tagging.get_or_create_tag(session, operator.client_id, clean, source="manual")
+        if tag is None:
+            raise HTTPException(400, "tag limit reached")
+    tagging.attach_tag(session, conv, tag, source="manual")
+    _audit(
+        session, "operator", operator.email, "conversation.tag_add",
+        target=f"conversation:{conversation_id}", client_id=operator.client_id,
+        detail={"tag_id": tag.id, "name": tag.name},
+    )
+    return {"id": tag.id, "name": tag.name, "color": tag.color, "source": "manual"}
+
+
+@app.delete("/conversations/{conversation_id}/tags/{tag_id}")
+def untag_conversation(
+    conversation_id: int,
+    tag_id: int,
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
+    _require_conversation(session, operator.client_id, conversation_id)
+    link = session.exec(
+        select(ConversationTag).where(
+            ConversationTag.client_id == operator.client_id,
+            ConversationTag.conversation_id == conversation_id,
+            ConversationTag.tag_id == tag_id,
+        )
+    ).first()
+    if not link:
+        raise HTTPException(404, "tag not attached")
+    session.delete(link)
+    session.commit()
+    _audit(
+        session, "operator", operator.email, "conversation.tag_remove",
+        target=f"conversation:{conversation_id}", client_id=operator.client_id,
+        detail={"tag_id": tag_id},
+    )
+    return {"ok": True}
+
+
+@app.post("/conversations/{conversation_id}/classify")
+def classify_conversation_now(
+    conversation_id: int,
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
+    """Classify on demand from the panel. Returns 503 when the classification could not be
+    produced: the conversation is left untouched, never labelled with a guess."""
+    conv = _require_conversation(session, operator.client_id, conversation_id)
+    result = tagging.classify_conversation(session, conv)
+    if result is None:
+        raise HTTPException(503, "classificazione non disponibile")
+    _audit(
+        session, "operator", operator.email, "conversation.classify",
+        target=f"conversation:{conversation_id}", client_id=operator.client_id, detail=result,
+    )
+    return {"classification": tagging.classification_payload(conv)}
+
+
 # ---- Collaboration: internal notes, mentions, presence ----------------------------------
 
 MAX_NOTE_CHARS = int(os.getenv("MAX_NOTE_CHARS", "4000"))
@@ -1890,7 +2036,10 @@ def _inbox_order(sort: str) -> list:
     return [Conversation.id.desc()]
 
 
-INBOX_FILTER_KEYS = ("status", "priority", "department_id", "assigned_operator_id", "unassigned", "sla_state")
+INBOX_FILTER_KEYS = (
+    "status", "priority", "department_id", "assigned_operator_id", "unassigned", "sla_state",
+    "tag_id", "intent", "urgency",
+)
 
 
 def _clean_inbox_filters(session: Session, client_id: int, raw: dict) -> dict:
@@ -1928,6 +2077,22 @@ def _clean_inbox_filters(session: Session, client_id: int, raw: dict) -> dict:
         if not assignee or assignee.client_id != client_id:
             raise HTTPException(404, "operator not found")
         clean["assigned_operator_id"] = int(assigned_operator_id)
+    tag_id = raw.get("tag_id")
+    if tag_id not in (None, ""):
+        tag = session.get(Tag, int(tag_id))
+        if not tag or tag.client_id != client_id:
+            raise HTTPException(404, "tag not found")
+        clean["tag_id"] = int(tag_id)
+    intent = raw.get("intent")
+    if intent:
+        if intent not in llm_intents:
+            raise HTTPException(400, "invalid intent")
+        clean["intent"] = intent
+    urgency = raw.get("urgency")
+    if urgency:
+        if urgency not in llm_urgencies:
+            raise HTTPException(400, "invalid urgency")
+        clean["urgency"] = urgency
     if raw.get("unassigned"):
         clean["unassigned"] = True
     return clean
@@ -2229,6 +2394,9 @@ def list_conversations(
     assigned_operator_id: int | None = None,
     unassigned: bool = False,
     sla_state: str | None = None,
+    tag_id: int | None = None,
+    intent: str | None = None,
+    urgency: str | None = None,
     sort: str = "recent",
     operator: Operator = Depends(require_operator),
     session: Session = Depends(get_session),
@@ -2263,11 +2431,29 @@ def list_conversations(
         if sla_state not in SLA_STATES:
             raise HTTPException(400, "invalid sla_state")
         query = _filter_by_sla_state(query, sla_state, now)
+    if tag_id is not None:
+        tag = session.get(Tag, tag_id)
+        if not tag or tag.client_id != operator.client_id:
+            raise HTTPException(404, "tag not found")
+        query = query.where(
+            Conversation.id.in_(
+                select(ConversationTag.conversation_id).where(ConversationTag.tag_id == tag_id)
+            )
+        )
+    if intent:
+        if intent not in llm_intents:
+            raise HTTPException(400, "invalid intent")
+        query = query.where(Conversation.ai_intent == intent)
+    if urgency:
+        if urgency not in llm_urgencies:
+            raise HTTPException(400, "invalid urgency")
+        query = query.where(Conversation.ai_urgency == urgency)
     if before_id:
         query = query.where(Conversation.id < before_id)
     convs = session.exec(
         query.order_by(*_inbox_order(sort)).limit(_bounded_limit(limit))
     ).all()
+    tags_by_conversation = tagging.conversation_tags(session, [c.id for c in convs], operator.client_id)
     result = []
     for c in convs:
         last = session.exec(
@@ -2281,6 +2467,8 @@ def list_conversations(
             "assignee": {"id": assignee.id, "name": _operator_name(assignee)} if assignee else None,
             "department": {"id": department.id, "name": department.name} if department else None,
             "sla": _sla_view(c, now),
+            "tags": tags_by_conversation.get(c.id, []),
+            "classification": tagging.classification_payload(c),
         })
     return result
 
@@ -2454,6 +2642,8 @@ def _erase_conversation(session: Session, conv: Conversation) -> None:
         session.delete(lg)
     for mention in session.exec(select(NoteMention).where(NoteMention.conversation_id == conv.id)).all():
         session.delete(mention)
+    for link in session.exec(select(ConversationTag).where(ConversationTag.conversation_id == conv.id)).all():
+        session.delete(link)
     session.flush()
     for note in session.exec(select(InternalNote).where(InternalNote.conversation_id == conv.id)).all():
         session.delete(note)
@@ -3182,6 +3372,32 @@ def _sla_stats(session: Session, client_id: int | None) -> dict:
     }
 
 
+def _tag_stats(session: Session, client_id: int | None, limit: int = 8) -> list[dict]:
+    """Most used tags, manual and AI together — the entry point for "di cosa ci scrivono"."""
+    q = (
+        select(Tag.name, ConversationTag.source, func.count())
+        .join(ConversationTag, ConversationTag.tag_id == Tag.id)
+        .group_by(Tag.name, ConversationTag.source)
+        .order_by(func.count().desc())
+        .limit(limit)
+    )
+    if client_id is not None:
+        q = q.where(ConversationTag.client_id == client_id)
+    return [{"name": name, "source": source, "conversations": int(n)} for name, source, n in session.exec(q).all()]
+
+
+def _classification_stats(session: Session, client_id: int | None) -> dict:
+    """Split of the AI classification by intent and urgency (classified conversations only)."""
+
+    def _grouped(column) -> dict:
+        q = select(column, func.count()).where(column != "", Conversation.ai_classified_at.is_not(None))
+        if client_id is not None:
+            q = q.where(Conversation.client_id == client_id)
+        return {value: int(n) for value, n in session.exec(q.group_by(column)).all()}
+
+    return {"by_intent": _grouped(Conversation.ai_intent), "by_urgency": _grouped(Conversation.ai_urgency)}
+
+
 def _build_stats(session: Session, client_id: int | None) -> dict:
     """Aggregated analytics for one client (operator view) or the whole system (client_id=None,
     admin view): conversation status split, AI resolution vs escalation, escalation triggers,
@@ -3211,6 +3427,8 @@ def _build_stats(session: Session, client_id: int | None) -> dict:
         "escalations_by_trigger": {"keyword": esc_kw, "model": esc_model, "llm_down": esc_down},
         "feedback": _feedback_counts(session, client_id),
         "sla": _sla_stats(session, client_id),
+        "tags": _tag_stats(session, client_id),
+        "classification": _classification_stats(session, client_id),
         "volume_daily": _daily_volume(session, client_id),
     }
 

@@ -24,6 +24,14 @@ describe("toApiFilters", () => {
       toApiFilters({ ...EMPTY_FILTERS, status: "escalated", priority: "urgent", department_id: "3", sla_state: "violato" }),
     ).toEqual({ status: "escalated", priority: "urgent", department_id: 3, sla_state: "violato" });
   });
+
+  it("carries tag and classification filters", () => {
+    expect(toApiFilters({ ...EMPTY_FILTERS, tag_id: "5", intent: "reso", urgency: "alta" })).toEqual({
+      tag_id: 5,
+      intent: "reso",
+      urgency: "alta",
+    });
+  });
 });
 
 describe("toQueryParams", () => {
@@ -41,6 +49,9 @@ describe("fromApiFilters", () => {
       assignment: "4",
       department_id: "2",
       sla_state: "",
+      tag_id: "",
+      intent: "",
+      urgency: "",
       sort: "priority",
     });
   });

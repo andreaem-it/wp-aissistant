@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
-import { Download, Plus, Trash2, MessageSquareText, ListChecks, ShieldX, Timer, Shuffle } from "lucide-react";
+import {
+  Download, Plus, Trash2, MessageSquareText, ListChecks, ShieldX, Timer, Shuffle, Tag as TagIcon,
+} from "lucide-react";
 import { api } from "./api.js";
 
 function GdprCard() {
@@ -429,6 +431,57 @@ function CannedManager() {
   );
 }
 
+function TagsManager() {
+  const [items, setItems] = useState([]);
+  const [name, setName] = useState("");
+  const [error, setError] = useState("");
+
+  const load = () => api.tags().then(setItems).catch(() => setItems([]));
+  useEffect(() => { load(); }, []);
+
+  const add = async (e) => {
+    e.preventDefault();
+    if (!name.trim()) return;
+    try {
+      await api.createTag(name.trim());
+      setName("");
+      setError("");
+      load();
+    } catch (err) {
+      setError(err.status === 409 ? "Esiste già un tag con questo nome." : "Impossibile creare il tag.");
+    }
+  };
+  const remove = async (id) => {
+    if (!window.confirm("Eliminare il tag? Verrà rimosso da tutte le conversazioni.")) return;
+    await api.deleteTag(id);
+    load();
+  };
+
+  return (
+    <div className="wpai-card">
+      <div className="wpai-card-title"><TagIcon size={15} /> Tag</div>
+      <p style={{ fontSize: 12.5, color: "var(--text-muted)", margin: "6px 0 12px" }}>
+        Etichette per classificare le conversazioni. Quelle marcate <b>AI</b> sono state create
+        dalla classificazione automatica: puoi rimuoverle come le altre.
+      </p>
+      <div className="wpai-tag-row" style={{ marginBottom: 12 }}>
+        {items.map((tag) => (
+          <span key={tag.id} className={"wpai-tag" + (tag.source === "ai" ? " ai" : "")}>
+            {tag.name}
+            <button className="wpai-chip-x" aria-label={`Elimina il tag ${tag.name}`} onClick={() => remove(tag.id)}>×</button>
+          </span>
+        ))}
+        {items.length === 0 && <span style={{ color: "var(--text-muted)", fontSize: 13 }}>Nessun tag.</span>}
+      </div>
+      <form onSubmit={add} style={{ display: "flex", gap: 8 }}>
+        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Es. VIP" style={{ flex: 1 }} />
+        <button className="wpai-btn" type="submit"><Plus size={14} /> Aggiungi</button>
+      </form>
+      {error && <p style={{ fontSize: 12.5, color: "var(--red)", margin: "8px 0 0" }}>{error}</p>}
+    </div>
+  );
+}
+
 export default function Settings() {
   const [departments, setDepartments] = useState([]);
   const [operators, setOperators] = useState([]);
@@ -454,6 +507,7 @@ export default function Settings() {
         <div style={{ display: "grid", gap: 16, alignContent: "start" }}>
           <RoutingManager departments={departments} />
           <SlaManager departments={departments} />
+          <TagsManager />
         </div>
       </div>
       <div style={{ marginTop: 16, maxWidth: 520 }}>

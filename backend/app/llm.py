@@ -122,6 +122,69 @@ def _chat_instructions(system: str) -> str:
     )
 
 
+# ---- Conversation classification ----
+#
+# Deliberately a closed vocabulary: a free-form label would be unusable for filters and
+# reports, and a small model invents categories happily. Anything outside these lists is
+# discarded by _parse_classification, which is what makes the fallback safe — a bad answer
+# leaves the conversation unclassified instead of mislabelled.
+INTENTS = ("informazione", "acquisto", "ordine", "reso", "reclamo", "assistenza_tecnica", "altro")
+URGENCIES = ("bassa", "media", "alta")
+MAX_TOPIC_CHARS = 40
+
+_CLASSIFY_INSTRUCTIONS = (
+    "Sei un classificatore di conversazioni di assistenza clienti. "
+    "Rispondi SOLO con un oggetto JSON su una riga, senza testo attorno, con esattamente "
+    'queste chiavi: {"intent": <uno tra ' + "|".join(INTENTS) + '>, "topic": <max 3 parole '
+    'in italiano>, "urgency": <uno tra ' + "|".join(URGENCIES) + ">}."
+)
+
+
+def _parse_classification(text: str) -> dict | None:
+    """Extract the JSON object from the model's answer and keep only known values.
+    Returns None when nothing usable came back — the caller then leaves the conversation
+    unclassified rather than storing a guess."""
+    match = re.search(r"\{.*\}", text or "", re.S)
+    if not match:
+        return None
+    try:
+        data = json.loads(match.group(0))
+    except (ValueError, TypeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    intent = str(data.get("intent", "")).strip().lower()
+    urgency = str(data.get("urgency", "")).strip().lower()
+    topic = " ".join(str(data.get("topic", "")).split())[:MAX_TOPIC_CHARS]
+    if intent not in INTENTS and urgency not in URGENCIES and not topic:
+        return None
+    return {
+        "intent": intent if intent in INTENTS else "",
+        "urgency": urgency if urgency in URGENCIES else "",
+        "topic": topic,
+    }
+
+
+def classify(transcript: str) -> dict | None:
+    """Classify a conversation transcript into intent/topic/urgency. Returns None when the
+    model answer can't be trusted; raises LLMUnavailableError when the provider is down."""
+    messages = [
+        {"role": "system", "content": _CLASSIFY_INSTRUCTIONS},
+        {"role": "user", "content": transcript},
+    ]
+    try:
+        resp = litellm.completion(
+            model=CHAT_MODEL, messages=messages, timeout=LLM_TIMEOUT, num_retries=LLM_RETRIES
+        )
+    except Exception as exc:
+        raise LLMUnavailableError(str(exc)) from exc
+    parsed = _parse_classification(resp.choices[0].message.content or "")
+    if parsed is None:
+        return None
+    parsed["model"] = getattr(resp, "model", None) or CHAT_MODEL
+    return parsed
+
+
 def chat_stream(system: str, history: list[dict], user_message: str):
     """Streaming variant of chat(). A generator that yields ("delta", text) tuples as tokens
     arrive, then one final ("meta", {model, latency_ms, tokens_prompt, tokens_completion}).

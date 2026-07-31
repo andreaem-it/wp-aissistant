@@ -77,6 +77,11 @@ Tre componenti indipendenti:
 - **Visibilità** — l'inbox mostra un badge per conversazione ed è filtrabile per stato SLA;
   `/stats` espone conversazioni tracciate, a rischio, violate, percentuale di rispetto e tempo
   medio di prima risposta.
+- **Tag e classificazione** — tag manuali tenant-scoped associabili a più conversazioni e
+  filtrabili nell'inbox. La classificazione AI (intento, argomento, urgenza) parte in background
+  dopo un'escalation, oppure su richiesta dal panel; è **solo consultiva**: non tocca stato,
+  priorità, assegnazione o SLA. Il vocabolario è chiuso e ogni risposta fuori vocabolario,
+  illeggibile o mancante lascia la conversazione senza classificazione, mai etichettata a caso.
 - **Collaborazione** — note interne visibili solo al team (mai restituite agli endpoint del
   visitatore), menzioni `@nome` con elenco delle citazioni non lette, indicatore di presenza sulla
   conversazione che avvisa quando un collega sta già scrivendo, e registro delle azioni
@@ -109,6 +114,8 @@ Tre componenti indipendenti:
   tenant, modificabili solo da chi li ha creati.
 - **InternalNote / NoteMention** — note visibili solo agli operatori e colleghi citati al loro
   interno, con lo stato di lettura della menzione.
+- **Tag / ConversationTag** — etichette del tenant (manuali o generate dalla classificazione AI)
+  e loro associazione multipla alle conversazioni.
 
 ### Due tipi di credenziale
 
@@ -314,6 +321,9 @@ docker compose -f docker-compose.prod.yml up -d
 | `SLA_WARN_RATIO` | `0.8` | Quota della finestra dopo cui una scadenza passa a `in_scadenza` |
 | `PRESENCE_TTL_SECONDS` | `20` | Durata di un battito di presenza operatore su una conversazione |
 | `MAX_NOTE_CHARS` | `4000` | Lunghezza massima di una nota interna |
+| `AI_CLASSIFY_ENABLED` | `true` | Classificazione AI automatica della conversazione dopo un'escalation |
+| `MAX_TAGS_PER_CLIENT` | `200` | Tetto ai tag distinti per tenant (la classificazione riusa quelli esistenti) |
+| `CLASSIFY_MAX_MESSAGES` / `CLASSIFY_MAX_CHARS` | `12` / `4000` | Quanta conversazione viene inviata al classificatore |
 | `RETRIEVE_FETCH_K` | `20` | Pool di candidati recuperati prima del rerank MMR |
 | `MMR_LAMBDA` | `0.5` | Bilanciamento MMR: `1.0` = solo rilevanza, `0.0` = solo diversità |
 
@@ -343,7 +353,7 @@ Auth via header `Authorization: Bearer <token>`. La colonna *Auth* indica quale 
 | `/ingest/product` | POST | 🔑 | Push prodotto WooCommerce (dal plugin) |
 | `/ingest/document` | POST | 👤 | Upload documento (PDF/immagine/testo) dal panel |
 | `/ingest/jobs/{id}` | GET | 🔀 | Stato di un job di ingest (`queued`/`processing`/`done`/`error`) |
-| `/conversations` | GET | 👤 | Lista conversazioni del client, filtrabile per stato, priorità, reparto, assegnazione e stato SLA (`sla_state=ok\|in_scadenza\|violato`) e ordinabile (`sort=recent\|oldest\|priority\|sla`) |
+| `/conversations` | GET | 👤 | Lista conversazioni del client, filtrabile per stato, priorità, reparto, assegnazione e stato SLA (`sla_state=ok\|in_scadenza\|violato`) e ordinabile (`sort=recent\|oldest\|priority\|sla`); filtra anche per `tag_id`, `intent` e `urgency` |
 | `/conversations/{id}/routing` | PATCH | 👤 | Imposta priorità, operatore assegnato e reparto della conversazione (ricalcola le scadenze SLA) |
 | `/conversations/{id}/messages` | GET | 🔀 | Messaggi (polling widget + lettura panel) |
 | `/tickets` | GET | 👤 | Ticket per stato |
@@ -365,6 +375,11 @@ Auth via header `Authorization: Bearer <token>`. La colonna *Auth* indica quale 
 | `/sla-policies` | GET/POST | 👤 | Regole SLA del tenant (prima risposta, risoluzione, reparto, priorità) |
 | `/sla-policies/{id}` | PATCH/DELETE | 👤 | Aggiorna o rimuove una regola SLA (le conversazioni in corso vengono riallineate) |
 | `/routing-settings` | GET/PUT | 👤 | Instradamento automatico: `off` o `round_robin`, con reparto predefinito |
+| `/tags` | GET/POST | 👤 | Tag del tenant (nome + colore) |
+| `/tags/{id}` | DELETE | 👤 | Elimina un tag e lo stacca da tutte le conversazioni |
+| `/conversations/{id}/tags` | POST | 👤 | Applica un tag esistente (`tag_id`) o creane uno per nome |
+| `/conversations/{id}/tags/{tag_id}` | DELETE | 👤 | Rimuove un tag dalla conversazione |
+| `/conversations/{id}/classify` | POST | 👤 | Classificazione AI su richiesta (503 se non disponibile: la conversazione resta invariata) |
 | `/conversations/{id}/notes` | GET/POST | 👤 | Note interne della conversazione (mai visibili al visitatore), con menzioni `@nome` |
 | `/conversations/{id}/notes/{note_id}` | DELETE | 👤 | Elimina una nota interna (solo l'autore) |
 | `/conversations/{id}/presence` | POST | 👤 | Battito di presenza: chi altro ha aperto la conversazione e chi sta già scrivendo |
