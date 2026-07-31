@@ -227,3 +227,17 @@ def test_erasing_a_conversation_removes_its_notes(client, tenant):
     with Session(db.engine) as session:
         assert session.exec(select(db.InternalNote)).all() == []
         assert session.exec(select(db.NoteMention)).all() == []
+
+
+def test_presence_store_does_not_grow_unbounded(client, tenant, monkeypatch):
+    """Conversations nobody pings again must not keep an entry forever."""
+    from app import main
+
+    monkeypatch.setattr(main, "PRESENCE_MAX_CONVERSATIONS", 0)  # sweep a ogni battito
+    first = _conversation(client, tenant, visitor="p1")["conversation_id"]
+    second = _conversation(client, tenant, visitor="p2")["conversation_id"]
+    client.post(f"/conversations/{first}/presence", headers=tenant["op"], json={})
+    monkeypatch.setattr(main, "PRESENCE_TTL", 0.0)
+    client.post(f"/conversations/{second}/presence", headers=tenant["op"], json={})
+
+    assert first not in main._conversation_presence

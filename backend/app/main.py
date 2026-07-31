@@ -1811,17 +1811,29 @@ def _require_conversation(session: Session, client_id: int, conversation_id: int
     return conv
 
 
+# conversations tracked at once before a full sweep runs; presence entries are tiny, this only
+# stops the dict from growing forever in a long-running process
+PRESENCE_MAX_CONVERSATIONS = 500
+
+
+def _live_presence(entries: dict, now: float) -> dict:
+    return {op_id: entry for op_id, entry in entries.items() if now - entry[1] < PRESENCE_TTL}
+
+
 def _prune_presence(conversation_id: int) -> dict[int, tuple[str, float, bool]]:
     now = time.monotonic()
-    live = {
-        op_id: entry
-        for op_id, entry in _conversation_presence.get(conversation_id, {}).items()
-        if now - entry[1] < PRESENCE_TTL
-    }
+    live = _live_presence(_conversation_presence.get(conversation_id, {}), now)
     if live:
         _conversation_presence[conversation_id] = live
     else:
         _conversation_presence.pop(conversation_id, None)
+    if len(_conversation_presence) > PRESENCE_MAX_CONVERSATIONS:
+        for other_id in list(_conversation_presence):
+            remaining = _live_presence(_conversation_presence[other_id], now)
+            if remaining:
+                _conversation_presence[other_id] = remaining
+            else:
+                del _conversation_presence[other_id]
     return live
 
 
