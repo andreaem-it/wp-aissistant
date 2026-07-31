@@ -87,6 +87,9 @@ class Conversation(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=datetime.utcnow)
     closed_at: Optional[datetime] = None
     status: str = "open"  # open | escalated | closed
+    priority: str = Field(default="normal", index=True)  # low | normal | high | urgent
+    assigned_operator_id: Optional[int] = Field(default=None, foreign_key="operator.id", index=True)
+    department_id: Optional[int] = Field(default=None, foreign_key="department.id", index=True)
 
 
 class Message(SQLModel, table=True):
@@ -158,6 +161,14 @@ class InfoField(SQLModel, table=True):
     label: str
     key: str  # slug used both to store the value and as {key} placeholder in canned responses
     position: int = 0
+
+
+class Department(SQLModel, table=True):
+    """Tenant-scoped support queue used for routing and inbox filtering."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    client_id: int = Field(index=True, foreign_key="client.id")
+    name: str
+    created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
 class Operator(SQLModel, table=True):

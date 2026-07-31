@@ -109,6 +109,42 @@ function InfoFieldsManager() {
   );
 }
 
+function DepartmentsManager() {
+  const [items, setItems] = useState([]);
+  const [name, setName] = useState("");
+  const load = () => api.departments().then(setItems).catch(() => setItems([]));
+  useEffect(() => { load(); }, []);
+  const add = async (e) => {
+    e.preventDefault();
+    if (!name.trim()) return;
+    await api.createDepartment(name.trim());
+    setName("");
+    load();
+  };
+  const remove = async (id) => { await api.deleteDepartment(id); load(); };
+  return (
+    <div className="wpai-card">
+      <div className="wpai-card-title"><ListChecks size={15} /> Reparti</div>
+      <p style={{ fontSize: 12.5, color: "var(--text-muted)", margin: "6px 0 12px" }}>
+        Organizza l'inbox in code come Vendite, Ordini o Resi.
+      </p>
+      <div style={{ display: "grid", gap: 6, marginBottom: 12 }}>
+        {items.map((item) => (
+          <div key={item.id} className="wpai-canned-row">
+            <span style={{ fontSize: 13, fontWeight: 600 }}>{item.name}</span>
+            <button className="wpai-icon-btn" title="Rimuovi" onClick={() => remove(item.id)}><Trash2 size={14} /></button>
+          </div>
+        ))}
+        {items.length === 0 && <span style={{ color: "var(--text-muted)", fontSize: 13 }}>Nessun reparto.</span>}
+      </div>
+      <form onSubmit={add} style={{ display: "flex", gap: 8 }}>
+        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Es. Resi" style={{ flex: 1 }} />
+        <button className="wpai-btn" type="submit"><Plus size={14} /> Aggiungi</button>
+      </form>
+    </div>
+  );
+}
+
 function CannedManager() {
   const [items, setItems] = useState([]);
   const [form, setForm] = useState({ title: "", body: "" });
@@ -160,6 +196,9 @@ export default function Settings() {
       <div className="wpai-two-col">
         <InfoFieldsManager />
         <CannedManager />
+      </div>
+      <div style={{ marginTop: 16, maxWidth: 520 }}>
+        <DepartmentsManager />
       </div>
       <div style={{ marginTop: 16, maxWidth: 520 }}>
         <GdprCard />

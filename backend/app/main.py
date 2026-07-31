@@ -26,6 +26,7 @@ from .db import (
     Chunk,
     Client,
     Conversation,
+    Department,
     InfoField,
     IngestJob,
     Message,
@@ -1445,10 +1446,35 @@ def conversation_messages(
 def list_conversations(
     before_id: int | None = None,
     limit: int = 100,
+    status: str | None = None,
+    priority: str | None = None,
+    department_id: int | None = None,
+    assigned_operator_id: int | None = None,
+    unassigned: bool = False,
     operator: Operator = Depends(require_operator),
     session: Session = Depends(get_session),
 ):
     query = select(Conversation).where(Conversation.client_id == operator.client_id)
+    if status:
+        if status not in ("open", "escalated", "closed"):
+            raise HTTPException(400, "invalid status")
+        query = query.where(Conversation.status == status)
+    if priority:
+        if priority not in ("low", "normal", "high", "urgent"):
+            raise HTTPException(400, "invalid priority")
+        query = query.where(Conversation.priority == priority)
+    if department_id is not None:
+        department = session.get(Department, department_id)
+        if not department or department.client_id != operator.client_id:
+            raise HTTPException(404, "department not found")
+        query = query.where(Conversation.department_id == department_id)
+    if assigned_operator_id is not None:
+        assignee = session.get(Operator, assigned_operator_id)
+        if not assignee or assignee.client_id != operator.client_id:
+            raise HTTPException(404, "operator not found")
+        query = query.where(Conversation.assigned_operator_id == assigned_operator_id)
+    if unassigned:
+        query = query.where(Conversation.assigned_operator_id.is_(None))
     if before_id:
         query = query.where(Conversation.id < before_id)
     convs = session.exec(
@@ -1459,8 +1485,62 @@ def list_conversations(
         last = session.exec(
             select(Message).where(Message.conversation_id == c.id).order_by(Message.id.desc())
         ).first()
-        result.append({"conversation": c, "last_message": last.content if last else None})
+        assignee = session.get(Operator, c.assigned_operator_id) if c.assigned_operator_id else None
+        department = session.get(Department, c.department_id) if c.department_id else None
+        result.append({
+            "conversation": c,
+            "last_message": last.content if last else None,
+            "assignee": {"id": assignee.id, "name": _operator_name(assignee)} if assignee else None,
+            "department": {"id": department.id, "name": department.name} if department else None,
+        })
     return result
+
+
+@app.patch("/conversations/{conversation_id}/routing")
+def update_conversation_routing(
+    conversation_id: int,
+    priority: str | None = Body(None),
+    assigned_operator_id: int | None = Body(None),
+    department_id: int | None = Body(None),
+    clear_assignee: bool = Body(False),
+    clear_department: bool = Body(False),
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
+    conv = session.get(Conversation, conversation_id)
+    if not conv or conv.client_id != operator.client_id:
+        raise HTTPException(404, "conversation not found")
+    if priority is not None:
+        if priority not in ("low", "normal", "high", "urgent"):
+            raise HTTPException(400, "invalid priority")
+        conv.priority = priority
+    if clear_assignee:
+        conv.assigned_operator_id = None
+    elif assigned_operator_id is not None:
+        assignee = session.get(Operator, assigned_operator_id)
+        if not assignee or assignee.client_id != operator.client_id:
+            raise HTTPException(404, "operator not found")
+        conv.assigned_operator_id = assignee.id
+    if clear_department:
+        conv.department_id = None
+    elif department_id is not None:
+        department = session.get(Department, department_id)
+        if not department or department.client_id != operator.client_id:
+            raise HTTPException(404, "department not found")
+        conv.department_id = department.id
+    conv.updated_at = datetime.utcnow()
+    session.add(conv)
+    session.commit()
+    _audit(
+        session, "operator", operator.email, "conversation.routing",
+        target=f"conversation:{conversation_id}", client_id=operator.client_id,
+        detail={
+            "priority": conv.priority,
+            "assigned_operator_id": conv.assigned_operator_id,
+            "department_id": conv.department_id,
+        },
+    )
+    return {"ok": True}
 
 
 @app.get("/tickets")
@@ -1493,6 +1573,8 @@ def reply_ticket(ticket_id: int, reply: str, operator: Operator = Depends(requir
         raise HTTPException(404, "ticket not found")
     session.add(Message(conversation_id=ticket.conversation_id, role="operator", content=reply))
     now = datetime.utcnow()
+    if conv.assigned_operator_id is None:
+        conv.assigned_operator_id = operator.id
     ticket.status = "answered"
     ticket.updated_at = now
     conv.status = "open"
@@ -1527,6 +1609,8 @@ def reply_conversation(
         raise HTTPException(404, "conversation not found")
     session.add(Message(conversation_id=conversation_id, role="operator", content=reply))
     now = datetime.utcnow()
+    if conv.assigned_operator_id is None:
+        conv.assigned_operator_id = operator.id
     conv.status = "open"
     conv.updated_at = now
     session.add(conv)
@@ -1696,6 +1780,70 @@ def purge_old_conversations(session: Session, days: int) -> int:
 
 
 # ---- Operator tools: canned responses + info-field definitions (per client) ----
+
+
+@app.get("/team/operators")
+def list_team_operators(operator: Operator = Depends(require_operator), session: Session = Depends(get_session)):
+    rows = session.exec(
+        select(Operator).where(Operator.client_id == operator.client_id).order_by(Operator.name, Operator.email)
+    ).all()
+    return [{"id": row.id, "name": _operator_name(row), "email": row.email} for row in rows]
+
+
+@app.get("/departments")
+def list_departments(operator: Operator = Depends(require_operator), session: Session = Depends(get_session)):
+    rows = session.exec(
+        select(Department).where(Department.client_id == operator.client_id).order_by(Department.name)
+    ).all()
+    return [{"id": row.id, "name": row.name} for row in rows]
+
+
+@app.post("/departments")
+def create_department(
+    name: str = Body(..., embed=True),
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
+    clean = name.strip()[:80]
+    if not clean:
+        raise HTTPException(400, "name required")
+    existing = session.exec(
+        select(Department).where(
+            Department.client_id == operator.client_id,
+            func.lower(Department.name) == clean.lower(),
+        )
+    ).first()
+    if existing:
+        raise HTTPException(409, "department already exists")
+    department = Department(client_id=operator.client_id, name=clean)
+    session.add(department)
+    session.commit()
+    session.refresh(department)
+    _audit(session, "operator", operator.email, "department.create", target=f"department:{department.id}", client_id=operator.client_id)
+    return {"id": department.id, "name": department.name}
+
+
+@app.delete("/departments/{department_id}")
+def delete_department(
+    department_id: int,
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
+    department = session.get(Department, department_id)
+    if not department or department.client_id != operator.client_id:
+        raise HTTPException(404, "department not found")
+    for conv in session.exec(
+        select(Conversation).where(
+            Conversation.client_id == operator.client_id,
+            Conversation.department_id == department.id,
+        )
+    ).all():
+        conv.department_id = None
+        session.add(conv)
+    session.delete(department)
+    session.commit()
+    _audit(session, "operator", operator.email, "department.delete", target=f"department:{department_id}", client_id=operator.client_id)
+    return {"ok": True}
 
 
 def _slugify(text: str) -> str:
@@ -2457,6 +2605,9 @@ def delete_operator(operator_id: int, session: Session = Depends(get_session)):
     operator = session.get(Operator, operator_id)
     if not operator:
         raise HTTPException(404, "operator not found")
+    for conv in session.exec(select(Conversation).where(Conversation.assigned_operator_id == operator_id)).all():
+        conv.assigned_operator_id = None
+        session.add(conv)
     for s in session.exec(select(OperatorSession).where(OperatorSession.operator_id == operator_id)).all():
         session.delete(s)
     session.commit()  # flush the FK-dependent sessions before deleting their operator

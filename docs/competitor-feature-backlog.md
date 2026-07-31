@@ -56,7 +56,7 @@ Queste funzionalità esistono già e non vanno reinserite come nuove feature:
 
 | Feature | Perché conta | MVP consigliato | Complessità |
 |---|---|---|---:|
-| Inbox con assegnazione, team e reparti | Porta il panel da semplice coda a vero help desk. | Assegnatario, reparto, priorità, stato, filtri e viste salvate. | Media |
+| Inbox con assegnazione, team e reparti | **Rilasciata:** assegnatario, reparto, priorità e filtri; restano le viste salvate. | Aggiungere viste personali/condivise nel ciclo SLA. | Media |
 | SLA e regole di instradamento | Riduce tempi di risposta e rende il prodotto adatto a team strutturati. | SLA per piano/reparto, round-robin, alert di scadenza e fallback. | Media |
 | Note interne, menzioni e collision detection | Evita risposte doppie e migliora la collaborazione. | Note non visibili al cliente, `@mention`, presenza operatore e lock/composer warning. | Media |
 | Tag e classificazione automatica | Abilita report e automazioni realmente utili. | Tag manuali + classificazione AI per intento, tema e urgenza. | Media |

@@ -296,6 +296,7 @@ Auth via header `Authorization: Bearer <token>`. La colonna *Auth* indica quale 
 | `/ingest/document` | POST | 👤 | Upload documento (PDF/immagine/testo) dal panel |
 | `/ingest/jobs/{id}` | GET | 🔀 | Stato di un job di ingest (`queued`/`processing`/`done`/`error`) |
 | `/conversations` | GET | 👤 | Lista conversazioni del client |
+| `/conversations/{id}/routing` | PATCH | 👤 | Imposta priorità, operatore assegnato e reparto della conversazione |
 | `/conversations/{id}/messages` | GET | 🔀 | Messaggi (polling widget + lettura panel) |
 | `/tickets` | GET | 👤 | Ticket per stato |
 | `/tickets/{id}/reply` | POST | 👤 | Risposta operatore (via ticket) |
@@ -308,6 +309,9 @@ Auth via header `Authorization: Bearer <token>`. La colonna *Auth* indica quale 
 | `/usage` | GET | 🔑/👤 | Uso messaggi del mese vs quota del piano (usato/limite/rimanenti) — per plugin e panel |
 | `/knowledge-base` | GET | 👤 | Documenti/pagine (raggruppati, con conteggio chunk) e prodotti sincronizzati |
 | `/me` | GET | 👤 | Profilo operatore: email, nome client, api_key del widget |
+| `/team/operators` | GET | 👤 | Operatori del tenant disponibili per l'assegnazione |
+| `/departments` | GET/POST | 👤 | Elenca o crea reparti/code di supporto tenant-scoped |
+| `/departments/{id}` | DELETE | 👤 | Elimina un reparto e libera le conversazioni assegnate |
 | `/onboarding/status` | GET | 👤 | Checklist di attivazione calcolata da billing, origin, knowledge base e prima chat |
 | `/me/password` | POST | 👤 | Cambia la propria password |
 | `/me/rotate-key` | POST | 👤 | Rigenera l'api_key del proprio client |

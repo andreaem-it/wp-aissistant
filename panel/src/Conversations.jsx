@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Inbox, MessageCircle, Send, Save, CheckCircle2, RotateCcw, Trash2 } from "lucide-react";
 import { api } from "./api.js";
 
@@ -24,21 +24,34 @@ export default function Conversations() {
   const [fields, setFields] = useState([]);
   const [infoValues, setInfoValues] = useState({});
   const [savingInfo, setSavingInfo] = useState(false);
+  const [operators, setOperators] = useState([]);
+  const [departments, setDepartments] = useState([]);
+  const [filters, setFilters] = useState({ status: "", priority: "", assignment: "", department_id: "" });
 
-  const loadList = () => api.conversations().then(setItems).catch(() => {});
+  const loadList = useCallback(() => {
+    const params = {};
+    if (filters.status) params.status = filters.status;
+    if (filters.priority) params.priority = filters.priority;
+    if (filters.department_id) params.department_id = filters.department_id;
+    if (filters.assignment === "unassigned") params.unassigned = true;
+    else if (filters.assignment) params.assigned_operator_id = filters.assignment;
+    return api.conversations(params).then(setItems).catch(() => {});
+  }, [filters.status, filters.priority, filters.assignment, filters.department_id]);
   const loadMessages = (id) => api.messages(id).then((d) => setMessages(d.messages)).catch(() => {});
 
   // static-ish per-client config, loaded once
   useEffect(() => {
     api.cannedResponses().then(setCanned).catch(() => {});
     api.infoFields().then(setFields).catch(() => {});
+    api.teamOperators().then(setOperators).catch(() => {});
+    api.departments().then(setDepartments).catch(() => {});
   }, []);
 
   useEffect(() => {
     loadList();
     const id = setInterval(loadList, 10000);
     return () => clearInterval(id);
-  }, []);
+  }, [loadList]);
 
   useEffect(() => {
     if (!selected) return;
@@ -90,6 +103,12 @@ export default function Conversations() {
   };
 
   const selectedConv = items.find((x) => x.conversation.id === selected)?.conversation;
+  const selectedRow = items.find((x) => x.conversation.id === selected);
+  const updateRouting = async (body) => {
+    if (!selected) return;
+    await api.setConversationRouting(selected, body);
+    await loadList();
+  };
   const changeStatus = async (status) => {
     if (!selected) return;
     await api.setConversationStatus(selected, status);
@@ -107,6 +126,21 @@ export default function Conversations() {
   return (
     <div>
       <h1 className="wpai-page-title">Conversazioni</h1>
+      <div className="wpai-filters" style={{ marginBottom: 14 }}>
+        <select value={filters.status} onChange={(e) => setFilters((f) => ({ ...f, status: e.target.value }))}>
+          <option value="">Tutti gli stati</option><option value="open">Aperte</option><option value="escalated">Escalation</option><option value="closed">Chiuse</option>
+        </select>
+        <select value={filters.priority} onChange={(e) => setFilters((f) => ({ ...f, priority: e.target.value }))}>
+          <option value="">Tutte le priorità</option><option value="urgent">Urgente</option><option value="high">Alta</option><option value="normal">Normale</option><option value="low">Bassa</option>
+        </select>
+        <select value={filters.assignment} onChange={(e) => setFilters((f) => ({ ...f, assignment: e.target.value }))}>
+          <option value="">Tutte le assegnazioni</option><option value="unassigned">Non assegnate</option>
+          {operators.map((op) => <option key={op.id} value={op.id}>{op.name}</option>)}
+        </select>
+        <select value={filters.department_id} onChange={(e) => setFilters((f) => ({ ...f, department_id: e.target.value }))}>
+          <option value="">Tutti i reparti</option>{departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+        </select>
+      </div>
       <div className="wpai-split">
         <div className="wpai-conv-list">
           {items.length === 0 && (
@@ -124,9 +158,10 @@ export default function Conversations() {
               <div className="wpai-conv-avatar">{initialsOf(c.visitor_id)}</div>
               <div className="wpai-conv-item-body">
                 <div className="meta">
-                  #{c.id} · <span className={`wpai-badge ${c.status}`}>{c.status}</span>
+                  #{c.id} · <span className={`wpai-badge ${c.status}`}>{c.status}</span> · {c.priority}
                 </div>
                 <div className="preview">{last_message || "—"}</div>
+                <div className="meta">{departments.find((d) => d.id === c.department_id)?.name || "Nessun reparto"} · {operators.find((o) => o.id === c.assigned_operator_id)?.name || "Non assegnata"}</div>
               </div>
             </button>
           ))}
@@ -144,6 +179,9 @@ export default function Conversations() {
             <>
               <div className="wpai-conv-toolbar">
                 <span className={`wpai-badge ${selectedConv?.status || "open"}`}>{selectedConv?.status || "—"}</span>
+                <select aria-label="Priorità" value={selectedConv?.priority || "normal"} onChange={(e) => updateRouting({ priority: e.target.value })}>
+                  <option value="urgent">Urgente</option><option value="high">Alta</option><option value="normal">Normale</option><option value="low">Bassa</option>
+                </select>
                 {selectedConv?.status === "closed" ? (
                   <button className="wpai-btn ghost" onClick={() => changeStatus("open")}>
                     <RotateCcw size={14} /> Riapri
@@ -180,6 +218,21 @@ export default function Conversations() {
 
         {selected && (
           <aside className="wpai-conv-side">
+            <div className="wpai-card">
+              <div className="wpai-card-title" style={{ marginBottom: 10 }}>Instradamento</div>
+              <div className="wpai-field" style={{ marginBottom: 8 }}>
+                <label>Operatore</label>
+                <select value={selectedRow?.conversation.assigned_operator_id || ""} onChange={(e) => updateRouting(e.target.value ? { assigned_operator_id: Number(e.target.value) } : { clear_assignee: true })}>
+                  <option value="">Non assegnata</option>{operators.map((op) => <option key={op.id} value={op.id}>{op.name}</option>)}
+                </select>
+              </div>
+              <div className="wpai-field" style={{ marginBottom: 0 }}>
+                <label>Reparto</label>
+                <select value={selectedRow?.conversation.department_id || ""} onChange={(e) => updateRouting(e.target.value ? { department_id: Number(e.target.value) } : { clear_department: true })}>
+                  <option value="">Nessun reparto</option>{departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+                </select>
+              </div>
+            </div>
             {fields.length > 0 && (
               <div className="wpai-card">
                 <div className="wpai-card-title" style={{ marginBottom: 10 }}>Informazioni</div>
