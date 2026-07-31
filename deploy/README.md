@@ -45,6 +45,7 @@ variabili del file `.env`/ambiente.
 
 Per backup giornalieri, restore verificati e disaster recovery usa
 [`BACKUP_AND_RECOVERY.md`](./BACKUP_AND_RECOVERY.md) e gli script in [`scripts/`](./scripts/).
+La chiusura del blocco P0 è guidata da [`PRODUCTION_CHECKLIST.md`](./PRODUCTION_CHECKLIST.md).
 
 ```bash
 export ADMIN_API_KEY=<token-robusto>

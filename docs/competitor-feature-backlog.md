@@ -50,7 +50,7 @@ Queste funzionalità esistono già e non vanno reinserite come nuove feature:
 | Hardening produzione | Implementato nel codice, configurazione live da verificare | Alto | Bassa | Validazione fail-closed con `STRICT_PRODUCTION_CONFIG`, warning in admin health e stack production sicuri. |
 | Retention ed export GDPR end-to-end | Implementata | Alto | Media | Retention automatica, cancellazione ed export JSON tenant-scoped con audit e flusso guidato nel panel. |
 | Onboarding self-service completo | Implementato, verifica live da eseguire | Alto | Media | Signup, verifica, billing e checklist reale per collegamento plugin, prima sync e prima chat. |
-| Gestione errori visibile al cliente | Parziale | Medio | Bassa | Stati chiari per backend/AI/ingest indisponibili, retry sicuri e nessuna conferma di azioni non riuscite. |
+| Gestione errori visibile al cliente | Implementata, matrice live da verificare | Medio | Bassa | Fallback AI, retry ingest, quota dedicata e azioni commerce verificate; casi raccolti nella checklist P0. |
 
 ### P1 — Funzionalità competitive ad alto rendimento
 
