@@ -39,6 +39,7 @@ from .db import (
     Operator,
     OperatorSession,
     Plan,
+    ProactiveRule,
     Product,
     RoutingSetting,
     SavedView,
@@ -3419,6 +3420,205 @@ def list_knowledge_base(
             for p in products
         ],
     }
+
+
+# ---- Proactive messages ------------------------------------------------------------------
+#
+# The rules are evaluated in the widget, so the public endpoint returns exactly what the
+# browser needs to decide — nothing more. Frequency capping and the visitor's opt-out live in
+# the browser too: they are a courtesy to that person, not a server-side quota.
+
+PROACTIVE_TRIGGERS = ("url", "time_on_page", "exit_intent", "cart")
+PROACTIVE_FREQUENCIES = ("once_per_session", "once_per_day", "always")
+MAX_PROACTIVE_MESSAGE_CHARS = 300
+
+
+def _proactive_payload(rule: ProactiveRule, *, public: bool = False) -> dict:
+    data = {
+        "id": rule.id,
+        "trigger_type": rule.trigger_type,
+        "url_pattern": rule.url_pattern,
+        "delay_seconds": rule.delay_seconds,
+        "message": rule.message,
+        "frequency": rule.frequency,
+    }
+    if public:
+        return data
+    return {
+        **data,
+        "name": rule.name,
+        "active": rule.active,
+        "position": rule.position,
+        "impressions": rule.impressions,
+        "engagements": rule.engagements,
+        # share of impressions that opened a chat (null until there's data to divide by)
+        "engagement_rate": round(rule.engagements / rule.impressions, 3) if rule.impressions else None,
+    }
+
+
+@app.get("/widget/proactive")
+def widget_proactive_rules(
+    client: Client = Depends(require_client),
+    session: Session = Depends(get_session),
+):
+    """Active rules for the widget (client api_key). Public content by design: the payload is
+    the message and its trigger, never anything internal."""
+    rows = session.exec(
+        select(ProactiveRule)
+        .where(ProactiveRule.client_id == client.id, ProactiveRule.active.is_(True))
+        .order_by(ProactiveRule.position, ProactiveRule.id)
+    ).all()
+    return {"rules": [_proactive_payload(row, public=True) for row in rows]}
+
+
+@app.post("/widget/proactive/{rule_id}/event")
+def widget_proactive_event(
+    rule_id: int,
+    kind: str = Body(..., embed=True),  # impression | engagement
+    client: Client = Depends(rate_limit_chat),
+    session: Session = Depends(get_session),
+):
+    """Counts an impression or an engagement. Rate-limited like the chat: the counters only
+    steer a business decision, but they still shouldn't be trivially inflatable."""
+    if kind not in ("impression", "engagement"):
+        raise HTTPException(400, "kind must be 'impression' or 'engagement'")
+    rule = session.get(ProactiveRule, rule_id)
+    if not rule or rule.client_id != client.id:
+        raise HTTPException(404, "rule not found")
+    if kind == "impression":
+        rule.impressions += 1
+    else:
+        rule.engagements += 1
+    session.add(rule)
+    session.commit()
+    return {"ok": True}
+
+
+@app.get("/proactive-rules")
+def list_proactive_rules(operator: Operator = Depends(require_operator), session: Session = Depends(get_session)):
+    rows = session.exec(
+        select(ProactiveRule).where(ProactiveRule.client_id == operator.client_id)
+        .order_by(ProactiveRule.position, ProactiveRule.id)
+    ).all()
+    return {
+        "triggers": list(PROACTIVE_TRIGGERS),
+        "frequencies": list(PROACTIVE_FREQUENCIES),
+        "rules": [_proactive_payload(row) for row in rows],
+    }
+
+
+@app.post("/proactive-rules")
+def create_proactive_rule(
+    name: str = Body(...),
+    message: str = Body(...),
+    trigger_type: str = Body("time_on_page"),
+    url_pattern: str = Body(""),
+    delay_seconds: int = Body(15),
+    frequency: str = Body("once_per_day"),
+    active: bool = Body(True),
+    position: int = Body(0),
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
+    clean_name = name.strip()[:80]
+    clean_message = message.strip()[:MAX_PROACTIVE_MESSAGE_CHARS]
+    if not clean_name or not clean_message:
+        raise HTTPException(400, "nome e messaggio sono obbligatori")
+    if trigger_type not in PROACTIVE_TRIGGERS:
+        raise HTTPException(400, "trigger non valido")
+    if frequency not in PROACTIVE_FREQUENCIES:
+        raise HTTPException(400, "frequenza non valida")
+    rule = ProactiveRule(
+        client_id=operator.client_id,
+        name=clean_name,
+        message=clean_message,
+        trigger_type=trigger_type,
+        url_pattern=url_pattern.strip()[:300],
+        delay_seconds=min(max(int(delay_seconds), 0), 3600),
+        frequency=frequency,
+        active=active,
+        position=position,
+    )
+    session.add(rule)
+    session.commit()
+    session.refresh(rule)
+    _audit(
+        session, "operator", operator.email, "proactive.create",
+        target=f"proactive:{rule.id}", client_id=operator.client_id,
+        detail={"trigger": trigger_type},
+    )
+    return _proactive_payload(rule)
+
+
+@app.patch("/proactive-rules/{rule_id}")
+def update_proactive_rule(
+    rule_id: int,
+    name: str | None = Body(None),
+    message: str | None = Body(None),
+    trigger_type: str | None = Body(None),
+    url_pattern: str | None = Body(None),
+    delay_seconds: int | None = Body(None),
+    frequency: str | None = Body(None),
+    active: bool | None = Body(None),
+    position: int | None = Body(None),
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
+    rule = session.get(ProactiveRule, rule_id)
+    if not rule or rule.client_id != operator.client_id:
+        raise HTTPException(404, "rule not found")
+    if name is not None:
+        clean = name.strip()[:80]
+        if not clean:
+            raise HTTPException(400, "name required")
+        rule.name = clean
+    if message is not None:
+        clean = message.strip()[:MAX_PROACTIVE_MESSAGE_CHARS]
+        if not clean:
+            raise HTTPException(400, "message required")
+        rule.message = clean
+    if trigger_type is not None:
+        if trigger_type not in PROACTIVE_TRIGGERS:
+            raise HTTPException(400, "trigger non valido")
+        rule.trigger_type = trigger_type
+    if url_pattern is not None:
+        rule.url_pattern = url_pattern.strip()[:300]
+    if delay_seconds is not None:
+        rule.delay_seconds = min(max(int(delay_seconds), 0), 3600)
+    if frequency is not None:
+        if frequency not in PROACTIVE_FREQUENCIES:
+            raise HTTPException(400, "frequenza non valida")
+        rule.frequency = frequency
+    if active is not None:
+        rule.active = active
+    if position is not None:
+        rule.position = position
+    rule.updated_at = datetime.utcnow()
+    session.add(rule)
+    session.commit()
+    _audit(
+        session, "operator", operator.email, "proactive.update",
+        target=f"proactive:{rule_id}", client_id=operator.client_id,
+    )
+    return _proactive_payload(rule)
+
+
+@app.delete("/proactive-rules/{rule_id}")
+def delete_proactive_rule(
+    rule_id: int,
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
+    rule = session.get(ProactiveRule, rule_id)
+    if not rule or rule.client_id != operator.client_id:
+        raise HTTPException(404, "rule not found")
+    session.delete(rule)
+    session.commit()
+    _audit(
+        session, "operator", operator.email, "proactive.delete",
+        target=f"proactive:{rule_id}", client_id=operator.client_id,
+    )
+    return {"ok": True}
 
 
 # ---- Workflows (no-code automations) -----------------------------------------------------

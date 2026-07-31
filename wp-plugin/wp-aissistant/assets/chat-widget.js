@@ -7,6 +7,9 @@
   const OPEN_KEY = "wpai_chat_open";
   const TICKET_OFFER_KEY = "wpai_ticket_offer";
   const RATED_KEY = "wpai_conversation_rated";
+  const PROACTIVE_KEY = "wpai_proactive_seen";
+  const PROACTIVE_SESSION_KEY = "wpai_proactive_session_";
+  const PROACTIVE_OPTOUT_KEY = "wpai_proactive_optout";
 
   function visitorId() {
     let id = localStorage.getItem(VISITOR_KEY);
@@ -300,6 +303,160 @@
     wrap.appendChild(form);
     container.appendChild(wrap);
     container.scrollTop = container.scrollHeight;
+  }
+
+  // ---- Messaggi proattivi -------------------------------------------------------------
+  //
+  // Le regole arrivano dal backend e vengono valutate qui: nessun round-trip per pagina.
+  // Il visitatore comanda: un solo messaggio per pagina, mai a chat aperta o su una
+  // conversazione già avviata, e "Non mostrare più" vale per sempre su questo browser.
+
+  function proactiveShownAt(ruleId) {
+    try {
+      return JSON.parse(localStorage.getItem(PROACTIVE_KEY) || "{}")[String(ruleId)] || 0;
+    } catch (e) {
+      return 0;
+    }
+  }
+
+  function rememberProactive(ruleId) {
+    try {
+      const seen = JSON.parse(localStorage.getItem(PROACTIVE_KEY) || "{}");
+      seen[String(ruleId)] = Date.now();
+      localStorage.setItem(PROACTIVE_KEY, JSON.stringify(seen));
+      sessionStorage.setItem(PROACTIVE_SESSION_KEY + ruleId, "1");
+    } catch (e) {
+      // storage pieno o disabilitato: al massimo il messaggio riappare, non è un errore
+    }
+  }
+
+  function proactiveAllowed(rule) {
+    if (localStorage.getItem(PROACTIVE_OPTOUT_KEY) === "1") return false;
+    if (rule.frequency === "always") return true;
+    if (rule.frequency === "once_per_session") {
+      return sessionStorage.getItem(PROACTIVE_SESSION_KEY + rule.id) !== "1";
+    }
+    return Date.now() - proactiveShownAt(rule.id) > 24 * 3600 * 1000; // once_per_day
+  }
+
+  function cartHasItems() {
+    // cookie standard di WooCommerce: presente e > 0 quando il carrello non è vuoto
+    const match = document.cookie.match(/(?:^|;\s*)woocommerce_items_in_cart=(\d+)/);
+    return Boolean(match && Number(match[1]) > 0);
+  }
+
+  function proactiveMatches(rule) {
+    const url = window.location.href;
+    if (rule.url_pattern && !url.includes(rule.url_pattern)) return false;
+    if (rule.trigger_type === "cart") return cartHasItems();
+    return true;
+  }
+
+  async function proactiveEvent(ruleId, kind) {
+    try {
+      await fetch(`${WPAI.backendUrl}/widget/proactive/${ruleId}/event`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${WPAI.apiKey}` },
+        body: JSON.stringify({ kind }),
+      });
+    } catch (e) {
+      // la misurazione non deve mai disturbare la navigazione
+    }
+  }
+
+  function showProactive(root, rule, openChat, messages) {
+    if (document.getElementById("wpai-proactive")) return;
+    const bubble = document.createElement("div");
+    bubble.id = "wpai-proactive";
+    bubble.className = "wpai-proactive";
+    bubble.setAttribute("role", "status");
+
+    const text = document.createElement("p");
+    text.textContent = rule.message;
+    const actions = document.createElement("div");
+    actions.className = "wpai-proactive-actions";
+
+    const reply = document.createElement("button");
+    reply.type = "button";
+    reply.className = "wpai-proactive-reply";
+    reply.textContent = "Rispondi";
+    reply.addEventListener("click", () => {
+      bubble.remove();
+      addMessage(messages, "assistant", rule.message);
+      openChat();
+      proactiveEvent(rule.id, "engagement");
+    });
+
+    const dismiss = document.createElement("button");
+    dismiss.type = "button";
+    dismiss.className = "wpai-proactive-dismiss";
+    dismiss.textContent = "Non ora";
+    dismiss.addEventListener("click", () => bubble.remove());
+
+    const never = document.createElement("button");
+    never.type = "button";
+    never.className = "wpai-proactive-never";
+    never.textContent = "Non mostrare più";
+    never.addEventListener("click", () => {
+      localStorage.setItem(PROACTIVE_OPTOUT_KEY, "1");
+      bubble.remove();
+    });
+
+    const close = document.createElement("button");
+    close.type = "button";
+    close.className = "wpai-proactive-close";
+    close.setAttribute("aria-label", "Chiudi il messaggio");
+    close.innerHTML = '<i class="fa-solid fa-xmark" aria-hidden="true"></i>';
+    close.addEventListener("click", () => bubble.remove());
+
+    actions.appendChild(reply);
+    actions.appendChild(dismiss);
+    actions.appendChild(never);
+    bubble.appendChild(close);
+    bubble.appendChild(text);
+    bubble.appendChild(actions);
+    root.appendChild(bubble);
+
+    rememberProactive(rule.id);
+    proactiveEvent(rule.id, "impression");
+  }
+
+  function startProactive(root, isOpen, openChat, messages, hasConversation) {
+    if (localStorage.getItem(PROACTIVE_OPTOUT_KEY) === "1") return;
+    fetch(`${WPAI.backendUrl}/widget/proactive`, {
+      headers: { Authorization: `Bearer ${WPAI.apiKey}` },
+    })
+      .then((res) => (res.ok ? res.json() : { rules: [] }))
+      .then((data) => {
+        const rules = (data.rules || []).filter((rule) => proactiveAllowed(rule) && proactiveMatches(rule));
+        if (rules.length === 0) return;
+        // un solo messaggio per pagina: vince la prima regola configurata
+        const canShow = () => !isOpen() && !hasConversation() && !document.getElementById("wpai-proactive");
+        const fire = (rule) => { if (canShow()) showProactive(root, rule, openChat, messages); };
+
+        const byUrl = rules.find((r) => r.trigger_type === "url");
+        const byCart = rules.find((r) => r.trigger_type === "cart");
+        const immediate = byUrl || byCart;
+        if (immediate) {
+          window.setTimeout(() => fire(immediate), 1200); // lascia respirare la pagina
+          return;
+        }
+        const timed = rules.find((r) => r.trigger_type === "time_on_page");
+        if (timed) window.setTimeout(() => fire(timed), Math.max(timed.delay_seconds, 1) * 1000);
+
+        const exit = rules.find((r) => r.trigger_type === "exit_intent");
+        if (exit) {
+          const onLeave = (event) => {
+            if (event.clientY > 0) return; // solo verso la barra del browser
+            document.removeEventListener("mouseout", onLeave);
+            fire(exit);
+          };
+          document.addEventListener("mouseout", onLeave);
+        }
+      })
+      .catch(() => {
+        // nessun messaggio proattivo: la chat resta comunque disponibile
+      });
   }
 
   function supportAvailable() {
@@ -798,8 +955,17 @@
       }
     });
 
+    let hasHistory = false;
     restoreConversation(messages).then((restored) => {
+      hasHistory = restored;
       if (!restored && WPAI.welcome) addMessage(messages, "assistant", WPAI.welcome);
+      startProactive(
+        root,
+        () => win.classList.contains("open"),
+        () => setOpen(true),
+        messages,
+        () => hasHistory,
+      );
     });
     if (localStorage.getItem(OPEN_KEY) === "1") setOpen(true);
 

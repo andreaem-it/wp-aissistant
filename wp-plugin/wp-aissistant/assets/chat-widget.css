@@ -104,6 +104,33 @@
 .wpai-star { padding: 4px 5px; border: 0; border-radius: 8px; color: var(--wpai-accent); background: transparent; font-size: 16px; line-height: 1; cursor: pointer; }
 .wpai-star:hover { background: color-mix(in srgb, var(--wpai-accent) 12%, transparent); }
 .wpai-rating.done { color: #16803c; font-size: 12.5px; }
+
+/* messaggio proattivo: bolla accanto al launcher, mai sopra la chat aperta */
+.wpai-proactive {
+  position: fixed; bottom: 92px; max-width: 290px; z-index: 2147483000;
+  padding: 14px 16px 12px; border: 1px solid var(--wpai-border); border-radius: 16px;
+  background: var(--wpai-surface); color: var(--wpai-text); box-shadow: var(--wpai-shadow);
+  font-size: 13.5px; line-height: 1.45; animation: wpai-launch-in .28s both;
+}
+#wpai-root.wpai-right .wpai-proactive { right: 24px; }
+#wpai-root.wpai-left .wpai-proactive { left: 24px; }
+#wpai-root.wpai-is-open .wpai-proactive { display: none; }
+.wpai-proactive p { margin: 0 18px 10px 0; }
+.wpai-proactive-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.wpai-proactive-reply {
+  padding: 7px 12px; border: 0; border-radius: 9px; cursor: pointer;
+  background: var(--wpai-accent); color: var(--wpai-accent-contrast, #fff); font-size: 12.5px; font-weight: 700;
+}
+.wpai-proactive-dismiss, .wpai-proactive-never {
+  padding: 7px 8px; border: 0; border-radius: 9px; cursor: pointer;
+  background: transparent; color: var(--wpai-muted); font-size: 12px;
+}
+.wpai-proactive-dismiss:hover, .wpai-proactive-never:hover { color: var(--wpai-text); }
+.wpai-proactive-close {
+  position: absolute; top: 8px; right: 8px; padding: 4px; border: 0; border-radius: 8px;
+  background: transparent; color: var(--wpai-muted); cursor: pointer; line-height: 1;
+}
+@media (max-width: 480px) { .wpai-proactive { max-width: calc(100vw - 48px); } }
 .wpai-ticket-offer { display:grid; grid-template-columns:30px 1fr; gap:10px; margin:4px 0 12px; padding:12px; border:1px solid color-mix(in srgb,var(--wpai-accent) 24%,var(--wpai-border)); border-radius:15px; background:color-mix(in srgb,var(--wpai-accent) 7%,var(--wpai-surface)); animation:wpai-message-in .3s both; }
 .wpai-ticket-offer>i { display:grid; place-items:center; width:30px; height:30px; border-radius:9px; color:var(--wpai-accent); background:color-mix(in srgb,var(--wpai-accent) 12%,transparent); }
 .wpai-ticket-offer strong,.wpai-ticket-offer span { display:block; }.wpai-ticket-offer strong { margin-bottom:3px; font-size:12.5px; }.wpai-ticket-offer span { color:var(--wpai-muted); font-size:11.5px; line-height:1.45; }

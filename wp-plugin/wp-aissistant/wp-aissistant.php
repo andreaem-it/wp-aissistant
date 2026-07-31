@@ -2,13 +2,13 @@
 /**
  * Plugin Name: WP AIssistant
  * Description: Floating AI chat widget backed by a RAG backend, with automatic site content sync.
- * Version: 1.1.4
+ * Version: 1.1.5
  */
 
 if (!defined('ABSPATH')) exit;
 
 define('WPAI_OPTION', 'wpai_settings');
-define('WPAI_VERSION', '1.1.4'); // keep in sync with the "Version:" header above
+define('WPAI_VERSION', '1.1.5'); // keep in sync with the "Version:" header above
 
 // The backend is a single hosted service (not something each site owner runs), so its URL
 // isn't a setting — it's hardcoded here. Override only for local/staging testing by defining

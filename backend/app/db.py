@@ -218,6 +218,28 @@ class SlaPolicy(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
+class ProactiveRule(SQLModel, table=True):
+    """A contextual message the widget offers before the visitor asks anything.
+
+    The rules are evaluated in the browser (no round-trip per page view), so this row is
+    public-by-design content: it must never carry anything internal. `impressions` and
+    `engagements` are the only feedback loop we get on whether a rule is worth keeping."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    client_id: int = Field(index=True, foreign_key="client.id")
+    name: str
+    trigger_type: str = "time_on_page"  # url | time_on_page | exit_intent | cart
+    url_pattern: str = ""  # substring of the page URL; empty = any page
+    delay_seconds: int = 15
+    message: str = ""
+    frequency: str = "once_per_day"  # once_per_session | once_per_day | always
+    active: bool = True
+    position: int = 0
+    impressions: int = 0
+    engagements: int = 0
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 class Workflow(SQLModel, table=True):
     """A tenant automation: when `trigger` fires, if every condition matches, run the actions.
     `conditions` and `actions` are JSON lists validated against a closed vocabulary (see

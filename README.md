@@ -90,6 +90,12 @@ Tre componenti indipendenti:
   visitatore), menzioni `@nome` con elenco delle citazioni non lette, indicatore di presenza sulla
   conversazione che avvisa quando un collega sta già scrivendo, e registro delle azioni
   (`/conversations/{id}/activity`) alimentato dall'audit log del tenant.
+- **Messaggi proattivi** — il widget può proporre un messaggio prima che il visitatore scriva,
+  con quattro trigger: pagina specifica (URL), tempo sulla pagina, intento di uscita e carrello
+  pieno. Le regole vengono valutate nel browser (nessuna chiamata per pagina) e il visitatore
+  comanda: al massimo un messaggio per pagina, mai a chat aperta o su una conversazione già
+  avviata, frequenza configurabile (sessione/giorno/sempre) e «Non mostrare più» permanente.
+  Impression e chat aperte sono contate per capire se una regola vale la pena.
 - **Automazioni no-code** — regole «quando succede X, se vale Y, fai Z» configurabili dal panel:
   trigger sugli eventi della conversazione (creazione, escalation, risposta, chiusura,
   valutazione, classificazione AI, violazione SLA), condizioni su stato/priorità/reparto/
@@ -128,6 +134,8 @@ Tre componenti indipendenti:
   interno, con lo stato di lettura della menzione.
 - **Tag / ConversationTag** — etichette del tenant (manuali o generate dalla classificazione AI)
   e loro associazione multipla alle conversazioni.
+- **ProactiveRule** — messaggio contestuale del widget con trigger, filtro URL, frequenza e
+  contatori di visualizzazioni/chat aperte.
 - **Workflow / WorkflowRun** — regole di automazione del tenant (trigger, condizioni e azioni
   come JSON validato) e registro di ogni valutazione, con le azioni effettivamente applicate.
 - **ApiKey** — credenziale server-to-server dell'API pubblica: scoped, revocabile, salvata come
@@ -392,6 +400,10 @@ Auth via header `Authorization: Bearer <token>`. La colonna *Auth* indica quale 
 | `/chat/stream` | POST | 🔑 | Come `/chat` ma in streaming SSE (token progressivi); il widget lo usa con fallback su `/chat` |
 | `/chat/feedback` | POST | 🔑 | Valutazione 👍/👎 su una risposta AI (scoping per conversazione) |
 | `/chat/rating` | POST | 🔑 | CSAT del visitatore sull'intera conversazione (voto 1–5 + commento); reinviarlo aggiorna il precedente |
+| `/widget/proactive` | GET | 🔑 | Regole proattive attive per il widget (solo trigger e messaggio) |
+| `/widget/proactive/{id}/event` | POST | 🔑 | Conta una visualizzazione o una chat aperta dal messaggio |
+| `/proactive-rules` | GET/POST | 👤 | Messaggi proattivi del tenant, con i contatori di conversione |
+| `/proactive-rules/{id}` | PATCH/DELETE | 👤 | Aggiorna o elimina un messaggio proattivo |
 | `/workflows` | GET/POST | 👤 | Automazioni del tenant + vocabolario (trigger, campi, operatori, azioni) |
 | `/workflows/{id}` | PATCH/DELETE | 👤 | Aggiorna o elimina una regola (con il suo storico) |
 | `/workflows/{id}/preview` | POST | 👤 | Prova a secco su una conversazione reale: dice se scatterebbe e cosa farebbe, senza applicare nulla |

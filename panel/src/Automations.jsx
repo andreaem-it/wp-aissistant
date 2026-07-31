@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Workflow as WorkflowIcon, Plus, Trash2, Play, History } from "lucide-react";
 import { api } from "./api.js";
 import { formatMoment } from "./activity.js";
+import Proactive from "./Proactive.jsx";
 
 // Etichette italiane del vocabolario chiuso esposto dal backend in /workflows.catalog.
 const TRIGGER_LABELS = {
@@ -302,6 +303,10 @@ export default function Automations() {
             se l'intento è reclamo, imposta priorità urgente».
           </div>
         )}
+      </div>
+
+      <div style={{ marginBottom: 20 }}>
+        <Proactive />
       </div>
 
       <div className="wpai-card">
