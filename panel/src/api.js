@@ -79,6 +79,15 @@ export const api = {
   createSlaPolicy: (body) => call("/sla-policies", { method: "POST", body }),
   updateSlaPolicy: (id, body) => call(`/sla-policies/${id}`, { method: "PATCH", body }),
   deleteSlaPolicy: (id) => call(`/sla-policies/${id}`, { method: "DELETE" }),
+  notes: (id) => call(`/conversations/${id}/notes`),
+  createNote: (id, body, mentions = []) =>
+    call(`/conversations/${id}/notes`, { method: "POST", body: { body, mentions } }),
+  deleteNote: (id, noteId) => call(`/conversations/${id}/notes/${noteId}`, { method: "DELETE" }),
+  mentions: (unread_only = true) => call("/mentions", { params: { unread_only } }),
+  markMentionsRead: (mention_ids = []) => call("/mentions/read", { method: "POST", body: { mention_ids } }),
+  presence: (id, composing = false) =>
+    call(`/conversations/${id}/presence`, { method: "POST", body: { composing } }),
+  conversationActivity: (id) => call(`/conversations/${id}/activity`),
   savedViews: () => call("/saved-views"),
   createSavedView: (body) => call("/saved-views", { method: "POST", body }),
   updateSavedView: (id, body) => call(`/saved-views/${id}`, { method: "PATCH", body }),

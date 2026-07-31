@@ -213,6 +213,29 @@ class SlaPolicy(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
+class InternalNote(SQLModel, table=True):
+    """An operator-only note on a conversation. Deliberately NOT a Message: the widget reads
+    messages, so anything internal must live in a table the visitor endpoints never touch."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    client_id: int = Field(index=True, foreign_key="client.id")
+    conversation_id: int = Field(index=True, foreign_key="conversation.id")
+    operator_id: int = Field(index=True, foreign_key="operator.id")
+    body: str
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class NoteMention(SQLModel, table=True):
+    """An operator mentioned in a note (`@nome`). Stored as rows rather than JSON so the panel
+    can query "my unread mentions" cheaply."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    client_id: int = Field(index=True, foreign_key="client.id")
+    note_id: int = Field(index=True, foreign_key="internalnote.id")
+    conversation_id: int = Field(index=True, foreign_key="conversation.id")
+    operator_id: int = Field(index=True, foreign_key="operator.id")
+    read_at: Optional[datetime] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 class SavedView(SQLModel, table=True):
     """A saved inbox filter. Belongs to the operator who created it; `shared=True` makes it
     visible to the whole tenant (still editable only by its owner). `filters` is a JSON dict of

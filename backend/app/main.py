@@ -30,7 +30,9 @@ from .db import (
     DepartmentMember,
     InfoField,
     IngestJob,
+    InternalNote,
     Message,
+    NoteMention,
     Operator,
     OperatorSession,
     Plan,
@@ -1583,6 +1585,289 @@ def _filter_by_sla_state(query, state: str, now: datetime):
     return query.where(running, ~breached, ~warning)  # ok
 
 
+# ---- Collaboration: internal notes, mentions, presence ----------------------------------
+
+MAX_NOTE_CHARS = int(os.getenv("MAX_NOTE_CHARS", "4000"))
+# how long an operator counts as "on this conversation" after their last heartbeat
+PRESENCE_TTL = float(os.getenv("PRESENCE_TTL_SECONDS", "20"))
+# {conversation_id: {operator_id: (name, last_seen_monotonic, composing)}}
+# In-memory like the typing indicator: presence is a live hint, not data worth persisting.
+# With several uvicorn workers each process sees its own heartbeats, so collision detection is
+# best-effort — it warns, it never blocks a reply.
+_conversation_presence: dict[int, dict[int, tuple[str, float, bool]]] = {}
+
+
+def _require_conversation(session: Session, client_id: int, conversation_id: int) -> Conversation:
+    conv = session.get(Conversation, conversation_id)
+    if not conv or conv.client_id != client_id:
+        raise HTTPException(404, "conversation not found")
+    return conv
+
+
+def _prune_presence(conversation_id: int) -> dict[int, tuple[str, float, bool]]:
+    now = time.monotonic()
+    live = {
+        op_id: entry
+        for op_id, entry in _conversation_presence.get(conversation_id, {}).items()
+        if now - entry[1] < PRESENCE_TTL
+    }
+    if live:
+        _conversation_presence[conversation_id] = live
+    else:
+        _conversation_presence.pop(conversation_id, None)
+    return live
+
+
+def _mention_tokens(body: str) -> set[str]:
+    return {token.lower() for token in re.findall(r"@([\w.\-+]+)", body or "")}
+
+
+def _resolve_mentions(session: Session, client_id: int, body: str, explicit_ids: list[int]) -> list[Operator]:
+    """Operators tagged in a note: the ids the panel sends plus any `@token` in the text that
+    matches an operator's name or email local-part. Ids outside the tenant are ignored, never
+    an error, so a note is never lost because of a stale autocomplete entry."""
+    team = session.exec(select(Operator).where(Operator.client_id == client_id)).all()
+    tokens = _mention_tokens(body)
+    wanted = set(explicit_ids or [])
+    resolved: dict[int, Operator] = {}
+    for member in team:
+        local_part = member.email.split("@")[0].lower()
+        name_slug = _slugify(member.name).lower() if member.name else ""
+        if member.id in wanted or local_part in tokens or (name_slug and name_slug in tokens):
+            resolved[member.id] = member
+    return list(resolved.values())
+
+
+def _note_payload(note: InternalNote, names: dict, mentions: list[dict]) -> dict:
+    return {
+        "id": note.id,
+        "body": note.body,
+        "created_at": _iso(note.created_at),
+        "operator_id": note.operator_id,
+        "author": names.get(note.operator_id, "—"),
+        "mentions": mentions,
+    }
+
+
+@app.get("/conversations/{conversation_id}/notes")
+def list_notes(
+    conversation_id: int,
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
+    """Operator-only. Opening the notes marks the reader's own mentions on this conversation
+    as read."""
+    _require_conversation(session, operator.client_id, conversation_id)
+    notes = session.exec(
+        select(InternalNote)
+        .where(InternalNote.client_id == operator.client_id, InternalNote.conversation_id == conversation_id)
+        .order_by(InternalNote.id)
+    ).all()
+    names = {
+        row.id: _operator_name(row)
+        for row in session.exec(select(Operator).where(Operator.client_id == operator.client_id)).all()
+    }
+    mention_rows = session.exec(
+        select(NoteMention).where(
+            NoteMention.client_id == operator.client_id,
+            NoteMention.conversation_id == conversation_id,
+        )
+    ).all()
+    by_note: dict[int, list[dict]] = {}
+    now = datetime.utcnow()
+    dirty = False
+    for row in mention_rows:
+        by_note.setdefault(row.note_id, []).append(
+            {"operator_id": row.operator_id, "name": names.get(row.operator_id, "—")}
+        )
+        if row.operator_id == operator.id and row.read_at is None:
+            row.read_at = now
+            session.add(row)
+            dirty = True
+    if dirty:
+        session.commit()
+    return [_note_payload(note, names, by_note.get(note.id, [])) for note in notes]
+
+
+@app.post("/conversations/{conversation_id}/notes")
+def create_note(
+    conversation_id: int,
+    body: str = Body(...),
+    mentions: list[int] = Body([]),
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
+    _require_conversation(session, operator.client_id, conversation_id)
+    text = (body or "").strip()[:MAX_NOTE_CHARS]
+    if not text:
+        raise HTTPException(400, "body required")
+    note = InternalNote(
+        client_id=operator.client_id,
+        conversation_id=conversation_id,
+        operator_id=operator.id,
+        body=text,
+    )
+    session.add(note)
+    session.commit()
+    session.refresh(note)
+    mentioned = [m for m in _resolve_mentions(session, operator.client_id, text, mentions) if m.id != operator.id]
+    for member in mentioned:
+        session.add(
+            NoteMention(
+                client_id=operator.client_id,
+                note_id=note.id,
+                conversation_id=conversation_id,
+                operator_id=member.id,
+            )
+        )
+    if mentioned:
+        session.commit()
+    _audit(
+        session, "operator", operator.email, "note.create",
+        target=f"conversation:{conversation_id}", client_id=operator.client_id,
+        detail={"note_id": note.id, "mentions": [m.id for m in mentioned]},
+    )
+    names = {operator.id: _operator_name(operator), **{m.id: _operator_name(m) for m in mentioned}}
+    return _note_payload(
+        note, names, [{"operator_id": m.id, "name": _operator_name(m)} for m in mentioned]
+    )
+
+
+@app.delete("/conversations/{conversation_id}/notes/{note_id}")
+def delete_note(
+    conversation_id: int,
+    note_id: int,
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
+    """Only the author can remove their note; the deletion stays in the audit log."""
+    _require_conversation(session, operator.client_id, conversation_id)
+    note = session.get(InternalNote, note_id)
+    if not note or note.client_id != operator.client_id or note.conversation_id != conversation_id:
+        raise HTTPException(404, "note not found")
+    if note.operator_id != operator.id:
+        raise HTTPException(403, "not the author of this note")
+    for mention in session.exec(select(NoteMention).where(NoteMention.note_id == note.id)).all():
+        session.delete(mention)
+    session.flush()
+    session.delete(note)
+    session.commit()
+    _audit(
+        session, "operator", operator.email, "note.delete",
+        target=f"conversation:{conversation_id}", client_id=operator.client_id,
+        detail={"note_id": note_id},
+    )
+    return {"ok": True}
+
+
+@app.get("/mentions")
+def list_my_mentions(
+    unread_only: bool = True,
+    limit: int = 50,
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
+    """The operator's own mentions, newest first — the panel's «ti hanno citato» list."""
+    query = select(NoteMention, InternalNote).join(
+        InternalNote, NoteMention.note_id == InternalNote.id
+    ).where(
+        NoteMention.client_id == operator.client_id,
+        NoteMention.operator_id == operator.id,
+    )
+    if unread_only:
+        query = query.where(NoteMention.read_at.is_(None))
+    rows = session.exec(query.order_by(NoteMention.id.desc()).limit(_bounded_limit(limit, default=50))).all()
+    names = {
+        row.id: _operator_name(row)
+        for row in session.exec(select(Operator).where(Operator.client_id == operator.client_id)).all()
+    }
+    return [
+        {
+            "id": mention.id,
+            "conversation_id": mention.conversation_id,
+            "note_id": note.id,
+            "body": note.body,
+            "author": names.get(note.operator_id, "—"),
+            "created_at": _iso(note.created_at),
+            "read_at": _iso(mention.read_at),
+        }
+        for mention, note in rows
+    ]
+
+
+@app.post("/mentions/read")
+def mark_mentions_read(
+    mention_ids: list[int] = Body([], embed=True),
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
+    """Mark the given mentions (or all of them, when the list is empty) as read."""
+    query = select(NoteMention).where(
+        NoteMention.client_id == operator.client_id,
+        NoteMention.operator_id == operator.id,
+        NoteMention.read_at.is_(None),
+    )
+    if mention_ids:
+        query = query.where(NoteMention.id.in_(mention_ids))
+    now = datetime.utcnow()
+    rows = session.exec(query).all()
+    for row in rows:
+        row.read_at = now
+        session.add(row)
+    session.commit()
+    return {"ok": True, "updated": len(rows)}
+
+
+@app.post("/conversations/{conversation_id}/presence")
+def conversation_presence(
+    conversation_id: int,
+    composing: bool = Body(False, embed=True),
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
+    """Heartbeat sent while an operator has the conversation open. Returns the other operators
+    currently on it, so the panel can warn before two people answer the same visitor."""
+    _require_conversation(session, operator.client_id, conversation_id)
+    entries = _conversation_presence.setdefault(conversation_id, {})
+    entries[operator.id] = (_operator_name(operator), time.monotonic(), bool(composing))
+    live = _prune_presence(conversation_id)
+    others = [
+        {"operator_id": op_id, "name": name, "composing": is_composing}
+        for op_id, (name, _seen, is_composing) in live.items()
+        if op_id != operator.id
+    ]
+    return {"others": others, "conflict": any(o["composing"] for o in others)}
+
+
+@app.get("/conversations/{conversation_id}/activity")
+def conversation_activity(
+    conversation_id: int,
+    limit: int = 50,
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
+    """Audit trail of this conversation for its own tenant: who replied, re-routed, closed,
+    annotated or deleted what, and when. Never exposed to the visitor."""
+    _require_conversation(session, operator.client_id, conversation_id)
+    rows = session.exec(
+        select(AuditLog)
+        .where(AuditLog.client_id == operator.client_id, AuditLog.target == f"conversation:{conversation_id}")
+        .order_by(AuditLog.id.desc())
+        .limit(_bounded_limit(limit, default=50))
+    ).all()
+    return [
+        {
+            "id": row.id,
+            "action": row.action,
+            "actor_type": row.actor_type,
+            "actor": row.actor_id,
+            "created_at": _iso(row.created_at),
+            "detail": json.loads(row.detail) if row.detail else {},
+        }
+        for row in rows
+    ]
+
+
 # ---- Inbox ordering & saved views ----
 
 SORT_MODES = ("recent", "oldest", "priority", "sla")
@@ -2167,6 +2452,11 @@ def _erase_conversation(session: Session, conv: Conversation) -> None:
     respecting FK order. Used by GDPR erasure and the retention purge."""
     for lg in session.exec(select(AiResponseLog).where(AiResponseLog.conversation_id == conv.id)).all():
         session.delete(lg)
+    for mention in session.exec(select(NoteMention).where(NoteMention.conversation_id == conv.id)).all():
+        session.delete(mention)
+    session.flush()
+    for note in session.exec(select(InternalNote).where(InternalNote.conversation_id == conv.id)).all():
+        session.delete(note)
     session.flush()
     for m in session.exec(select(Message).where(Message.conversation_id == conv.id)).all():
         session.delete(m)

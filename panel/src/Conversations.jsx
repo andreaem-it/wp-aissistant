@@ -1,7 +1,11 @@
-import { useCallback, useEffect, useState } from "react";
-import { Inbox, MessageCircle, Send, Save, CheckCircle2, RotateCcw, Trash2, Timer, Bookmark, Users } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  Inbox, MessageCircle, Send, Save, CheckCircle2, RotateCcw, Trash2, Timer, Bookmark, Users,
+  StickyNote, AtSign, History, AlertTriangle,
+} from "lucide-react";
 import { api } from "./api.js";
 import { SLA_STATE_CLASS, SLA_STATE_LABELS, describeSla } from "./sla.js";
+import { actionLabel, actorLabel, formatMoment } from "./activity.js";
 import {
   EMPTY_FILTERS,
   fromApiFilters,
@@ -67,6 +71,25 @@ export default function Conversations() {
     () => api.savedViews().then(setViews).catch(() => setViews([])),
     [],
   );
+
+  // collaborazione: note interne, menzioni, presenza e audit della conversazione
+  const [notes, setNotes] = useState([]);
+  const [noteDraft, setNoteDraft] = useState("");
+  const [noteMentions, setNoteMentions] = useState([]);
+  const [savingNote, setSavingNote] = useState(false);
+  const [noteError, setNoteError] = useState("");
+  const [activity, setActivity] = useState([]);
+  const [presence, setPresence] = useState({ others: [], conflict: false });
+  const [mentions, setMentions] = useState([]);
+
+  const loadMentions = useCallback(
+    () => api.mentions().then(setMentions).catch(() => setMentions([])),
+    [],
+  );
+  const loadNotes = useCallback((id) => {
+    api.notes(id).then(setNotes).catch(() => setNotes([]));
+    api.conversationActivity(id).then(setActivity).catch(() => setActivity([]));
+  }, []);
   const loadMessages = (id) => api.messages(id).then((d) => setMessages(d.messages)).catch(() => {});
 
   // static-ish per-client config, loaded once
@@ -76,7 +99,8 @@ export default function Conversations() {
     api.teamOperators().then(setOperators).catch(() => {});
     api.departments().then(setDepartments).catch(() => {});
     loadViews();
-  }, [loadViews]);
+    loadMentions();
+  }, [loadViews, loadMentions]);
 
   const applyView = (view) => {
     setViewForm(null);
@@ -120,10 +144,34 @@ export default function Conversations() {
   useEffect(() => {
     if (!selected) return;
     setDraft("");
+    setNoteDraft("");
+    setNoteMentions([]);
+    setNoteError("");
+    setPresence({ others: [], conflict: false });
     loadMessages(selected);
+    loadNotes(selected);
+    loadMentions();
     api.conversationInfo(selected).then((d) => setInfoValues(d.info || {})).catch(() => setInfoValues({}));
     const id = setInterval(() => loadMessages(selected), 4000);
     return () => clearInterval(id);
+  }, [selected, loadNotes, loadMentions]);
+
+  // battito di presenza: segnala che questa conversazione è aperta e raccoglie chi altro la sta
+  // guardando, così due operatori non rispondono in contemporanea
+  const draftRef = useRef("");
+  draftRef.current = draft;
+  useEffect(() => {
+    if (!selected) return;
+    let cancelled = false;
+    const beat = () => {
+      api
+        .presence(selected, draftRef.current.trim().length > 0)
+        .then((data) => { if (!cancelled) setPresence(data); })
+        .catch(() => {});
+    };
+    beat();
+    const id = setInterval(beat, 10000);
+    return () => { cancelled = true; clearInterval(id); };
   }, [selected]);
 
   const send = async () => {
@@ -134,10 +182,43 @@ export default function Conversations() {
       await api.replyConversation(selected, text);
       setDraft("");
       await loadMessages(selected);
+      loadNotes(selected);
       loadList();
     } finally {
       setSending(false);
     }
+  };
+
+  const addNote = async (e) => {
+    e.preventDefault();
+    const text = noteDraft.trim();
+    if (!text || !selected) return;
+    setSavingNote(true);
+    try {
+      await api.createNote(selected, text, noteMentions);
+      setNoteDraft("");
+      setNoteMentions([]);
+      setNoteError("");
+      loadNotes(selected);
+    } catch {
+      setNoteError("Impossibile salvare la nota.");
+    } finally {
+      setSavingNote(false);
+    }
+  };
+  const removeNote = async (noteId) => {
+    try {
+      await api.deleteNote(selected, noteId);
+      loadNotes(selected);
+    } catch {
+      setNoteError("Solo chi ha scritto la nota può eliminarla.");
+    }
+  };
+  const mentionOperator = (operatorId) => {
+    const member = operators.find((op) => String(op.id) === String(operatorId));
+    if (!member) return;
+    setNoteMentions((prev) => (prev.includes(member.id) ? prev : [...prev, member.id]));
+    setNoteDraft((prev) => (prev ? `${prev} ` : "") + `@${member.name} `);
   };
 
   // ping the "operator is typing" state at most once every 2.5s while typing
@@ -190,6 +271,26 @@ export default function Conversations() {
   return (
     <div>
       <h1 className="wpai-page-title">Conversazioni</h1>
+
+      {mentions.length > 0 && (
+        <div className="wpai-callout" role="status">
+          <AtSign size={15} aria-hidden="true" />
+          <div>
+            <b>Ti hanno citato in {mentions.length} {mentions.length === 1 ? "nota" : "note"}.</b>{" "}
+            {mentions.slice(0, 3).map((m) => (
+              <button key={m.id} className="wpai-link-btn" onClick={() => setSelected(m.conversation_id)}>
+                #{m.conversation_id}
+              </button>
+            ))}
+          </div>
+          <button
+            className="wpai-btn ghost"
+            onClick={() => api.markMentionsRead([]).then(loadMentions).catch(() => {})}
+          >
+            Segna come lette
+          </button>
+        </div>
+      )}
 
       <div className="wpai-views" role="group" aria-label="Viste salvate">
         <button
@@ -330,6 +431,16 @@ export default function Conversations() {
                   <div key={m.id} className={`wpai-bubble ${m.role}`}>{m.content}</div>
                 ))}
               </div>
+              {presence.others.length > 0 && (
+                <div className={"wpai-callout" + (presence.conflict ? " warn" : "")} role="status">
+                  {presence.conflict ? <AlertTriangle size={15} aria-hidden="true" /> : <Users size={15} aria-hidden="true" />}
+                  <div>
+                    {presence.conflict
+                      ? `${presence.others.filter((o) => o.composing).map((o) => o.name).join(", ")} sta già scrivendo una risposta.`
+                      : `Anche ${presence.others.map((o) => o.name).join(", ")} sta guardando questa conversazione.`}
+                  </div>
+                </div>
+              )}
               <form className="wpai-reply-bar" onSubmit={(e) => { e.preventDefault(); send(); }}>
                 <textarea
                   rows={1}
@@ -375,6 +486,81 @@ export default function Conversations() {
                 </select>
               </div>
             </div>
+            <div className="wpai-card">
+              <div className="wpai-card-title" style={{ marginBottom: 10 }}>
+                <StickyNote size={15} /> Note interne
+              </div>
+              <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "0 0 10px" }}>
+                Visibili solo al team: il visitatore non le riceve mai.
+              </p>
+              <div className="wpai-note-list">
+                {notes.map((note) => (
+                  <div key={note.id} className="wpai-note">
+                    <div className="wpai-note-head">
+                      <span>{note.author}</span>
+                      <span>{formatMoment(note.created_at)}</span>
+                      <button
+                        className="wpai-chip-x"
+                        aria-label="Elimina la nota"
+                        onClick={() => removeNote(note.id)}
+                      >
+                        ×
+                      </button>
+                    </div>
+                    <div className="wpai-note-body">{note.body}</div>
+                    {note.mentions.length > 0 && (
+                      <div className="wpai-note-mentions">
+                        <AtSign size={11} aria-hidden="true" /> {note.mentions.map((m) => m.name).join(", ")}
+                      </div>
+                    )}
+                  </div>
+                ))}
+                {notes.length === 0 && (
+                  <p style={{ fontSize: 12.5, color: "var(--text-muted)", margin: 0 }}>Nessuna nota.</p>
+                )}
+              </div>
+              <form onSubmit={addNote} style={{ display: "grid", gap: 6, marginTop: 10 }}>
+                <textarea
+                  rows={2}
+                  value={noteDraft}
+                  onChange={(e) => setNoteDraft(e.target.value)}
+                  placeholder="Nota interna… usa @nome per citare un collega"
+                />
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  {operators.length > 1 && (
+                    <select
+                      aria-label="Cita un operatore"
+                      value=""
+                      onChange={(e) => mentionOperator(e.target.value)}
+                    >
+                      <option value="">Cita…</option>
+                      {operators.map((op) => <option key={op.id} value={op.id}>{op.name}</option>)}
+                    </select>
+                  )}
+                  <button className="wpai-btn" type="submit" disabled={savingNote || !noteDraft.trim()}>
+                    {savingNote ? "Salvataggio…" : "Aggiungi nota"}
+                  </button>
+                </div>
+              </form>
+              {noteError && <p role="alert" style={{ fontSize: 12.5, color: "var(--red)", margin: "8px 0 0" }}>{noteError}</p>}
+            </div>
+
+            {activity.length > 0 && (
+              <div className="wpai-card">
+                <div className="wpai-card-title" style={{ marginBottom: 10 }}>
+                  <History size={15} /> Attività
+                </div>
+                <ul className="wpai-activity">
+                  {activity.slice(0, 12).map((entry) => (
+                    <li key={entry.id}>
+                      <span>{actionLabel(entry.action)}</span>
+                      <span className="dim">{actorLabel(entry)} · {formatMoment(entry.created_at)}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
             {fields.length > 0 && (
               <div className="wpai-card">
                 <div className="wpai-card-title" style={{ marginBottom: 10 }}>Informazioni</div>
@@ -417,6 +603,7 @@ export default function Conversations() {
                 Configura risposte predefinite e campi info in <b>Configurazione</b>.
               </div>
             )}
+
           </aside>
         )}
       </div>

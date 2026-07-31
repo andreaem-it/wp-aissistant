@@ -714,6 +714,38 @@ button.wpai-btn.danger:hover { background: #b91c1c; }
 .wpai-sla-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
 .wpai-sla-list li { font-size: 12.5px; color: var(--text-muted); }
 
+/* avvisi in linea (menzioni, collisione fra operatori) */
+.wpai-callout {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 10px 12px; margin-bottom: 12px;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--surface); color: var(--text); font-size: 12.5px;
+}
+.wpai-callout.warn { background: var(--amber-soft); border-color: transparent; color: var(--amber); }
+.wpai-callout > div { flex: 1; min-width: 160px; }
+.wpai-link-btn {
+  border: none; background: none; padding: 0 4px; cursor: pointer;
+  color: var(--primary); font: inherit; text-decoration: underline;
+}
+
+/* note interne e attività della conversazione */
+.wpai-note-list { display: grid; gap: 8px; }
+.wpai-note { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px 10px; }
+.wpai-note-head {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 11.5px; color: var(--text-muted); margin-bottom: 4px;
+}
+.wpai-note-head > span:first-child { font-weight: 600; color: var(--text); }
+.wpai-note-head > span:nth-child(2) { margin-left: auto; }
+.wpai-note-body { font-size: 12.5px; white-space: pre-wrap; }
+.wpai-note-mentions {
+  display: flex; align-items: center; gap: 4px;
+  font-size: 11.5px; color: var(--primary-soft-text); margin-top: 5px;
+}
+.wpai-activity { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; font-size: 12.5px; }
+.wpai-activity li { display: flex; justify-content: space-between; gap: 10px; }
+.wpai-activity .dim { color: var(--text-muted); font-size: 11.5px; text-align: right; }
+
 /* viste salvate dell'inbox */
 .wpai-views { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; }
 .wpai-view-chip {

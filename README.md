@@ -77,6 +77,10 @@ Tre componenti indipendenti:
 - **Visibilità** — l'inbox mostra un badge per conversazione ed è filtrabile per stato SLA;
   `/stats` espone conversazioni tracciate, a rischio, violate, percentuale di rispetto e tempo
   medio di prima risposta.
+- **Collaborazione** — note interne visibili solo al team (mai restituite agli endpoint del
+  visitatore), menzioni `@nome` con elenco delle citazioni non lette, indicatore di presenza sulla
+  conversazione che avvisa quando un collega sta già scrivendo, e registro delle azioni
+  (`/conversations/{id}/activity`) alimentato dall'audit log del tenant.
 - **Viste salvate** — ogni operatore può salvare la combinazione corrente di filtri e
   ordinamento con un nome (es. «Urgenti non assegnate») e riaprirla con un clic. Una vista può
   essere personale o condivisa con il tenant; in entrambi i casi solo chi l'ha creata può
@@ -103,6 +107,8 @@ Tre componenti indipendenti:
   reparto predefinito e cursore del turno.
 - **SavedView** — filtri dell'inbox salvati con nome e ordinamento; personali o condivisi con il
   tenant, modificabili solo da chi li ha creati.
+- **InternalNote / NoteMention** — note visibili solo agli operatori e colleghi citati al loro
+  interno, con lo stato di lettura della menzione.
 
 ### Due tipi di credenziale
 
@@ -306,6 +312,8 @@ docker compose -f docker-compose.prod.yml up -d
 | `SLA_MONITOR_ENABLED` | `true` | Avvia il monitor che segnala le scadenze SLA superate (alert + metriche) |
 | `SLA_CHECK_INTERVAL_SECONDS` | `300` | Intervallo tra due controlli SLA |
 | `SLA_WARN_RATIO` | `0.8` | Quota della finestra dopo cui una scadenza passa a `in_scadenza` |
+| `PRESENCE_TTL_SECONDS` | `20` | Durata di un battito di presenza operatore su una conversazione |
+| `MAX_NOTE_CHARS` | `4000` | Lunghezza massima di una nota interna |
 | `RETRIEVE_FETCH_K` | `20` | Pool di candidati recuperati prima del rerank MMR |
 | `MMR_LAMBDA` | `0.5` | Bilanciamento MMR: `1.0` = solo rilevanza, `0.0` = solo diversità |
 
@@ -357,6 +365,12 @@ Auth via header `Authorization: Bearer <token>`. La colonna *Auth* indica quale 
 | `/sla-policies` | GET/POST | 👤 | Regole SLA del tenant (prima risposta, risoluzione, reparto, priorità) |
 | `/sla-policies/{id}` | PATCH/DELETE | 👤 | Aggiorna o rimuove una regola SLA (le conversazioni in corso vengono riallineate) |
 | `/routing-settings` | GET/PUT | 👤 | Instradamento automatico: `off` o `round_robin`, con reparto predefinito |
+| `/conversations/{id}/notes` | GET/POST | 👤 | Note interne della conversazione (mai visibili al visitatore), con menzioni `@nome` |
+| `/conversations/{id}/notes/{note_id}` | DELETE | 👤 | Elimina una nota interna (solo l'autore) |
+| `/conversations/{id}/presence` | POST | 👤 | Battito di presenza: chi altro ha aperto la conversazione e chi sta già scrivendo |
+| `/conversations/{id}/activity` | GET | 👤 | Registro delle azioni sulla conversazione (risposte, instradamento, note, SLA) |
+| `/mentions` | GET | 👤 | Menzioni ricevute dall'operatore (di default solo le non lette) |
+| `/mentions/read` | POST | 👤 | Segna come lette alcune menzioni o tutte |
 | `/saved-views` | GET/POST | 👤 | Viste salvate dell'inbox (proprie + condivise nel tenant) |
 | `/saved-views/{id}` | PATCH/DELETE | 👤 | Aggiorna o elimina una vista salvata (solo il proprietario) |
 | `/onboarding/status` | GET | 👤 | Checklist di attivazione calcolata da billing, origin, knowledge base e prima chat |
