@@ -714,6 +714,31 @@ button.wpai-btn.danger:hover { background: #b91c1c; }
 .wpai-sla-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
 .wpai-sla-list li { font-size: 12.5px; color: var(--text-muted); }
 
+/* viste salvate dell'inbox */
+.wpai-views { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; }
+.wpai-view-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  border: 1px solid var(--border); border-radius: 999px;
+  background: var(--surface); color: var(--text-muted);
+  font-size: 12.5px; font-family: inherit; padding: 0 4px 0 0;
+}
+.wpai-view-chip > button, button.wpai-view-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  border: none; background: transparent; color: inherit; font: inherit;
+  padding: 6px 12px; border-radius: 999px; cursor: pointer;
+}
+button.wpai-view-chip { padding: 6px 12px; }
+.wpai-view-chip:hover { border-color: var(--border-strong); color: var(--text); }
+.wpai-view-chip.active {
+  background: var(--primary-soft); color: var(--primary-soft-text);
+  border-color: transparent; font-weight: 600;
+}
+.wpai-view-form { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.wpai-view-form input[type="text"], .wpai-view-form input:not([type]) {
+  height: 32px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: 0 10px; font-size: 12.5px; min-width: 150px;
+}
+
 /* chip rimovibile (membri di un reparto) */
 .wpai-chip {
   display: inline-flex; align-items: center; gap: 6px;

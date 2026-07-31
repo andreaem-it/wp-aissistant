@@ -79,6 +79,10 @@ export const api = {
   createSlaPolicy: (body) => call("/sla-policies", { method: "POST", body }),
   updateSlaPolicy: (id, body) => call(`/sla-policies/${id}`, { method: "PATCH", body }),
   deleteSlaPolicy: (id) => call(`/sla-policies/${id}`, { method: "DELETE" }),
+  savedViews: () => call("/saved-views"),
+  createSavedView: (body) => call("/saved-views", { method: "POST", body }),
+  updateSavedView: (id, body) => call(`/saved-views/${id}`, { method: "PATCH", body }),
+  deleteSavedView: (id) => call(`/saved-views/${id}`, { method: "DELETE" }),
   routingSettings: () => call("/routing-settings"),
   setRoutingSettings: (mode, fallback_department_id = null) =>
     call("/routing-settings", { method: "PUT", body: { mode, fallback_department_id } }),

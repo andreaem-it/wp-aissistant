@@ -56,7 +56,7 @@ Queste funzionalità esistono già e non vanno reinserite come nuove feature:
 
 | Feature | Perché conta | MVP consigliato | Complessità |
 |---|---|---|---:|
-| Inbox con assegnazione, team e reparti | **Rilasciata:** assegnatario, reparto, priorità e filtri; restano le viste salvate. | Aggiungere viste personali/condivise. | Media |
+| Inbox con assegnazione, team e reparti | **Rilasciata:** assegnatario, reparto, priorità, filtri, ordinamenti e viste salvate personali/condivise. | — | Media |
 | SLA e regole di instradamento | **Rilasciata:** regole SLA per reparto/priorità, scadenze prima risposta e risoluzione con stato `ok`/`in scadenza`/`violato`, round-robin sui membri del reparto con fallback alla coda, alert+metriche sulle violazioni e filtri nell'inbox. | Prossimo passo: pausa SLA fuori orario di supporto. | Media |
 | Note interne, menzioni e collision detection | Evita risposte doppie e migliora la collaborazione. | Note non visibili al cliente, `@mention`, presenza operatore e lock/composer warning. | Media |
 | Tag e classificazione automatica | Abilita report e automazioni realmente utili. | Tag manuali + classificazione AI per intento, tema e urgenza. | Media |
@@ -107,7 +107,7 @@ Non iniziare lo sviluppo esteso prima del go/no-go sulla latenza del PoC.
 ### Ciclo 2 — Help desk competitivo
 
 1. ✅ Modello team/reparti e assegnazione.
-2. ✅ Priorità, SLA e routing — restano le viste salvate.
+2. ✅ Priorità, SLA, routing e viste salvate.
 3. Note interne, menzioni e collision detection.
 4. Tag automatici e CSAT.
 

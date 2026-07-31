@@ -213,6 +213,22 @@ class SlaPolicy(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
+class SavedView(SQLModel, table=True):
+    """A saved inbox filter. Belongs to the operator who created it; `shared=True` makes it
+    visible to the whole tenant (still editable only by its owner). `filters` is a JSON dict of
+    the validated inbox filters, `sort` the ordering applied on top of them."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    client_id: int = Field(index=True, foreign_key="client.id")
+    operator_id: int = Field(index=True, foreign_key="operator.id")
+    name: str
+    shared: bool = False
+    filters: str = "{}"  # JSON
+    sort: str = "recent"  # recent | oldest | priority | sla
+    position: int = 0
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 class RoutingSetting(SQLModel, table=True):
     """Per-tenant auto-routing configuration, applied when a conversation escalates.
     mode=off leaves everything manual; mode=round_robin assigns the next operator in the

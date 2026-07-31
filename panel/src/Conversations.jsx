@@ -1,7 +1,15 @@
 import { useCallback, useEffect, useState } from "react";
-import { Inbox, MessageCircle, Send, Save, CheckCircle2, RotateCcw, Trash2, Timer } from "lucide-react";
+import { Inbox, MessageCircle, Send, Save, CheckCircle2, RotateCcw, Trash2, Timer, Bookmark, Users } from "lucide-react";
 import { api } from "./api.js";
 import { SLA_STATE_CLASS, SLA_STATE_LABELS, describeSla } from "./sla.js";
+import {
+  EMPTY_FILTERS,
+  fromApiFilters,
+  hasActiveFilters,
+  matchesView,
+  toApiFilters,
+  toQueryParams,
+} from "./inboxFilters.js";
 
 function initialsOf(visitorId) {
   return (visitorId || "??").slice(0, 2).toUpperCase();
@@ -40,24 +48,25 @@ export default function Conversations() {
   const [savingInfo, setSavingInfo] = useState(false);
   const [operators, setOperators] = useState([]);
   const [departments, setDepartments] = useState([]);
-  const [filters, setFilters] = useState({ status: "", priority: "", assignment: "", department_id: "", sla_state: "" });
+  const [filters, setFilters] = useState(EMPTY_FILTERS);
   const [listError, setListError] = useState("");
   const [loadingList, setLoadingList] = useState(true);
+  const [views, setViews] = useState([]);
+  const [viewForm, setViewForm] = useState(null); // {name, shared} mentre si salva una vista
+  const [viewError, setViewError] = useState("");
 
   const loadList = useCallback(() => {
-    const params = {};
-    if (filters.status) params.status = filters.status;
-    if (filters.priority) params.priority = filters.priority;
-    if (filters.department_id) params.department_id = filters.department_id;
-    if (filters.sla_state) params.sla_state = filters.sla_state;
-    if (filters.assignment === "unassigned") params.unassigned = true;
-    else if (filters.assignment) params.assigned_operator_id = filters.assignment;
     return api
-      .conversations(params)
+      .conversations(toQueryParams(filters))
       .then((rows) => { setItems(rows); setListError(""); })
       .catch(() => setListError("Impossibile caricare le conversazioni. Riprova."))
       .finally(() => setLoadingList(false));
-  }, [filters.status, filters.priority, filters.assignment, filters.department_id, filters.sla_state]);
+  }, [filters]);
+
+  const loadViews = useCallback(
+    () => api.savedViews().then(setViews).catch(() => setViews([])),
+    [],
+  );
   const loadMessages = (id) => api.messages(id).then((d) => setMessages(d.messages)).catch(() => {});
 
   // static-ish per-client config, loaded once
@@ -66,7 +75,41 @@ export default function Conversations() {
     api.infoFields().then(setFields).catch(() => {});
     api.teamOperators().then(setOperators).catch(() => {});
     api.departments().then(setDepartments).catch(() => {});
-  }, []);
+    loadViews();
+  }, [loadViews]);
+
+  const applyView = (view) => {
+    setViewForm(null);
+    setViewError("");
+    setFilters(fromApiFilters(view.filters, view.sort));
+  };
+  const saveView = async (e) => {
+    e.preventDefault();
+    const name = (viewForm?.name || "").trim();
+    if (!name) return;
+    try {
+      await api.createSavedView({
+        name,
+        filters: toApiFilters(filters),
+        sort: filters.sort || "recent",
+        shared: Boolean(viewForm.shared),
+      });
+      setViewForm(null);
+      setViewError("");
+      loadViews();
+    } catch {
+      setViewError("Impossibile salvare la vista.");
+    }
+  };
+  const removeView = async (view) => {
+    if (!window.confirm(`Eliminare la vista "${view.name}"?`)) return;
+    try {
+      await api.deleteSavedView(view.id);
+      loadViews();
+    } catch {
+      setViewError("Solo chi ha creato la vista può eliminarla.");
+    }
+  };
 
   useEffect(() => {
     loadList();
@@ -147,6 +190,58 @@ export default function Conversations() {
   return (
     <div>
       <h1 className="wpai-page-title">Conversazioni</h1>
+
+      <div className="wpai-views" role="group" aria-label="Viste salvate">
+        <button
+          className={"wpai-view-chip" + (!hasActiveFilters(filters) && filters.sort === "recent" ? " active" : "")}
+          onClick={() => { setFilters(EMPTY_FILTERS); setViewForm(null); }}
+        >
+          Tutte
+        </button>
+        {views.map((view) => (
+          <span key={view.id} className={"wpai-view-chip" + (matchesView(filters, view) ? " active" : "")}>
+            <button onClick={() => applyView(view)} title={view.shared ? `Condivisa da ${view.owner_name}` : "Vista personale"}>
+              {view.shared && <Users size={12} aria-hidden="true" />} {view.name}
+            </button>
+            {view.mine && (
+              <button
+                className="wpai-chip-x"
+                aria-label={`Elimina la vista ${view.name}`}
+                onClick={() => removeView(view)}
+              >
+                ×
+              </button>
+            )}
+          </span>
+        ))}
+        {viewForm ? (
+          <form className="wpai-view-form" onSubmit={saveView}>
+            <input
+              autoFocus
+              aria-label="Nome della vista"
+              value={viewForm.name}
+              onChange={(e) => setViewForm((f) => ({ ...f, name: e.target.value }))}
+              placeholder="Nome vista"
+            />
+            <label style={{ fontSize: 12.5, display: "flex", alignItems: "center", gap: 5 }}>
+              <input
+                type="checkbox"
+                checked={Boolean(viewForm.shared)}
+                onChange={(e) => setViewForm((f) => ({ ...f, shared: e.target.checked }))}
+              />
+              Condivisa
+            </label>
+            <button className="wpai-btn" type="submit" disabled={!viewForm.name.trim()}>Salva</button>
+            <button className="wpai-btn ghost" type="button" onClick={() => { setViewForm(null); setViewError(""); }}>Annulla</button>
+          </form>
+        ) : (
+          <button className="wpai-view-chip" onClick={() => setViewForm({ name: "", shared: false })}>
+            <Bookmark size={12} aria-hidden="true" /> Salva vista
+          </button>
+        )}
+      </div>
+      {viewError && <p role="alert" style={{ fontSize: 12.5, color: "var(--red)", margin: "0 0 10px" }}>{viewError}</p>}
+
       <div className="wpai-filters" style={{ marginBottom: 14 }}>
         <select value={filters.status} onChange={(e) => setFilters((f) => ({ ...f, status: e.target.value }))}>
           <option value="">Tutti gli stati</option><option value="open">Aperte</option><option value="escalated">Escalation</option><option value="closed">Chiuse</option>
@@ -163,6 +258,9 @@ export default function Conversations() {
         </select>
         <select aria-label="Stato SLA" value={filters.sla_state} onChange={(e) => setFilters((f) => ({ ...f, sla_state: e.target.value }))}>
           <option value="">Tutti gli SLA</option><option value="violato">SLA violati</option><option value="in_scadenza">In scadenza</option><option value="ok">Nei tempi</option>
+        </select>
+        <select aria-label="Ordinamento" value={filters.sort} onChange={(e) => setFilters((f) => ({ ...f, sort: e.target.value }))}>
+          <option value="recent">Più recenti</option><option value="oldest">Meno recenti</option><option value="priority">Priorità</option><option value="sla">Scadenza SLA</option>
         </select>
       </div>
       <div className="wpai-split">

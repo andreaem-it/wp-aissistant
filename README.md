@@ -77,6 +77,11 @@ Tre componenti indipendenti:
 - **Visibilità** — l'inbox mostra un badge per conversazione ed è filtrabile per stato SLA;
   `/stats` espone conversazioni tracciate, a rischio, violate, percentuale di rispetto e tempo
   medio di prima risposta.
+- **Viste salvate** — ogni operatore può salvare la combinazione corrente di filtri e
+  ordinamento con un nome (es. «Urgenti non assegnate») e riaprirla con un clic. Una vista può
+  essere personale o condivisa con il tenant; in entrambi i casi solo chi l'ha creata può
+  rinominarla, condividerla o eliminarla. Gli ordinamenti disponibili sono per data, priorità e
+  scadenza SLA più vicina.
 
 ## Modello dati
 
@@ -96,6 +101,8 @@ Tre componenti indipendenti:
   e/o a una priorità; vince la regola più specifica.
 - **RoutingSetting** — modalità di assegnazione automatica del tenant (`off | round_robin`),
   reparto predefinito e cursore del turno.
+- **SavedView** — filtri dell'inbox salvati con nome e ordinamento; personali o condivisi con il
+  tenant, modificabili solo da chi li ha creati.
 
 ### Due tipi di credenziale
 
@@ -328,7 +335,7 @@ Auth via header `Authorization: Bearer <token>`. La colonna *Auth* indica quale 
 | `/ingest/product` | POST | 🔑 | Push prodotto WooCommerce (dal plugin) |
 | `/ingest/document` | POST | 👤 | Upload documento (PDF/immagine/testo) dal panel |
 | `/ingest/jobs/{id}` | GET | 🔀 | Stato di un job di ingest (`queued`/`processing`/`done`/`error`) |
-| `/conversations` | GET | 👤 | Lista conversazioni del client, filtrabile per stato, priorità, reparto, assegnazione e stato SLA (`sla_state=ok\|in_scadenza\|violato`) |
+| `/conversations` | GET | 👤 | Lista conversazioni del client, filtrabile per stato, priorità, reparto, assegnazione e stato SLA (`sla_state=ok\|in_scadenza\|violato`) e ordinabile (`sort=recent\|oldest\|priority\|sla`) |
 | `/conversations/{id}/routing` | PATCH | 👤 | Imposta priorità, operatore assegnato e reparto della conversazione (ricalcola le scadenze SLA) |
 | `/conversations/{id}/messages` | GET | 🔀 | Messaggi (polling widget + lettura panel) |
 | `/tickets` | GET | 👤 | Ticket per stato |
@@ -350,6 +357,8 @@ Auth via header `Authorization: Bearer <token>`. La colonna *Auth* indica quale 
 | `/sla-policies` | GET/POST | 👤 | Regole SLA del tenant (prima risposta, risoluzione, reparto, priorità) |
 | `/sla-policies/{id}` | PATCH/DELETE | 👤 | Aggiorna o rimuove una regola SLA (le conversazioni in corso vengono riallineate) |
 | `/routing-settings` | GET/PUT | 👤 | Instradamento automatico: `off` o `round_robin`, con reparto predefinito |
+| `/saved-views` | GET/POST | 👤 | Viste salvate dell'inbox (proprie + condivise nel tenant) |
+| `/saved-views/{id}` | PATCH/DELETE | 👤 | Aggiorna o elimina una vista salvata (solo il proprietario) |
 | `/onboarding/status` | GET | 👤 | Checklist di attivazione calcolata da billing, origin, knowledge base e prima chat |
 | `/me/password` | POST | 👤 | Cambia la propria password |
 | `/me/rotate-key` | POST | 👤 | Rigenera l'api_key del proprio client |

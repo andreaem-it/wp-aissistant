@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 
 import stripe
 from fastapi import Body, Depends, FastAPI, Header, HTTPException, Request, Response, UploadFile
-from sqlalchemy import and_, func, or_
+from sqlalchemy import and_, case, func, or_
 from sqlmodel import Session, select
 
 from . import billing
@@ -36,6 +36,7 @@ from .db import (
     Plan,
     Product,
     RoutingSetting,
+    SavedView,
     SlaPolicy,
     Ticket,
     engine,
@@ -1582,6 +1583,190 @@ def _filter_by_sla_state(query, state: str, now: datetime):
     return query.where(running, ~breached, ~warning)  # ok
 
 
+# ---- Inbox ordering & saved views ----
+
+SORT_MODES = ("recent", "oldest", "priority", "sla")
+# how urgent each priority is when sorting (higher = shown first)
+_PRIORITY_RANK = {"urgent": 3, "high": 2, "normal": 1, "low": 0}
+
+
+def _inbox_order(sort: str) -> list:
+    """ORDER BY clauses for one inbox ordering. Every mode ends on the conversation id so the
+    result is stable when the leading key ties."""
+    if sort == "oldest":
+        return [Conversation.id.asc()]
+    if sort == "priority":
+        rank = case(_PRIORITY_RANK, value=Conversation.priority, else_=1)
+        return [rank.desc(), Conversation.id.desc()]
+    if sort == "sla":
+        # nearest deadline first; conversations without an SLA go last
+        deadline = func.least(Conversation.first_response_due_at, Conversation.resolution_due_at)
+        return [deadline.asc().nullslast(), Conversation.id.desc()]
+    return [Conversation.id.desc()]
+
+
+INBOX_FILTER_KEYS = ("status", "priority", "department_id", "assigned_operator_id", "unassigned", "sla_state")
+
+
+def _clean_inbox_filters(session: Session, client_id: int, raw: dict) -> dict:
+    """Validate the filters of a saved view exactly like the query params of /conversations,
+    including the tenant ownership of the referenced department/operator, so a view can never
+    be stored (or shared) pointing at another tenant's data."""
+    if not isinstance(raw, dict):
+        raise HTTPException(400, "filters must be an object")
+    unknown = set(raw) - set(INBOX_FILTER_KEYS)
+    if unknown:
+        raise HTTPException(400, f"unknown filter: {sorted(unknown)[0]}")
+    clean: dict = {}
+    status = raw.get("status")
+    if status:
+        if status not in ("open", "escalated", "closed"):
+            raise HTTPException(400, "invalid status")
+        clean["status"] = status
+    priority = raw.get("priority")
+    if priority:
+        if priority not in PRIORITIES:
+            raise HTTPException(400, "invalid priority")
+        clean["priority"] = priority
+    sla_state = raw.get("sla_state")
+    if sla_state:
+        if sla_state not in SLA_STATES:
+            raise HTTPException(400, "invalid sla_state")
+        clean["sla_state"] = sla_state
+    department_id = raw.get("department_id")
+    if department_id not in (None, ""):
+        _require_department(session, client_id, int(department_id))
+        clean["department_id"] = int(department_id)
+    assigned_operator_id = raw.get("assigned_operator_id")
+    if assigned_operator_id not in (None, ""):
+        assignee = session.get(Operator, int(assigned_operator_id))
+        if not assignee or assignee.client_id != client_id:
+            raise HTTPException(404, "operator not found")
+        clean["assigned_operator_id"] = int(assigned_operator_id)
+    if raw.get("unassigned"):
+        clean["unassigned"] = True
+    return clean
+
+
+def _saved_view_payload(view: SavedView, operator_names: dict, viewer_id: int | None = None) -> dict:
+    return {
+        "id": view.id,
+        "name": view.name,
+        "shared": view.shared,
+        "filters": json.loads(view.filters) if view.filters else {},
+        "sort": view.sort,
+        "position": view.position,
+        "operator_id": view.operator_id,
+        "owner_name": operator_names.get(view.operator_id, ""),
+        # only the owner can rename, share or delete it (see _own_saved_view)
+        "mine": view.operator_id == viewer_id,
+    }
+
+
+@app.get("/saved-views")
+def list_saved_views(operator: Operator = Depends(require_operator), session: Session = Depends(get_session)):
+    """Own views plus the ones shared inside the tenant."""
+    views = session.exec(
+        select(SavedView)
+        .where(
+            SavedView.client_id == operator.client_id,
+            or_(SavedView.operator_id == operator.id, SavedView.shared.is_(True)),
+        )
+        .order_by(SavedView.position, SavedView.id)
+    ).all()
+    names = {
+        row.id: _operator_name(row)
+        for row in session.exec(select(Operator).where(Operator.client_id == operator.client_id)).all()
+    }
+    return [_saved_view_payload(view, names, operator.id) for view in views]
+
+
+@app.post("/saved-views")
+def create_saved_view(
+    name: str = Body(...),
+    filters: dict = Body({}),
+    sort: str = Body("recent"),
+    shared: bool = Body(False),
+    position: int = Body(0),
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
+    clean_name = name.strip()[:60]
+    if not clean_name:
+        raise HTTPException(400, "name required")
+    if sort not in SORT_MODES:
+        raise HTTPException(400, "invalid sort")
+    clean_filters = _clean_inbox_filters(session, operator.client_id, filters or {})
+    view = SavedView(
+        client_id=operator.client_id,
+        operator_id=operator.id,
+        name=clean_name,
+        shared=shared,
+        filters=json.dumps(clean_filters),
+        sort=sort,
+        position=position,
+    )
+    session.add(view)
+    session.commit()
+    session.refresh(view)
+    return _saved_view_payload(view, {operator.id: _operator_name(operator)}, operator.id)
+
+
+def _own_saved_view(session: Session, operator: Operator, view_id: int) -> SavedView:
+    """Only the owner may change or delete a view, even when it is shared with the tenant."""
+    view = session.get(SavedView, view_id)
+    if not view or view.client_id != operator.client_id:
+        raise HTTPException(404, "saved view not found")
+    if view.operator_id != operator.id:
+        raise HTTPException(403, "not the owner of this view")
+    return view
+
+
+@app.patch("/saved-views/{view_id}")
+def update_saved_view(
+    view_id: int,
+    name: str | None = Body(None),
+    filters: dict | None = Body(None),
+    sort: str | None = Body(None),
+    shared: bool | None = Body(None),
+    position: int | None = Body(None),
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
+    view = _own_saved_view(session, operator, view_id)
+    if name is not None:
+        clean_name = name.strip()[:60]
+        if not clean_name:
+            raise HTTPException(400, "name required")
+        view.name = clean_name
+    if sort is not None:
+        if sort not in SORT_MODES:
+            raise HTTPException(400, "invalid sort")
+        view.sort = sort
+    if filters is not None:
+        view.filters = json.dumps(_clean_inbox_filters(session, operator.client_id, filters))
+    if shared is not None:
+        view.shared = shared
+    if position is not None:
+        view.position = position
+    view.updated_at = datetime.utcnow()
+    session.add(view)
+    session.commit()
+    return _saved_view_payload(view, {operator.id: _operator_name(operator)}, operator.id)
+
+
+@app.delete("/saved-views/{view_id}")
+def delete_saved_view(
+    view_id: int,
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
+    view = _own_saved_view(session, operator, view_id)
+    session.delete(view)
+    session.commit()
+    return {"ok": True}
+
+
 def _routing_setting(session: Session, client_id: int) -> RoutingSetting | None:
     return session.exec(select(RoutingSetting).where(RoutingSetting.client_id == client_id)).first()
 
@@ -1759,9 +1944,14 @@ def list_conversations(
     assigned_operator_id: int | None = None,
     unassigned: bool = False,
     sla_state: str | None = None,
+    sort: str = "recent",
     operator: Operator = Depends(require_operator),
     session: Session = Depends(get_session),
 ):
+    """The operator inbox. `before_id` paginates the id-ordered modes (recent/oldest); the
+    priority and sla orderings are meant for the first page of a working queue."""
+    if sort not in SORT_MODES:
+        raise HTTPException(400, "invalid sort")
     now = datetime.utcnow()
     query = select(Conversation).where(Conversation.client_id == operator.client_id)
     if status:
@@ -1791,7 +1981,7 @@ def list_conversations(
     if before_id:
         query = query.where(Conversation.id < before_id)
     convs = session.exec(
-        query.order_by(Conversation.id.desc()).limit(_bounded_limit(limit))
+        query.order_by(*_inbox_order(sort)).limit(_bounded_limit(limit))
     ).all()
     result = []
     for c in convs:
