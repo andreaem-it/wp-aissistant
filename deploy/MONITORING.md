@@ -65,3 +65,27 @@ la notifica.
 
 Sentry + uptime monitor coprono il buco: **essere avvisati proattivamente** quando qualcosa
 va storto in produzione.
+
+## 3. Alert Prometheus pronti
+
+[`prometheus-alerts.yml`](./prometheus-alerts.yml) contiene regole iniziali per:
+
+- backend irraggiungibile;
+- percentuale di errori 5xx superiore al 5%;
+- latenza p95 di chat/stream superiore a 8 secondi;
+- job ingest falliti;
+- indisponibilità del provider AI.
+
+Carica il file in Prometheus/Alertmanager oppure traduci le stesse soglie nel servizio di
+monitoraggio scelto. Prima del go-live, collegare almeno un destinatario primario e uno di
+backup e generare deliberatamente un alert di prova. Un'integrazione configurata ma mai
+provata non è considerata operativa.
+
+### Runbook sintetico
+
+1. **Backend down:** controllare deploy Railway, health check e raggiungibilità database.
+2. **5xx:** correlare la finestra con Sentry e `request_id` nei log Railway.
+3. **Latenza:** separare provider AI, retrieval/DB e saturazione applicativa.
+4. **Ingest:** aprire Sistema nel superadmin, controllare errori e retry prima di rilanciare.
+5. **LLM down:** verificare Cloudflare Workers AI e credenziali; informare gli operatori del
+   fallback a ticket finché il provider non recupera.

@@ -82,6 +82,7 @@ export const api = {
   },
   teachKnowledge: (title, content) => call("/knowledge/teach", { method: "POST", body: { title, content } }),
   me: () => call("/me"),
+  onboardingStatus: () => call("/onboarding/status"),
   setName: (name) => call("/me/name", { method: "POST", body: { name } }),
   typing: (id) => call(`/conversations/${id}/typing`, { method: "POST" }),
   changePassword: (current_password, new_password) =>

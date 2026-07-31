@@ -45,11 +45,11 @@ Queste funzionalità esistono già e non vanno reinserite come nuove feature:
 | Feature | Stato | Impatto | Complessità | Criterio di completamento |
 |---|---|---:|---:|---|
 | Valutazione sistematica RAG | Implementata, dataset tenant da popolare | Alto | Media | Suite live in `backend/evals/`: dataset per tenant, metriche retrieval e answer quality, soglia CI e regression test. |
-| Monitoraggio e alerting operativo | Parziale | Alto | Media | Alert su error rate, latenza, coda ingest, provider AI, email e webhook; runbook e storico incidenti. |
+| Monitoraggio e alerting operativo | Implementato, destinatari live da verificare | Alto | Media | Sentry, uptime, metriche e regole alert per down/5xx/latenza/ingest/provider AI con runbook. |
 | Backup, restore e disaster recovery | Strumenti pronti, scheduling da attivare | Alto | Media | Runbook, dump validato e restore protetto in `deploy/`; resta da schedulare e provare sul database isolato. |
 | Hardening produzione | Implementato nel codice, configurazione live da verificare | Alto | Bassa | Validazione fail-closed con `STRICT_PRODUCTION_CONFIG`, warning in admin health e stack production sicuri. |
 | Retention ed export GDPR end-to-end | Implementata | Alto | Media | Retention automatica, cancellazione ed export JSON tenant-scoped con audit e flusso guidato nel panel. |
-| Onboarding self-service completo | Parziale | Alto | Media | Signup → verifica email → pagamento → connessione plugin → prima sync → test widget, senza intervento manuale. |
+| Onboarding self-service completo | Implementato, verifica live da eseguire | Alto | Media | Signup, verifica, billing e checklist reale per collegamento plugin, prima sync e prima chat. |
 | Gestione errori visibile al cliente | Parziale | Medio | Bassa | Stati chiari per backend/AI/ingest indisponibili, retry sicuri e nessuna conferma di azioni non riuscite. |
 
 ### P1 — Funzionalità competitive ad alto rendimento

@@ -308,6 +308,7 @@ Auth via header `Authorization: Bearer <token>`. La colonna *Auth* indica quale 
 | `/usage` | GET | 🔑/👤 | Uso messaggi del mese vs quota del piano (usato/limite/rimanenti) — per plugin e panel |
 | `/knowledge-base` | GET | 👤 | Documenti/pagine (raggruppati, con conteggio chunk) e prodotti sincronizzati |
 | `/me` | GET | 👤 | Profilo operatore: email, nome client, api_key del widget |
+| `/onboarding/status` | GET | 👤 | Checklist di attivazione calcolata da billing, origin, knowledge base e prima chat |
 | `/me/password` | POST | 👤 | Cambia la propria password |
 | `/me/rotate-key` | POST | 👤 | Rigenera l'api_key del proprio client |
 | `/operator/login` | POST | — | Login operatore (email+password) → token |

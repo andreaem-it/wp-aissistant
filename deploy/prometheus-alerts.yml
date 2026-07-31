@@ -1,0 +1,52 @@
+groups:
+  - name: wp-aissistant
+    rules:
+      - alert: WPAIBackendDown
+        expr: up{job="wp-aissistant"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "WP AIssistant backend non raggiungibile"
+          description: "Il target Prometheus è irraggiungibile da almeno 2 minuti."
+
+      - alert: WPAIHighErrorRate
+        expr: |
+          sum(rate(wpai_http_requests_total{status=~"5.."}[5m]))
+          /
+          clamp_min(sum(rate(wpai_http_requests_total[5m])), 0.001) > 0.05
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Error rate backend superiore al 5%"
+          description: "Le risposte 5xx superano il 5% del traffico da almeno 10 minuti."
+
+      - alert: WPAIHighChatLatency
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le) (rate(wpai_http_request_duration_seconds_bucket{path=~"/chat|/chat/stream"}[10m]))
+          ) > 8
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Latenza chat p95 superiore a 8 secondi"
+          description: "Controllare provider AI, database e retrieval."
+
+      - alert: WPAIIngestFailures
+        expr: increase(wpai_ingest_jobs_total{status="error"}[15m]) > 2
+        labels:
+          severity: warning
+        annotations:
+          summary: "Più job di ingest falliti"
+          description: "Almeno 3 job sono terminati in errore negli ultimi 15 minuti."
+
+      - alert: WPAILLMUnavailable
+        expr: increase(wpai_escalations_total{trigger="llm_down"}[10m]) > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: "Provider AI non disponibile"
+          description: "Una o più conversazioni sono state deviate perché il modello non risponde."

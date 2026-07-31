@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Eye, EyeOff, Copy, Check, RefreshCw, KeyRound, CreditCard, User } from "lucide-react";
+import { Eye, EyeOff, Copy, Check, Circle, RefreshCw, KeyRound, CreditCard, User } from "lucide-react";
 import { api } from "./api.js";
 
 function NameCard({ me }) {
@@ -33,6 +33,28 @@ function NameCard({ me }) {
         <button className="wpai-btn" type="submit" disabled={saving}>{saving ? "Salvataggio…" : "Salva"}</button>
       </form>
       {status === "saved" && <div className="wpai-success" style={{ marginTop: 10, marginBottom: 0 }}>Nome aggiornato.</div>}
+    </div>
+  );
+}
+
+function OnboardingCard() {
+  const [status, setStatus] = useState(null);
+  useEffect(() => { api.onboardingStatus().then(setStatus).catch(() => setStatus(null)); }, []);
+  if (!status || status.complete) return null;
+  return (
+    <div className="wpai-card" style={{ marginBottom: 16 }}>
+      <div className="wpai-card-title">Completa l'attivazione — {status.completed_steps}/{status.total_steps}</div>
+      <p style={{ color: "var(--text-muted)", fontSize: 13, margin: "6px 0 12px" }}>
+        Collega il plugin, sincronizza i contenuti e prova una conversazione prima di pubblicare il widget.
+      </p>
+      <div style={{ display: "grid", gap: 8 }}>
+        {status.steps.map((step) => (
+          <div key={step.key} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
+            {step.complete ? <Check size={16} color="var(--green)" /> : <Circle size={16} color="var(--text-faint)" />}
+            <span style={{ color: step.complete ? "var(--text-muted)" : "var(--text)" }}>{step.label}</span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -268,6 +290,7 @@ export default function Profile() {
     <div style={{ maxWidth: 720 }}>
       <h1 className="wpai-page-title">Profilo</h1>
       <p style={{ color: "var(--text-muted)", fontSize: 13.5, marginTop: -14, marginBottom: 20 }}>{me.email}</p>
+      <OnboardingCard />
       <NameCard me={me} />
       <ApiKeyCard me={me} onRotated={(api_key) => setMe((m) => ({ ...m, api_key }))} />
       <BillingCard me={me} />

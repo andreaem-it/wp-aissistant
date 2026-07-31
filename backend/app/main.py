@@ -2550,6 +2550,51 @@ def get_me(operator: Operator = Depends(require_operator), session: Session = De
     }
 
 
+@app.get("/onboarding/status")
+def onboarding_status(operator: Operator = Depends(require_operator), session: Session = Depends(get_session)):
+    """Self-service activation checklist derived from real tenant data, never client flags."""
+    client = session.get(Client, operator.client_id)
+    knowledge_count = session.exec(
+        select(func.count()).select_from(Chunk).where(Chunk.client_id == operator.client_id)
+    ).one()
+    product_count = session.exec(
+        select(func.count()).select_from(Product).where(Product.client_id == operator.client_id)
+    ).one()
+    conversation_count = session.exec(
+        select(func.count()).select_from(Conversation).where(Conversation.client_id == operator.client_id)
+    ).one()
+    steps = [
+        {"key": "account", "label": "Account creato", "complete": True},
+        {
+            "key": "billing",
+            "label": "Piano attivo",
+            "complete": client.billing_status in ("active", "trialing"),
+        },
+        {
+            "key": "origin",
+            "label": "Sito WordPress collegato",
+            "complete": bool(client.allowed_origins.strip()),
+        },
+        {
+            "key": "knowledge",
+            "label": "Prima sincronizzazione completata",
+            "complete": int(knowledge_count) + int(product_count) > 0,
+        },
+        {
+            "key": "chat",
+            "label": "Prima conversazione verificata",
+            "complete": int(conversation_count) > 0,
+        },
+    ]
+    completed = sum(step["complete"] for step in steps)
+    return {
+        "complete": completed == len(steps),
+        "completed_steps": completed,
+        "total_steps": len(steps),
+        "steps": steps,
+    }
+
+
 @app.post("/me/name")
 def set_my_name(name: str = Body(..., embed=True), operator: Operator = Depends(require_operator), session: Session = Depends(get_session)):
     """Operator sets their own display name (shown to visitors in the typing indicator)."""
