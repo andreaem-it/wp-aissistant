@@ -66,7 +66,7 @@ Queste funzionalità esistono già e non vanno reinserite come nuove feature:
 | Lead capture e qualificazione | Trasforma il widget anche in strumento commerciale. | Form dinamici, consenso, scoring base, export CSV e webhook CRM. | Media |
 | Multilingua automatica | Necessaria per clienti internazionali. | Rilevamento lingua, risposta nella lingua dell'utente, testi widget localizzati e KB cross-language testata. | Media |
 | Analytics avanzate e suggerimenti KB | Rende misurabile il ROI e guida il miglioramento. | Deflection, resolution rate, first response time, temi senza risposta, gap KB e trend. | Alta |
-| API pubblica e webhooks gestibili | Sblocca CRM, automation platform e integrazioni proprietarie. | API versionata, chiavi scoped, webhook firmati, retry, log consegne e documentazione. | Media |
+| API pubblica e webhooks gestibili | **Rilasciata:** API `/v1` versionata, chiavi scoped e revocabili con rate limit dedicato, webhook firmati HMAC con retry a backoff, log consegne nel panel e guardia SSRF. Documentazione in [`public-api.md`](public-api.md). | Prossimo passo: eventi su messaggio del visitatore e replay di una consegna dal panel. | Media |
 
 ### P2 — Espansione di canale e piattaforma
 
@@ -113,7 +113,7 @@ Non iniziare lo sviluppo esteso prima del go/no-go sulla latenza del PoC.
 
 ### Ciclo 3 — Automazione e crescita
 
-1. API pubblica e webhooks firmati.
+1. ✅ API pubblica e webhooks firmati.
 2. Workflow builder su trigger/condizioni/azioni.
 3. Messaggi proattivi e lead qualification.
 4. Analytics avanzate e rilevamento automatico dei gap della knowledge base.

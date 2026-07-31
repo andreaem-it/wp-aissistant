@@ -218,6 +218,57 @@ class SlaPolicy(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
+class ApiKey(SQLModel, table=True):
+    """Scoped credential for the public API (`/v1/…`), separate from the widget `Client.api_key`:
+    that one is public by design and identifies only the tenant, this one authorizes server-side
+    calls and can be scoped and revoked. Only the SHA-256 digest is stored; `prefix` is the
+    non-secret part shown in the panel so a key can be recognised without revealing it."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    client_id: int = Field(index=True, foreign_key="client.id")
+    name: str = ""
+    prefix: str = Field(index=True, unique=True)
+    token_hash: str = Field(index=True, unique=True)
+    scopes: str = ""  # comma-separated, see API_SCOPES in main.py
+    created_by: str = ""  # operator email, for the audit trail
+    last_used_at: Optional[datetime] = None
+    revoked_at: Optional[datetime] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class WebhookEndpoint(SQLModel, table=True):
+    """A tenant-configured HTTPS destination for events. `secret` signs the payload so the
+    receiver can verify the call really came from us (HMAC-SHA256, see app/webhooks.py)."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    client_id: int = Field(index=True, foreign_key="client.id")
+    url: str
+    secret: str
+    events: str = ""  # comma-separated; empty = every event
+    description: str = ""
+    active: bool = True
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class WebhookDelivery(SQLModel, table=True):
+    """One attempt log per (event, endpoint). Rows are the delivery log the tenant can inspect
+    and the retry queue at the same time: a failed delivery keeps its payload and comes back at
+    next_attempt_at until it succeeds or runs out of attempts."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    client_id: int = Field(index=True, foreign_key="client.id")
+    endpoint_id: int = Field(index=True, foreign_key="webhookendpoint.id")
+    event: str = Field(index=True)
+    payload: str  # JSON
+    status: str = Field(default="pending", index=True)  # pending | success | failed
+    attempts: int = 0
+    max_attempts: int = 5
+    response_status: int = 0
+    error: str = ""
+    next_attempt_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+    delivered_at: Optional[datetime] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 class ConversationRating(SQLModel, table=True):
     """CSAT: the visitor's rating of the whole conversation (1–5 + optional comment), distinct
     from Message.feedback which judges a single AI answer. `resolved_by`, `operator_id` and

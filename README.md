@@ -120,6 +120,10 @@ Tre componenti indipendenti:
   interno, con lo stato di lettura della menzione.
 - **Tag / ConversationTag** — etichette del tenant (manuali o generate dalla classificazione AI)
   e loro associazione multipla alle conversazioni.
+- **ApiKey** — credenziale server-to-server dell'API pubblica: scoped, revocabile, salvata come
+  digest (distinta dalla `api_key` pubblica del widget).
+- **WebhookEndpoint / WebhookDelivery** — destinazioni firmate del tenant e log/coda delle
+  consegne con i tentativi.
 - **ConversationRating** — CSAT: voto 1–5 (con commento facoltativo) lasciato dal visitatore
   sull'intera conversazione, distinto dal feedback 👍/👎 sulla singola risposta AI.
 
@@ -290,6 +294,21 @@ docker compose -f docker-compose.prod.yml up -d
 ```
 (Il pacchetto GHCR nasce privato: rendilo pubblico dalle *Package settings* se vuoi pull senza login.)
 
+## API pubblica e webhook
+
+Per collegare CRM e automazioni ci sono due strade complementari, documentate in
+[`docs/public-api.md`](docs/public-api.md):
+
+- **API `/v1` versionata** — chiavi con permessi limitati (`conversations:read`,
+  `conversations:write`, `knowledge:write`, `stats:read`), mostrate una sola volta e revocabili,
+  con rate limit dedicato. Espone elenco/dettaglio conversazioni, risposta, cambio stato, tag,
+  statistiche e ingest di documenti. Le note interne non fanno parte del contratto pubblico.
+- **Webhook firmati** — eventi `conversation.created|escalated|replied|closed|rated` e
+  `sla.breached` recapitati sull'endpoint HTTPS del tenant con `X-WPAI-Signature`
+  (HMAC-SHA256 su `timestamp.corpo`), riprovi con backoff esponenziale fino a 5 tentativi e log
+  delle consegne consultabile dal panel. Gli URL interni/privati sono rifiutati (protezione
+  SSRF) sia alla creazione sia prima di ogni consegna.
+
 ## Configurazione (backend/.env)
 
 | Variabile | Default | Descrizione |
@@ -328,6 +347,12 @@ docker compose -f docker-compose.prod.yml up -d
 | `PRESENCE_TTL_SECONDS` | `20` | Durata di un battito di presenza operatore su una conversazione |
 | `MAX_NOTE_CHARS` | `4000` | Lunghezza massima di una nota interna |
 | `MAX_RATING_COMMENT_CHARS` | `1000` | Lunghezza massima del commento CSAT |
+| `PUBLIC_API_RATE_LIMIT` | `120` | Richieste `/v1` per 60s, per chiave API |
+| `WEBHOOK_DISPATCHER_ENABLED` | `true` | Avvia il dispatcher che consegna e ritenta i webhook |
+| `WEBHOOK_DISPATCH_INTERVAL_SECONDS` | `15` | Intervallo tra due giri di consegna |
+| `WEBHOOK_MAX_ATTEMPTS` | `5` | Tentativi massimi per consegna prima di marcarla fallita |
+| `WEBHOOK_TIMEOUT_SECONDS` | `5` | Timeout della singola consegna |
+| `WEBHOOK_ALLOW_PRIVATE` | `false` | `true` consente URL locali/privati (solo sviluppo e test) |
 | `AI_CLASSIFY_ENABLED` | `true` | Classificazione AI automatica della conversazione dopo un'escalation |
 | `MAX_TAGS_PER_CLIENT` | `200` | Tetto ai tag distinti per tenant (la classificazione riusa quelli esistenti) |
 | `CLASSIFY_MAX_MESSAGES` / `CLASSIFY_MAX_CHARS` | `12` / `4000` | Quanta conversazione viene inviata al classificatore |
@@ -346,7 +371,8 @@ embedding richiede la migrazione `0004` e un re-embed dei contenuti via `POST /a
 ## API principali (backend)
 
 Auth via header `Authorization: Bearer <token>`. La colonna *Auth* indica quale credenziale:
-🔑 api_key client · 👤 token operatore · 🔀 entrambi · 🛡️ `ADMIN_API_KEY`.
+🔑 api_key client · 👤 token operatore · 🔀 entrambi · 🛡️ `ADMIN_API_KEY` ·
+🔓 chiave dell'API pubblica con lo scope indicato (vedi [`docs/public-api.md`](docs/public-api.md)).
 
 | Endpoint | Metodo | Auth | Descrizione |
 |----------|--------|------|-------------|
@@ -356,6 +382,19 @@ Auth via header `Authorization: Bearer <token>`. La colonna *Auth* indica quale 
 | `/chat/stream` | POST | 🔑 | Come `/chat` ma in streaming SSE (token progressivi); il widget lo usa con fallback su `/chat` |
 | `/chat/feedback` | POST | 🔑 | Valutazione 👍/👎 su una risposta AI (scoping per conversazione) |
 | `/chat/rating` | POST | 🔑 | CSAT del visitatore sull'intera conversazione (voto 1–5 + commento); reinviarlo aggiorna il precedente |
+| `/api-keys` | GET/POST | 👤 | Chiavi dell'API pubblica (la chiave in chiaro è restituita una sola volta) |
+| `/api-keys/{id}` | DELETE | 👤 | Revoca una chiave |
+| `/webhooks` | GET/POST | 👤 | Endpoint webhook del tenant ed eventi disponibili |
+| `/webhooks/{id}` | PATCH/DELETE | 👤 | Aggiorna (URL, eventi, attivazione) o elimina un endpoint |
+| `/webhooks/{id}/test` | POST | 👤 | Invia una consegna di prova firmata e riporta l'esito reale |
+| `/webhooks/{id}/deliveries` | GET | 👤 | Log delle consegne (stato, tentativi, codice HTTP, errore) |
+| `/v1/conversations` | GET | 🔓 | API pubblica: elenco conversazioni (scope `conversations:read`) |
+| `/v1/conversations/{id}` | GET | 🔓 | Dettaglio con messaggi (senza note interne) |
+| `/v1/conversations/{id}/reply` | POST | 🔓 | Risposta dall'esterno (scope `conversations:write`) |
+| `/v1/conversations/{id}/status` | POST | 🔓 | Chiude o riapre la conversazione |
+| `/v1/conversations/{id}/tags` | POST | 🔓 | Applica un tag (creandolo se serve) |
+| `/v1/stats` | GET | 🔓 | Statistiche del tenant (scope `stats:read`) |
+| `/v1/knowledge/documents` | POST | 🔓 | Accoda un documento nella knowledge base (scope `knowledge:write`) |
 | `/csat` | GET | 👤 | Report CSAT per periodo: media, distribuzione, AI vs operatore, per operatore, per reparto e ultimi commenti |
 | `/chat/contact` | POST | 🔑 | Il visitatore lascia l'email (all'escalation) per essere notificato alla risposta operatore |
 | `/ingest/site-page` | POST | 🔑 | Push contenuto pagina/articolo (dal plugin) |

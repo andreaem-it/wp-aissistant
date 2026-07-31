@@ -20,6 +20,7 @@ from . import billing
 
 from .db import (
     AiResponseLog,
+    ApiKey,
     AuditLog,
     AuthToken,
     CannedResponse,
@@ -44,6 +45,8 @@ from .db import (
     SlaPolicy,
     Tag,
     Ticket,
+    WebhookDelivery,
+    WebhookEndpoint,
     engine,
     get_session,
     init_db,
@@ -68,6 +71,7 @@ from .rag import extract_text, retrieve, retrieve_products, retrieve_with_meta
 from .ratelimit import make_limiter
 from .security import hash_password, password_needs_rehash, verify_password
 from . import tagging
+from . import webhooks
 from .worker import requeue_stale, run_worker
 
 setup_logging()
@@ -96,6 +100,7 @@ _worker_stop = threading.Event()
 _worker_thread: threading.Thread | None = None
 _purge_thread: threading.Thread | None = None
 _sla_thread: threading.Thread | None = None
+_webhook_thread: threading.Thread | None = None
 
 # GDPR data-minimization: auto-delete conversations older than this many days (0 = keep forever).
 DATA_RETENTION_DAYS = int(os.getenv("DATA_RETENTION_DAYS", "0"))
@@ -136,7 +141,7 @@ async def lifespan(app: FastAPI):
     with Session(engine) as session:
         rebuild_allowed_origins(session)
         requeue_stale(session)  # recover jobs left 'processing' by a previous crash
-    global _worker_thread, _purge_thread, _sla_thread
+    global _worker_thread, _purge_thread, _sla_thread, _webhook_thread
     if os.getenv("INGEST_WORKER_ENABLED", "true").lower() == "true":
         _worker_thread = threading.Thread(target=run_worker, args=(_worker_stop,), daemon=True)
         _worker_thread.start()
@@ -146,6 +151,9 @@ async def lifespan(app: FastAPI):
     if SLA_MONITOR_ENABLED:
         _sla_thread = threading.Thread(target=_run_sla_monitor, args=(_worker_stop,), daemon=True)
         _sla_thread.start()
+    if WEBHOOK_DISPATCHER_ENABLED:
+        _webhook_thread = threading.Thread(target=webhooks.run_dispatcher, args=(_worker_stop,), daemon=True)
+        _webhook_thread.start()
     log(logger, logging.INFO, "startup.complete")
     yield
     _worker_stop.set()
@@ -155,6 +163,8 @@ async def lifespan(app: FastAPI):
         _purge_thread.join(timeout=5)
     if _sla_thread:
         _sla_thread.join(timeout=5)
+    if _webhook_thread:
+        _webhook_thread.join(timeout=5)
 
 
 # On Railway there's no reverse proxy in front to filter these, so gate them in the app:
@@ -462,6 +472,10 @@ def _create_conversation(session: Session, client_id: int, visitor_id: str) -> t
     session.add(conv)
     session.commit()
     session.refresh(conv)
+    # the access token never leaves this function: webhooks carry the conversation id only
+    webhooks.emit(session, client_id, "conversation.created", {
+        "conversation_id": conv.id, "visitor_id": conv.visitor_id,
+    })
     return conv, token
 
 
@@ -804,6 +818,9 @@ def _escalate(session, client_id, client_name, conv, reason, *, outcome, trigger
     metrics.escalations_total.labels(trigger=trigger).inc()
     _log_ai_response(session, client_id, conv.id, outcome, retrieval_meta=retrieval_meta, llm_meta=llm_meta)
     notify_new_ticket(client_name, conv.id, ticket.id, reason)
+    webhooks.emit(session, client_id, "conversation.escalated", {
+        "conversation_id": conv.id, "ticket_id": ticket.id, "reason": reason, "trigger": trigger,
+    })
     return ticket
 
 
@@ -1473,6 +1490,10 @@ def chat_rating(
     session.add(rating)
     session.commit()
     log(logger, logging.INFO, "csat.recorded", client_id=client.id, conversation_id=conv.id, score=score)
+    webhooks.emit(session, client.id, "conversation.rated", {
+        "conversation_id": conv.id, "score": rating.score, "comment": rating.comment,
+        "resolved_by": rating.resolved_by,
+    })
     return {"ok": True}
 
 
@@ -1512,6 +1533,7 @@ ROUTING_MODES = ("off", "round_robin")
 SLA_WARN_RATIO = min(max(float(os.getenv("SLA_WARN_RATIO", "0.8")), 0.0), 1.0)
 SLA_CHECK_INTERVAL_SECONDS = int(os.getenv("SLA_CHECK_INTERVAL_SECONDS", "300"))
 SLA_MONITOR_ENABLED = os.getenv("SLA_MONITOR_ENABLED", "true").lower() == "true"
+WEBHOOK_DISPATCHER_ENABLED = os.getenv("WEBHOOK_DISPATCHER_ENABLED", "true").lower() == "true"
 
 
 def _match_sla_policy(session: Session, client_id: int, department_id: int | None, priority: str) -> SlaPolicy | None:
@@ -2403,6 +2425,9 @@ def check_sla_breaches(session: Session) -> int:
                 detail={"target": target, "due_at": _iso(due_at)},
             )
             notify_sla_breach(client_name, conv.id, target, _iso(due_at) or "")
+            webhooks.emit(session, conv.client_id, "sla.breached", {
+                "conversation_id": conv.id, "target": target, "due_at": _iso(due_at),
+            })
     session.commit()
     return breaches
 
@@ -2696,6 +2721,9 @@ def reply_conversation(
     session.commit()
     _audit(session, "operator", operator.email, "conversation.reply", target=f"conversation:{conversation_id}", client_id=operator.client_id)
     _notify_visitor_reply(session, operator.client_id, conv)
+    webhooks.emit(session, operator.client_id, "conversation.replied", {
+        "conversation_id": conv.id, "via": "panel", "operator": _operator_name(operator),
+    })
     return {"ok": True}
 
 
@@ -2720,6 +2748,8 @@ def set_conversation_status(
     session.add(conv)
     session.commit()
     _audit(session, "operator", operator.email, f"conversation.{status}", target=f"conversation:{conversation_id}", client_id=operator.client_id)
+    if status == "closed":
+        webhooks.emit(session, operator.client_id, "conversation.closed", {"conversation_id": conv.id})
     return {"ok": True, "status": status}
 
 
@@ -3385,6 +3415,524 @@ def list_knowledge_base(
             for p in products
         ],
     }
+
+
+# ---- Public API: scoped keys ------------------------------------------------------------
+#
+# Distinct from the widget `Client.api_key`, which is embedded in a public page and only
+# identifies the tenant. These keys are server-side credentials: scoped, revocable, stored as
+# a digest, and rate-limited on their own bucket.
+
+API_SCOPES = ("conversations:read", "conversations:write", "knowledge:write", "stats:read")
+API_KEY_PREFIX = "wpa"
+api_limiter = make_limiter(int(os.getenv("PUBLIC_API_RATE_LIMIT", "120")), 60)
+# don't write last_used_at on every call: one update per minute per key is enough to answer
+# "is this key still in use?" without a write on the hot path
+API_KEY_TOUCH_SECONDS = 60
+
+
+def _hash_api_key(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def _generate_api_key() -> tuple[str, str]:
+    """Returns (full token, public prefix). The full token is shown once and never stored."""
+    prefix = f"{API_KEY_PREFIX}_{secrets.token_hex(4)}"
+    return f"{prefix}_{secrets.token_urlsafe(32)}", prefix
+
+
+def _api_key_scopes(key: ApiKey) -> list[str]:
+    return [s for s in (key.scopes or "").split(",") if s]
+
+
+def _resolve_api_key(session: Session, token: str) -> ApiKey | None:
+    key = session.exec(select(ApiKey).where(ApiKey.token_hash == _hash_api_key(token))).first()
+    if key is None or key.revoked_at is not None:
+        return None
+    return key
+
+
+def require_api_scope(scope: str):
+    """Dependency factory for the /v1 endpoints: validates the bearer key, checks the scope and
+    applies the public-API rate limit. Returns the ApiKey (which carries the tenant)."""
+
+    def dependency(
+        authorization: str = Header(None),
+        session: Session = Depends(get_session),
+    ) -> ApiKey:
+        if not authorization or not authorization.lower().startswith("bearer "):
+            raise HTTPException(401, "missing bearer token")
+        key = _resolve_api_key(session, authorization[7:].strip())
+        if key is None:
+            raise HTTPException(401, "invalid api key")
+        if scope not in _api_key_scopes(key):
+            raise HTTPException(403, f"scope richiesto: {scope}")
+        api_limiter.check(f"api:{key.id}")
+        now = datetime.utcnow()
+        if key.last_used_at is None or (now - key.last_used_at).total_seconds() > API_KEY_TOUCH_SECONDS:
+            key.last_used_at = now
+            session.add(key)
+            session.commit()
+        return key
+
+    return dependency
+
+
+def _api_key_payload(key: ApiKey) -> dict:
+    return {
+        "id": key.id,
+        "name": key.name,
+        "prefix": key.prefix,
+        "scopes": _api_key_scopes(key),
+        "created_by": key.created_by,
+        "created_at": _iso(key.created_at),
+        "last_used_at": _iso(key.last_used_at),
+        "revoked_at": _iso(key.revoked_at),
+    }
+
+
+@app.get("/api-keys")
+def list_api_keys(operator: Operator = Depends(require_operator), session: Session = Depends(get_session)):
+    rows = session.exec(
+        select(ApiKey).where(ApiKey.client_id == operator.client_id).order_by(ApiKey.id.desc())
+    ).all()
+    return [_api_key_payload(row) for row in rows]
+
+
+@app.post("/api-keys")
+def create_api_key(
+    name: str = Body(""),
+    scopes: list[str] = Body([]),
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
+    """Creates a key and returns it **once**: only its digest is stored, so a lost key can
+    only be replaced, never recovered."""
+    unknown = [s for s in scopes if s not in API_SCOPES]
+    if unknown:
+        raise HTTPException(400, f"scope non valido: {unknown[0]}")
+    if not scopes:
+        raise HTTPException(400, "almeno uno scope è richiesto")
+    token, prefix = _generate_api_key()
+    key = ApiKey(
+        client_id=operator.client_id,
+        name=name.strip()[:80],
+        prefix=prefix,
+        token_hash=_hash_api_key(token),
+        scopes=",".join(scopes),
+        created_by=operator.email,
+    )
+    session.add(key)
+    session.commit()
+    session.refresh(key)
+    _audit(
+        session, "operator", operator.email, "api_key.create",
+        target=f"api_key:{key.id}", client_id=operator.client_id,
+        detail={"prefix": prefix, "scopes": scopes},
+    )
+    return {**_api_key_payload(key), "token": token}
+
+
+@app.delete("/api-keys/{key_id}")
+def revoke_api_key(
+    key_id: int,
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
+    key = session.get(ApiKey, key_id)
+    if not key or key.client_id != operator.client_id:
+        raise HTTPException(404, "api key not found")
+    if key.revoked_at is None:
+        key.revoked_at = datetime.utcnow()
+        session.add(key)
+        session.commit()
+    _audit(
+        session, "operator", operator.email, "api_key.revoke",
+        target=f"api_key:{key_id}", client_id=operator.client_id, detail={"prefix": key.prefix},
+    )
+    return {"ok": True}
+
+
+# ---- Public API v1 -----------------------------------------------------------------------
+#
+# Versioned on purpose: /v1 is a contract with third-party integrations, so its shapes change
+# only by adding fields. The panel keeps using the unversioned operator endpoints.
+
+
+def _v1_conversation(session: Session, conv: Conversation, now: datetime) -> dict:
+    tags = tagging.conversation_tags(session, [conv.id], conv.client_id).get(conv.id, [])
+    rating = session.exec(
+        select(ConversationRating).where(ConversationRating.conversation_id == conv.id)
+    ).first()
+    return {
+        "id": conv.id,
+        "visitor_id": conv.visitor_id,
+        "status": conv.status,
+        "priority": conv.priority,
+        "department_id": conv.department_id,
+        "assigned_operator_id": conv.assigned_operator_id,
+        "created_at": _iso(conv.created_at),
+        "updated_at": _iso(conv.updated_at),
+        "closed_at": _iso(conv.closed_at),
+        "tags": [t["name"] for t in tags],
+        "classification": tagging.classification_payload(conv),
+        "sla": _sla_view(conv, now),
+        "rating": _rating_payload(rating),
+    }
+
+
+@app.get("/v1/conversations")
+def v1_list_conversations(
+    status: str | None = None,
+    priority: str | None = None,
+    tag_id: int | None = None,
+    before_id: int | None = None,
+    limit: int = 50,
+    key: ApiKey = Depends(require_api_scope("conversations:read")),
+    session: Session = Depends(get_session),
+):
+    query = select(Conversation).where(Conversation.client_id == key.client_id)
+    if status:
+        if status not in ("open", "escalated", "closed"):
+            raise HTTPException(400, "invalid status")
+        query = query.where(Conversation.status == status)
+    if priority:
+        if priority not in PRIORITIES:
+            raise HTTPException(400, "invalid priority")
+        query = query.where(Conversation.priority == priority)
+    if tag_id is not None:
+        tag = session.get(Tag, tag_id)
+        if not tag or tag.client_id != key.client_id:
+            raise HTTPException(404, "tag not found")
+        query = query.where(
+            Conversation.id.in_(
+                select(ConversationTag.conversation_id).where(ConversationTag.tag_id == tag_id)
+            )
+        )
+    if before_id:
+        query = query.where(Conversation.id < before_id)
+    convs = session.exec(
+        query.order_by(Conversation.id.desc()).limit(_bounded_limit(limit, default=50, maximum=200))
+    ).all()
+    now = datetime.utcnow()
+    return {
+        "data": [_v1_conversation(session, conv, now) for conv in convs],
+        "next_before_id": convs[-1].id if convs else None,
+    }
+
+
+@app.get("/v1/conversations/{conversation_id}")
+def v1_get_conversation(
+    conversation_id: int,
+    key: ApiKey = Depends(require_api_scope("conversations:read")),
+    session: Session = Depends(get_session),
+):
+    conv = _require_conversation(session, key.client_id, conversation_id)
+    messages = session.exec(
+        select(Message).where(Message.conversation_id == conv.id).order_by(Message.id)
+    ).all()
+    payload = _v1_conversation(session, conv, datetime.utcnow())
+    # internal notes are deliberately absent: they are not part of the public contract
+    payload["messages"] = [
+        {"id": m.id, "role": m.role, "content": m.content, "created_at": _iso(m.created_at)}
+        for m in messages
+    ]
+    return payload
+
+
+@app.post("/v1/conversations/{conversation_id}/reply")
+def v1_reply(
+    conversation_id: int,
+    reply: str = Body(..., embed=True),
+    key: ApiKey = Depends(require_api_scope("conversations:write")),
+    session: Session = Depends(get_session),
+):
+    """Reply as the team from an external system (CRM, automation). Behaves like an operator
+    reply: reopens the conversation, closes open tickets, stops the first-response SLA and
+    notifies the visitor by email if they left one."""
+    conv = _require_conversation(session, key.client_id, conversation_id)
+    text = (reply or "").strip()
+    if not text:
+        raise HTTPException(400, "reply required")
+    now = datetime.utcnow()
+    session.add(Message(conversation_id=conv.id, role="operator", content=text[:MAX_CHAT_MESSAGE_CHARS]))
+    if conv.first_response_at is None:
+        conv.first_response_at = now
+    conv.status = "open"
+    conv.updated_at = now
+    session.add(conv)
+    for ticket in session.exec(
+        select(Ticket).where(Ticket.conversation_id == conv.id, Ticket.status == "open")
+    ).all():
+        ticket.status = "answered"
+        ticket.updated_at = now
+        session.add(ticket)
+    session.commit()
+    _audit(
+        session, "api", key.prefix, "conversation.reply",
+        target=f"conversation:{conversation_id}", client_id=key.client_id,
+    )
+    _notify_visitor_reply(session, key.client_id, conv)
+    webhooks.emit(session, key.client_id, "conversation.replied", {"conversation_id": conv.id, "via": "api"})
+    return {"ok": True}
+
+
+@app.post("/v1/conversations/{conversation_id}/status")
+def v1_set_status(
+    conversation_id: int,
+    status: str = Body(..., embed=True),
+    key: ApiKey = Depends(require_api_scope("conversations:write")),
+    session: Session = Depends(get_session),
+):
+    if status not in ("open", "closed"):
+        raise HTTPException(400, "status must be 'open' or 'closed'")
+    conv = _require_conversation(session, key.client_id, conversation_id)
+    now = datetime.utcnow()
+    conv.status = status
+    conv.updated_at = now
+    conv.closed_at = now if status == "closed" else None
+    session.add(conv)
+    session.commit()
+    _audit(
+        session, "api", key.prefix, f"conversation.{status}",
+        target=f"conversation:{conversation_id}", client_id=key.client_id,
+    )
+    if status == "closed":
+        webhooks.emit(session, key.client_id, "conversation.closed", {"conversation_id": conv.id})
+    return {"ok": True, "status": status}
+
+
+@app.post("/v1/conversations/{conversation_id}/tags")
+def v1_tag(
+    conversation_id: int,
+    name: str = Body(..., embed=True),
+    key: ApiKey = Depends(require_api_scope("conversations:write")),
+    session: Session = Depends(get_session),
+):
+    conv = _require_conversation(session, key.client_id, conversation_id)
+    tag = tagging.get_or_create_tag(session, key.client_id, name, source="manual")
+    if tag is None:
+        raise HTTPException(400, "nome tag non valido o limite raggiunto")
+    tagging.attach_tag(session, conv, tag, source="manual")
+    return {"id": tag.id, "name": tag.name}
+
+
+@app.get("/v1/stats")
+def v1_stats(
+    key: ApiKey = Depends(require_api_scope("stats:read")),
+    session: Session = Depends(get_session),
+):
+    return _build_stats(session, key.client_id)
+
+
+@app.post("/v1/knowledge/documents")
+def v1_ingest_document(
+    title: str = Body(...),
+    text: str = Body(...),
+    key: ApiKey = Depends(require_api_scope("knowledge:write")),
+    session: Session = Depends(get_session),
+):
+    """Queue a text document into the knowledge base. Returns the job id to poll on
+    /ingest/jobs/{id} with the same key."""
+    clean_title = (title or "").strip()[:200]
+    body = (text or "").strip()
+    if not clean_title or not body:
+        raise HTTPException(400, "title and text required")
+    if len(body) > MAX_INGEST_TEXT_CHARS:
+        raise HTTPException(413, "text too large")
+    job = _enqueue(session, key.client_id, "document", {"source_ref": clean_title, "text": body})
+    _audit(
+        session, "api", key.prefix, "knowledge.ingest",
+        target=f"job:{job.id}", client_id=key.client_id, detail={"title": clean_title},
+    )
+    return {"job_id": job.id, "status": job.status}
+
+
+# ---- Webhooks (tenant-managed, signed) ---------------------------------------------------
+
+
+def _webhook_payload(endpoint: WebhookEndpoint, *, with_secret: bool = False) -> dict:
+    data = {
+        "id": endpoint.id,
+        "url": endpoint.url,
+        "events": [e for e in (endpoint.events or "").split(",") if e],
+        "description": endpoint.description,
+        "active": endpoint.active,
+        "created_at": _iso(endpoint.created_at),
+    }
+    if with_secret:
+        data["secret"] = endpoint.secret  # shown once, at creation
+    return data
+
+
+@app.get("/webhooks")
+def list_webhooks(operator: Operator = Depends(require_operator), session: Session = Depends(get_session)):
+    rows = session.exec(
+        select(WebhookEndpoint).where(WebhookEndpoint.client_id == operator.client_id).order_by(WebhookEndpoint.id)
+    ).all()
+    return {"events": list(webhooks.EVENTS), "endpoints": [_webhook_payload(row) for row in rows]}
+
+
+@app.post("/webhooks")
+def create_webhook(
+    url: str = Body(...),
+    events: list[str] = Body([]),
+    description: str = Body(""),
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
+    unknown = [e for e in events if e not in webhooks.EVENTS]
+    if unknown:
+        raise HTTPException(400, f"evento non valido: {unknown[0]}")
+    try:
+        clean_url = webhooks.validate_url(url)
+    except webhooks.WebhookUrlError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    endpoint = WebhookEndpoint(
+        client_id=operator.client_id,
+        url=clean_url,
+        secret=webhooks.new_secret(),
+        events=",".join(events),
+        description=description.strip()[:200],
+    )
+    session.add(endpoint)
+    session.commit()
+    session.refresh(endpoint)
+    _audit(
+        session, "operator", operator.email, "webhook.create",
+        target=f"webhook:{endpoint.id}", client_id=operator.client_id,
+        detail={"url": clean_url, "events": events},
+    )
+    return _webhook_payload(endpoint, with_secret=True)
+
+
+@app.patch("/webhooks/{endpoint_id}")
+def update_webhook(
+    endpoint_id: int,
+    url: str | None = Body(None),
+    events: list[str] | None = Body(None),
+    description: str | None = Body(None),
+    active: bool | None = Body(None),
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
+    endpoint = session.get(WebhookEndpoint, endpoint_id)
+    if not endpoint or endpoint.client_id != operator.client_id:
+        raise HTTPException(404, "webhook not found")
+    if url is not None:
+        try:
+            endpoint.url = webhooks.validate_url(url)
+        except webhooks.WebhookUrlError as exc:
+            raise HTTPException(400, str(exc)) from exc
+    if events is not None:
+        unknown = [e for e in events if e not in webhooks.EVENTS]
+        if unknown:
+            raise HTTPException(400, f"evento non valido: {unknown[0]}")
+        endpoint.events = ",".join(events)
+    if description is not None:
+        endpoint.description = description.strip()[:200]
+    if active is not None:
+        endpoint.active = active
+    endpoint.updated_at = datetime.utcnow()
+    session.add(endpoint)
+    session.commit()
+    _audit(
+        session, "operator", operator.email, "webhook.update",
+        target=f"webhook:{endpoint_id}", client_id=operator.client_id,
+    )
+    return _webhook_payload(endpoint)
+
+
+@app.delete("/webhooks/{endpoint_id}")
+def delete_webhook(
+    endpoint_id: int,
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
+    endpoint = session.get(WebhookEndpoint, endpoint_id)
+    if not endpoint or endpoint.client_id != operator.client_id:
+        raise HTTPException(404, "webhook not found")
+    for delivery in session.exec(
+        select(WebhookDelivery).where(WebhookDelivery.endpoint_id == endpoint.id)
+    ).all():
+        session.delete(delivery)
+    session.flush()
+    session.delete(endpoint)
+    session.commit()
+    _audit(
+        session, "operator", operator.email, "webhook.delete",
+        target=f"webhook:{endpoint_id}", client_id=operator.client_id,
+    )
+    return {"ok": True}
+
+
+@app.post("/webhooks/{endpoint_id}/test")
+def test_webhook(
+    endpoint_id: int,
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
+    """Queue a real (signed) delivery and send it immediately, reporting the actual outcome —
+    no optimistic 'inviato' when the endpoint refused it."""
+    endpoint = session.get(WebhookEndpoint, endpoint_id)
+    if not endpoint or endpoint.client_id != operator.client_id:
+        raise HTTPException(404, "webhook not found")
+    now = datetime.utcnow()
+    delivery = WebhookDelivery(
+        client_id=operator.client_id,
+        endpoint_id=endpoint.id,
+        event="conversation.created",
+        payload=json.dumps({
+            "event": "conversation.created",
+            "created_at": _iso(now),
+            "test": True,
+            "data": {"conversation_id": 0, "visitor_id": "test"},
+        }),
+        max_attempts=1,
+        next_attempt_at=now,
+    )
+    session.add(delivery)
+    session.commit()
+    session.refresh(delivery)
+    ok = webhooks.deliver(session, delivery)
+    return {
+        "ok": ok,
+        "delivery_id": delivery.id,
+        "response_status": delivery.response_status,
+        "error": delivery.error,
+    }
+
+
+@app.get("/webhooks/{endpoint_id}/deliveries")
+def list_webhook_deliveries(
+    endpoint_id: int,
+    limit: int = 50,
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
+    endpoint = session.get(WebhookEndpoint, endpoint_id)
+    if not endpoint or endpoint.client_id != operator.client_id:
+        raise HTTPException(404, "webhook not found")
+    rows = session.exec(
+        select(WebhookDelivery)
+        .where(WebhookDelivery.endpoint_id == endpoint.id)
+        .order_by(WebhookDelivery.id.desc())
+        .limit(_bounded_limit(limit, default=50))
+    ).all()
+    return [
+        {
+            "id": row.id,
+            "event": row.event,
+            "status": row.status,
+            "attempts": row.attempts,
+            "response_status": row.response_status,
+            "error": row.error,
+            "created_at": _iso(row.created_at),
+            "delivered_at": _iso(row.delivered_at),
+            "next_attempt_at": _iso(row.next_attempt_at) if row.status == "pending" else None,
+        }
+        for row in rows
+    ]
 
 
 # ---- Analytics helpers (shared by operator /stats and admin /admin/stats) ----
