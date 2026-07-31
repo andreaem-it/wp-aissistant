@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
-import { Inbox, MessageCircle, Send, Save, CheckCircle2, RotateCcw, Trash2 } from "lucide-react";
+import { Inbox, MessageCircle, Send, Save, CheckCircle2, RotateCcw, Trash2, Timer } from "lucide-react";
 import { api } from "./api.js";
+import { SLA_STATE_CLASS, SLA_STATE_LABELS, describeSla } from "./sla.js";
 
 function initialsOf(visitorId) {
   return (visitorId || "??").slice(0, 2).toUpperCase();
@@ -10,6 +11,19 @@ function initialsOf(visitorId) {
 function fillPlaceholders(body, values) {
   return body.replace(/\{(\w+)\}/g, (m, key) =>
     values && values[key] != null && values[key] !== "" ? values[key] : m
+  );
+}
+
+function SlaBadge({ sla }) {
+  if (!sla || !sla.state) return null;
+  const lines = describeSla(sla);
+  return (
+    <span
+      className={`wpai-badge ${SLA_STATE_CLASS[sla.state] || "ok"}`}
+      title={lines.join(" · ")}
+    >
+      {SLA_STATE_LABELS[sla.state] || sla.state}
+    </span>
   );
 }
 
@@ -26,17 +40,24 @@ export default function Conversations() {
   const [savingInfo, setSavingInfo] = useState(false);
   const [operators, setOperators] = useState([]);
   const [departments, setDepartments] = useState([]);
-  const [filters, setFilters] = useState({ status: "", priority: "", assignment: "", department_id: "" });
+  const [filters, setFilters] = useState({ status: "", priority: "", assignment: "", department_id: "", sla_state: "" });
+  const [listError, setListError] = useState("");
+  const [loadingList, setLoadingList] = useState(true);
 
   const loadList = useCallback(() => {
     const params = {};
     if (filters.status) params.status = filters.status;
     if (filters.priority) params.priority = filters.priority;
     if (filters.department_id) params.department_id = filters.department_id;
+    if (filters.sla_state) params.sla_state = filters.sla_state;
     if (filters.assignment === "unassigned") params.unassigned = true;
     else if (filters.assignment) params.assigned_operator_id = filters.assignment;
-    return api.conversations(params).then(setItems).catch(() => {});
-  }, [filters.status, filters.priority, filters.assignment, filters.department_id]);
+    return api
+      .conversations(params)
+      .then((rows) => { setItems(rows); setListError(""); })
+      .catch(() => setListError("Impossibile caricare le conversazioni. Riprova."))
+      .finally(() => setLoadingList(false));
+  }, [filters.status, filters.priority, filters.assignment, filters.department_id, filters.sla_state]);
   const loadMessages = (id) => api.messages(id).then((d) => setMessages(d.messages)).catch(() => {});
 
   // static-ish per-client config, loaded once
@@ -140,16 +161,26 @@ export default function Conversations() {
         <select value={filters.department_id} onChange={(e) => setFilters((f) => ({ ...f, department_id: e.target.value }))}>
           <option value="">Tutti i reparti</option>{departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
         </select>
+        <select aria-label="Stato SLA" value={filters.sla_state} onChange={(e) => setFilters((f) => ({ ...f, sla_state: e.target.value }))}>
+          <option value="">Tutti gli SLA</option><option value="violato">SLA violati</option><option value="in_scadenza">In scadenza</option><option value="ok">Nei tempi</option>
+        </select>
       </div>
       <div className="wpai-split">
         <div className="wpai-conv-list">
-          {items.length === 0 && (
+          {loadingList && <div className="wpai-empty"><p>Caricamento…</p></div>}
+          {!loadingList && listError && (
             <div className="wpai-empty">
-              <Inbox size={28} strokeWidth={1.5} />
-              <p>Nessuna conversazione ancora.</p>
+              <p>{listError}</p>
+              <button className="wpai-btn ghost" onClick={loadList}>Riprova</button>
             </div>
           )}
-          {items.map(({ conversation: c, last_message }) => (
+          {!loadingList && !listError && items.length === 0 && (
+            <div className="wpai-empty">
+              <Inbox size={28} strokeWidth={1.5} />
+              <p>Nessuna conversazione con questi filtri.</p>
+            </div>
+          )}
+          {items.map(({ conversation: c, last_message, sla }) => (
             <button
               key={c.id}
               className={"wpai-conv-item" + (c.id === selected ? " active" : "")}
@@ -159,6 +190,7 @@ export default function Conversations() {
               <div className="wpai-conv-item-body">
                 <div className="meta">
                   #{c.id} · <span className={`wpai-badge ${c.status}`}>{c.status}</span> · {c.priority}
+                  {sla && <> · <SlaBadge sla={sla} /></>}
                 </div>
                 <div className="preview">{last_message || "—"}</div>
                 <div className="meta">{departments.find((d) => d.id === c.department_id)?.name || "Nessun reparto"} · {operators.find((o) => o.id === c.assigned_operator_id)?.name || "Non assegnata"}</div>
@@ -218,6 +250,18 @@ export default function Conversations() {
 
         {selected && (
           <aside className="wpai-conv-side">
+            {selectedRow?.sla && (
+              <div className="wpai-card">
+                <div className="wpai-card-title" style={{ marginBottom: 10 }}>
+                  <Timer size={15} /> SLA <SlaBadge sla={selectedRow.sla} />
+                </div>
+                <ul className="wpai-sla-list">
+                  {describeSla(selectedRow.sla).map((line) => (
+                    <li key={line}>{line}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
             <div className="wpai-card">
               <div className="wpai-card-title" style={{ marginBottom: 10 }}>Instradamento</div>
               <div className="wpai-field" style={{ marginBottom: 8 }}>

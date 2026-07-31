@@ -90,6 +90,21 @@ class Conversation(SQLModel, table=True):
     priority: str = Field(default="normal", index=True)  # low | normal | high | urgent
     assigned_operator_id: Optional[int] = Field(default=None, foreign_key="operator.id", index=True)
     department_id: Optional[int] = Field(default=None, foreign_key="department.id", index=True)
+    # ---- SLA tracking ----
+    # The clock starts when the conversation actually needs a human (escalation), not when the
+    # visitor opens the chat: the AI answers instantly, so an SLA on every conversation would be
+    # meaningless. sla_policy_id records which policy matched at that moment; the due/warn stamps
+    # are denormalized so the inbox can filter by SLA state directly in SQL.
+    sla_policy_id: Optional[int] = Field(default=None, foreign_key="slapolicy.id", index=True)
+    sla_started_at: Optional[datetime] = Field(default=None, index=True)
+    first_response_at: Optional[datetime] = None  # first operator message on this conversation
+    first_response_due_at: Optional[datetime] = Field(default=None, index=True)
+    first_response_warn_at: Optional[datetime] = None
+    resolution_due_at: Optional[datetime] = Field(default=None, index=True)
+    resolution_warn_at: Optional[datetime] = None
+    # set once the breach alert has been sent, so the monitor notifies at most once per target
+    first_response_breach_notified: bool = False
+    resolution_breach_notified: bool = False
 
 
 class Message(SQLModel, table=True):
@@ -169,6 +184,46 @@ class Department(SQLModel, table=True):
     client_id: int = Field(index=True, foreign_key="client.id")
     name: str
     created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class DepartmentMember(SQLModel, table=True):
+    """Operator ↔ department membership. Round-robin routing picks only among the members of
+    the conversation's department; without members the department has no pool and the
+    conversation stays in the unassigned queue."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    client_id: int = Field(index=True, foreign_key="client.id")
+    department_id: int = Field(index=True, foreign_key="department.id")
+    operator_id: int = Field(index=True, foreign_key="operator.id")
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class SlaPolicy(SQLModel, table=True):
+    """Tenant-scoped SLA rule. `department_id=None` matches any department and `priority=""`
+    matches any priority, so a tenant can keep one generic policy and override it for the
+    queues that need tighter targets. The most specific active policy wins (see
+    _match_sla_policy in main.py). Minutes at 0 disable that target."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    client_id: int = Field(index=True, foreign_key="client.id")
+    name: str
+    department_id: Optional[int] = Field(default=None, foreign_key="department.id", index=True)
+    priority: str = ""  # "" = any | low | normal | high | urgent
+    first_response_minutes: int = 60
+    resolution_minutes: int = 480
+    active: bool = True
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class RoutingSetting(SQLModel, table=True):
+    """Per-tenant auto-routing configuration, applied when a conversation escalates.
+    mode=off leaves everything manual; mode=round_robin assigns the next operator in the
+    pool. last_operator_id is the round-robin cursor. fallback_department_id is the queue a
+    conversation lands in when it has no department yet."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    client_id: int = Field(index=True, unique=True, foreign_key="client.id")
+    mode: str = "off"  # off | round_robin
+    fallback_department_id: Optional[int] = Field(default=None, foreign_key="department.id")
+    last_operator_id: Optional[int] = Field(default=None, foreign_key="operator.id")
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
 
 
 class Operator(SQLModel, table=True):

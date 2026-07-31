@@ -20,6 +20,7 @@
   --gray-soft: #eeeef3;
   --gray-text: #6c6c7c;
   --red: #dc2626;
+  --red-soft: #fdeaea;
 
   --radius: 12px;
   --radius-sm: 8px;
@@ -706,6 +707,25 @@ button.wpai-btn.danger:hover { background: #b91c1c; }
 
 .wpai-badge.ok { background: var(--green-soft); color: var(--green); }
 .wpai-badge.warn { background: var(--amber-soft); color: var(--amber); }
+.wpai-badge.breach { background: var(--red-soft); color: var(--red); }
+.wpai-badge.breach::before { animation: wpai-pulse 1.6s ease-in-out infinite; }
+
+/* SLA: scadenze della conversazione selezionata */
+.wpai-sla-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.wpai-sla-list li { font-size: 12.5px; color: var(--text-muted); }
+
+/* chip rimovibile (membri di un reparto) */
+.wpai-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 3px 6px 3px 10px; border-radius: 999px;
+  background: var(--surface-sunken); color: var(--text); font-size: 12.5px;
+}
+.wpai-chip-x {
+  border: none; background: transparent; cursor: pointer; line-height: 1;
+  color: var(--text-muted); font-size: 15px; padding: 0 2px; border-radius: 999px;
+}
+.wpai-chip-x:hover:not(:disabled) { color: var(--red); }
+.wpai-chip-x:disabled { cursor: not-allowed; opacity: 0.5; }
 
 .wpai-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .wpai-table th {

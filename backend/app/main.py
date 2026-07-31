@@ -27,6 +27,7 @@ from .db import (
     Client,
     Conversation,
     Department,
+    DepartmentMember,
     InfoField,
     IngestJob,
     Message,
@@ -34,6 +35,8 @@ from .db import (
     OperatorSession,
     Plan,
     Product,
+    RoutingSetting,
+    SlaPolicy,
     Ticket,
     engine,
     get_session,
@@ -51,7 +54,7 @@ from .llm import chat_stream as llm_chat_stream
 from .llm import embed
 from .logging_config import log, request_id_var, setup_logging
 from . import metrics
-from .notify import notify_new_ticket
+from .notify import notify_new_ticket, notify_sla_breach
 from .production_config import enforce_production_config, production_warnings
 from .rag import extract_text, retrieve, retrieve_products, retrieve_with_meta
 from .ratelimit import make_limiter
@@ -83,6 +86,7 @@ if _sentry_dsn:
 _worker_stop = threading.Event()
 _worker_thread: threading.Thread | None = None
 _purge_thread: threading.Thread | None = None
+_sla_thread: threading.Thread | None = None
 
 # GDPR data-minimization: auto-delete conversations older than this many days (0 = keep forever).
 DATA_RETENTION_DAYS = int(os.getenv("DATA_RETENTION_DAYS", "0"))
@@ -101,6 +105,19 @@ def _run_purge(stop: threading.Event) -> None:
         stop.wait(24 * 3600)
 
 
+def _run_sla_monitor(stop: threading.Event) -> None:
+    """Background loop: flag and alert the SLA deadlines that have just been missed."""
+    while not stop.is_set():
+        try:
+            with Session(engine) as session:
+                n = check_sla_breaches(session)
+                if n:
+                    log(logger, logging.INFO, "sla.breaches_detected", breaches=n)
+        except Exception as exc:  # noqa: BLE001 — never let the monitor crash the app
+            log(logger, logging.WARNING, "sla.monitor_failed", error=str(exc))
+        stop.wait(SLA_CHECK_INTERVAL_SECONDS)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     config_warnings = enforce_production_config(os.environ)
@@ -110,13 +127,16 @@ async def lifespan(app: FastAPI):
     with Session(engine) as session:
         rebuild_allowed_origins(session)
         requeue_stale(session)  # recover jobs left 'processing' by a previous crash
-    global _worker_thread, _purge_thread
+    global _worker_thread, _purge_thread, _sla_thread
     if os.getenv("INGEST_WORKER_ENABLED", "true").lower() == "true":
         _worker_thread = threading.Thread(target=run_worker, args=(_worker_stop,), daemon=True)
         _worker_thread.start()
     if DATA_RETENTION_DAYS > 0:
         _purge_thread = threading.Thread(target=_run_purge, args=(_worker_stop,), daemon=True)
         _purge_thread.start()
+    if SLA_MONITOR_ENABLED:
+        _sla_thread = threading.Thread(target=_run_sla_monitor, args=(_worker_stop,), daemon=True)
+        _sla_thread.start()
     log(logger, logging.INFO, "startup.complete")
     yield
     _worker_stop.set()
@@ -124,6 +144,8 @@ async def lifespan(app: FastAPI):
         _worker_thread.join(timeout=5)
     if _purge_thread:
         _purge_thread.join(timeout=5)
+    if _sla_thread:
+        _sla_thread.join(timeout=5)
 
 
 # On Railway there's no reverse proxy in front to filter these, so gate them in the app:
@@ -746,11 +768,19 @@ def _escalate(session, client_id, client_name, conv, reason, *, outcome, trigger
     sync /chat and the streaming /chat/stream so the two stay in lockstep."""
     conv.status = "escalated"
     conv.updated_at = datetime.utcnow()
+    # the conversation now needs a human: start the SLA clock and apply the routing rules
+    assignee = _auto_assign(session, conv)
+    _apply_sla(session, conv, start=True)
     session.add(conv)
     ticket = Ticket(conversation_id=conv.id, reason=reason)
     session.add(ticket)
     session.commit()
     session.refresh(ticket)
+    if assignee is not None:
+        log(
+            logger, logging.INFO, "routing.auto_assigned",
+            client_id=client_id, conversation_id=conv.id, operator_id=assignee.id,
+        )
     if error is not None:
         log(logger, logging.ERROR, "chat.llm_unavailable", client_id=client_id, conversation_id=conv.id, error=error)
     else:
@@ -1392,6 +1422,283 @@ def _operator_name(operator: Operator) -> str:
     return operator.name or operator.email
 
 
+# ---- SLA & routing ----------------------------------------------------------------------
+#
+# The SLA clock starts when a conversation actually needs a human (escalation): the AI answers
+# in seconds, so a "first response" target on every conversation would measure nothing. From
+# that moment two targets run — first operator reply and resolution (close) — each with a
+# deadline and a warning threshold, so the inbox can show ok / in scadenza / violato.
+
+PRIORITIES = ("low", "normal", "high", "urgent")
+SLA_STATES = ("ok", "in_scadenza", "violato")
+ROUTING_MODES = ("off", "round_robin")
+# share of the window after which a still-pending target is flagged "in scadenza"
+SLA_WARN_RATIO = min(max(float(os.getenv("SLA_WARN_RATIO", "0.8")), 0.0), 1.0)
+SLA_CHECK_INTERVAL_SECONDS = int(os.getenv("SLA_CHECK_INTERVAL_SECONDS", "300"))
+SLA_MONITOR_ENABLED = os.getenv("SLA_MONITOR_ENABLED", "true").lower() == "true"
+
+
+def _match_sla_policy(session: Session, client_id: int, department_id: int | None, priority: str) -> SlaPolicy | None:
+    """The most specific active policy wins: department+priority > department > priority >
+    generic. Same specificity ties break on the oldest policy, so the choice is stable."""
+    policies = session.exec(
+        select(SlaPolicy)
+        .where(SlaPolicy.client_id == client_id, SlaPolicy.active.is_(True))
+        .order_by(SlaPolicy.id)
+    ).all()
+    best, best_score = None, -1
+    for policy in policies:
+        if policy.department_id is not None and policy.department_id != department_id:
+            continue
+        if policy.priority and policy.priority != priority:
+            continue
+        score = (2 if policy.department_id is not None else 0) + (1 if policy.priority else 0)
+        if score > best_score:
+            best, best_score = policy, score
+    return best
+
+
+def _apply_sla(session: Session, conv: Conversation, *, start: bool = False) -> None:
+    """(Re)compute the SLA stamps of a conversation. `start=True` starts the clock if it isn't
+    running yet. Recomputing after a priority/department change re-matches the policy and moves
+    the deadlines, always measured from the original start. Nothing is committed here."""
+    if start and conv.sla_started_at is None:
+        conv.sla_started_at = datetime.utcnow()
+    if conv.sla_started_at is None:
+        return
+    policy = _match_sla_policy(session, conv.client_id, conv.department_id, conv.priority)
+    started = conv.sla_started_at
+    conv.sla_policy_id = policy.id if policy else None
+    conv.first_response_due_at = conv.first_response_warn_at = None
+    conv.resolution_due_at = conv.resolution_warn_at = None
+    if policy and policy.first_response_minutes > 0:
+        conv.first_response_due_at = started + timedelta(minutes=policy.first_response_minutes)
+        conv.first_response_warn_at = started + timedelta(minutes=policy.first_response_minutes * SLA_WARN_RATIO)
+    if policy and policy.resolution_minutes > 0:
+        conv.resolution_due_at = started + timedelta(minutes=policy.resolution_minutes)
+        conv.resolution_warn_at = started + timedelta(minutes=policy.resolution_minutes * SLA_WARN_RATIO)
+    # a deadline moved back into the future is a new target: allow it to alert again
+    now = datetime.utcnow()
+    if conv.first_response_due_at is None or conv.first_response_due_at > now:
+        conv.first_response_breach_notified = False
+    if conv.resolution_due_at is None or conv.resolution_due_at > now:
+        conv.resolution_breach_notified = False
+
+
+def _target_state(due_at, warn_at, met_at, now) -> str | None:
+    """ok | in_scadenza | violato for one SLA target, or None when the target isn't set."""
+    if due_at is None:
+        return None
+    if met_at is not None:
+        return "violato" if met_at > due_at else "ok"
+    if now > due_at:
+        return "violato"
+    if warn_at is not None and now >= warn_at:
+        return "in_scadenza"
+    return "ok"
+
+
+def _worst_sla_state(*states: str | None) -> str | None:
+    for level in SLA_STATES[::-1]:  # violato, in_scadenza, ok
+        if level in states:
+            return level
+    return None
+
+
+def _sla_view(conv: Conversation, now: datetime | None = None) -> dict | None:
+    """Serializable SLA summary for the inbox: per-target deadline, when it was met and the
+    state, plus the worst of the two. None when no SLA is running on this conversation."""
+    if conv.sla_started_at is None:
+        return None
+    if conv.first_response_due_at is None and conv.resolution_due_at is None:
+        return None
+    now = now or datetime.utcnow()
+    first = _target_state(conv.first_response_due_at, conv.first_response_warn_at, conv.first_response_at, now)
+    resolution = _target_state(conv.resolution_due_at, conv.resolution_warn_at, conv.closed_at, now)
+    return {
+        "started_at": _iso(conv.sla_started_at),
+        "policy_id": conv.sla_policy_id,
+        "state": _worst_sla_state(first, resolution),
+        "first_response": {
+            "due_at": _iso(conv.first_response_due_at),
+            "met_at": _iso(conv.first_response_at),
+            "state": first,
+        },
+        "resolution": {
+            "due_at": _iso(conv.resolution_due_at),
+            "met_at": _iso(conv.closed_at),
+            "state": resolution,
+        },
+    }
+
+
+def _sla_breached_clause(now: datetime):
+    """SQL predicate: at least one target is past its deadline (missed, or met late)."""
+    first = and_(
+        Conversation.first_response_due_at.is_not(None),
+        or_(
+            and_(Conversation.first_response_at.is_(None), Conversation.first_response_due_at < now),
+            and_(
+                Conversation.first_response_at.is_not(None),
+                Conversation.first_response_at > Conversation.first_response_due_at,
+            ),
+        ),
+    )
+    resolution = and_(
+        Conversation.resolution_due_at.is_not(None),
+        or_(
+            and_(Conversation.closed_at.is_(None), Conversation.resolution_due_at < now),
+            and_(Conversation.closed_at.is_not(None), Conversation.closed_at > Conversation.resolution_due_at),
+        ),
+    )
+    return or_(first, resolution)
+
+
+def _sla_warning_clause(now: datetime):
+    """SQL predicate: at least one target is still pending and inside its warning window."""
+    first = and_(
+        Conversation.first_response_at.is_(None),
+        Conversation.first_response_warn_at.is_not(None),
+        Conversation.first_response_warn_at <= now,
+        Conversation.first_response_due_at >= now,
+    )
+    resolution = and_(
+        Conversation.closed_at.is_(None),
+        Conversation.resolution_warn_at.is_not(None),
+        Conversation.resolution_warn_at <= now,
+        Conversation.resolution_due_at >= now,
+    )
+    return or_(first, resolution)
+
+
+def _filter_by_sla_state(query, state: str, now: datetime):
+    running = Conversation.sla_started_at.is_not(None)
+    breached = _sla_breached_clause(now)
+    warning = _sla_warning_clause(now)
+    if state == "violato":
+        return query.where(running, breached)
+    if state == "in_scadenza":
+        return query.where(running, ~breached, warning)
+    return query.where(running, ~breached, ~warning)  # ok
+
+
+def _routing_setting(session: Session, client_id: int) -> RoutingSetting | None:
+    return session.exec(select(RoutingSetting).where(RoutingSetting.client_id == client_id)).first()
+
+
+def _assignable_operators(session: Session, client_id: int, department_id: int | None) -> list[Operator]:
+    """The round-robin pool: the members of the conversation's department, or every verified
+    operator of the tenant when the conversation has no department. A department with no
+    members has no pool — the conversation stays in that queue, unassigned, on purpose."""
+    if department_id is not None:
+        member_ids = [
+            m.operator_id
+            for m in session.exec(
+                select(DepartmentMember).where(
+                    DepartmentMember.client_id == client_id,
+                    DepartmentMember.department_id == department_id,
+                )
+            ).all()
+        ]
+        if not member_ids:
+            return []
+        return session.exec(
+            select(Operator)
+            .where(
+                Operator.client_id == client_id,
+                Operator.email_verified.is_(True),
+                Operator.id.in_(member_ids),
+            )
+            .order_by(Operator.id)
+        ).all()
+    return session.exec(
+        select(Operator)
+        .where(Operator.client_id == client_id, Operator.email_verified.is_(True))
+        .order_by(Operator.id)
+    ).all()
+
+
+def _auto_assign(session: Session, conv: Conversation) -> Operator | None:
+    """Round-robin the conversation to the next operator of its queue when the tenant enabled
+    it. Falls back to the configured department, then to the unassigned queue: never fails the
+    escalation it is attached to. Nothing is committed here."""
+    setting = _routing_setting(session, conv.client_id)
+    if setting is None or setting.mode != "round_robin":
+        return None
+    if conv.department_id is None and setting.fallback_department_id:
+        department = session.get(Department, setting.fallback_department_id)
+        if department and department.client_id == conv.client_id:
+            conv.department_id = department.id
+    if conv.assigned_operator_id is not None:
+        return None
+    pool = _assignable_operators(session, conv.client_id, conv.department_id)
+    if not pool:
+        return None
+    cursor = setting.last_operator_id
+    chosen = next((op for op in pool if cursor is None or op.id > cursor), pool[0])
+    conv.assigned_operator_id = chosen.id
+    setting.last_operator_id = chosen.id
+    setting.updated_at = datetime.utcnow()
+    session.add(setting)
+    return chosen
+
+
+def check_sla_breaches(session: Session) -> int:
+    """Stamp and alert every conversation that crossed an SLA deadline. Idempotent: the
+    *_breach_notified flags make each target alert exactly once. Returns the number of new
+    breaches. Called by the background monitor and directly by the tests."""
+    now = datetime.utcnow()
+    pending_first = and_(
+        Conversation.first_response_breach_notified.is_(False),
+        Conversation.first_response_at.is_(None),
+        Conversation.first_response_due_at.is_not(None),
+        Conversation.first_response_due_at < now,
+    )
+    pending_resolution = and_(
+        Conversation.resolution_breach_notified.is_(False),
+        Conversation.closed_at.is_(None),
+        Conversation.resolution_due_at.is_not(None),
+        Conversation.resolution_due_at < now,
+    )
+    convs = session.exec(
+        select(Conversation).where(
+            Conversation.sla_started_at.is_not(None),
+            or_(pending_first, pending_resolution),
+        )
+    ).all()
+    breaches = 0
+    for conv in convs:
+        client = session.get(Client, conv.client_id)
+        client_name = client.name if client else "—"
+        targets = []
+        if not conv.first_response_breach_notified and conv.first_response_at is None \
+                and conv.first_response_due_at is not None and conv.first_response_due_at < now:
+            conv.first_response_breach_notified = True
+            targets.append(("first_response", conv.first_response_due_at))
+        if not conv.resolution_breach_notified and conv.closed_at is None \
+                and conv.resolution_due_at is not None and conv.resolution_due_at < now:
+            conv.resolution_breach_notified = True
+            targets.append(("resolution", conv.resolution_due_at))
+        if not targets:
+            continue
+        session.add(conv)
+        for target, due_at in targets:
+            breaches += 1
+            metrics.sla_breaches_total.labels(target=target).inc()
+            log(
+                logger, logging.WARNING, "sla.breached",
+                client_id=conv.client_id, conversation_id=conv.id, target=target, due_at=_iso(due_at),
+            )
+            _audit(
+                session, "system", "sla-monitor", "sla.breach",
+                target=f"conversation:{conv.id}", client_id=conv.client_id,
+                detail={"target": target, "due_at": _iso(due_at)},
+            )
+            notify_sla_breach(client_name, conv.id, target, _iso(due_at) or "")
+    session.commit()
+    return breaches
+
+
 @app.post("/conversations/{conversation_id}/typing")
 def operator_typing(conversation_id: int, operator: Operator = Depends(require_operator), session: Session = Depends(get_session)):
     """Panel pings this while the operator is typing; the widget's poll shows '<name> sta scrivendo'."""
@@ -1451,9 +1758,11 @@ def list_conversations(
     department_id: int | None = None,
     assigned_operator_id: int | None = None,
     unassigned: bool = False,
+    sla_state: str | None = None,
     operator: Operator = Depends(require_operator),
     session: Session = Depends(get_session),
 ):
+    now = datetime.utcnow()
     query = select(Conversation).where(Conversation.client_id == operator.client_id)
     if status:
         if status not in ("open", "escalated", "closed"):
@@ -1475,6 +1784,10 @@ def list_conversations(
         query = query.where(Conversation.assigned_operator_id == assigned_operator_id)
     if unassigned:
         query = query.where(Conversation.assigned_operator_id.is_(None))
+    if sla_state:
+        if sla_state not in SLA_STATES:
+            raise HTTPException(400, "invalid sla_state")
+        query = _filter_by_sla_state(query, sla_state, now)
     if before_id:
         query = query.where(Conversation.id < before_id)
     convs = session.exec(
@@ -1492,6 +1805,7 @@ def list_conversations(
             "last_message": last.content if last else None,
             "assignee": {"id": assignee.id, "name": _operator_name(assignee)} if assignee else None,
             "department": {"id": department.id, "name": department.name} if department else None,
+            "sla": _sla_view(c, now),
         })
     return result
 
@@ -1528,6 +1842,9 @@ def update_conversation_routing(
         if not department or department.client_id != operator.client_id:
             raise HTTPException(404, "department not found")
         conv.department_id = department.id
+    # a running SLA follows the new priority/department: re-match the policy and move the
+    # deadlines, still measured from the moment the conversation needed a human
+    _apply_sla(session, conv)
     conv.updated_at = datetime.utcnow()
     session.add(conv)
     session.commit()
@@ -1538,9 +1855,10 @@ def update_conversation_routing(
             "priority": conv.priority,
             "assigned_operator_id": conv.assigned_operator_id,
             "department_id": conv.department_id,
+            "sla_policy_id": conv.sla_policy_id,
         },
     )
-    return {"ok": True}
+    return {"ok": True, "sla": _sla_view(conv)}
 
 
 @app.get("/tickets")
@@ -1575,6 +1893,8 @@ def reply_ticket(ticket_id: int, reply: str, operator: Operator = Depends(requir
     now = datetime.utcnow()
     if conv.assigned_operator_id is None:
         conv.assigned_operator_id = operator.id
+    if conv.first_response_at is None:
+        conv.first_response_at = now  # stops the SLA first-response target
     ticket.status = "answered"
     ticket.updated_at = now
     conv.status = "open"
@@ -1611,6 +1931,8 @@ def reply_conversation(
     now = datetime.utcnow()
     if conv.assigned_operator_id is None:
         conv.assigned_operator_id = operator.id
+    if conv.first_response_at is None:
+        conv.first_response_at = now  # stops the SLA first-response target
     conv.status = "open"
     conv.updated_at = now
     session.add(conv)
@@ -1823,15 +2145,113 @@ def create_department(
     return {"id": department.id, "name": department.name}
 
 
+def _require_department(session: Session, client_id: int, department_id: int) -> Department:
+    department = session.get(Department, department_id)
+    if not department or department.client_id != client_id:
+        raise HTTPException(404, "department not found")
+    return department
+
+
+@app.get("/departments/{department_id}/members")
+def list_department_members(
+    department_id: int,
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
+    """Operators in the queue's round-robin pool."""
+    _require_department(session, operator.client_id, department_id)
+    rows = session.exec(
+        select(Operator, DepartmentMember)
+        .join(DepartmentMember, DepartmentMember.operator_id == Operator.id)
+        .where(DepartmentMember.department_id == department_id, DepartmentMember.client_id == operator.client_id)
+        .order_by(Operator.id)
+    ).all()
+    return [{"id": op.id, "name": _operator_name(op), "email": op.email} for op, _ in rows]
+
+
+@app.post("/departments/{department_id}/members")
+def add_department_member(
+    department_id: int,
+    operator_id: int = Body(..., embed=True),
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
+    _require_department(session, operator.client_id, department_id)
+    member_operator = session.get(Operator, operator_id)
+    if not member_operator or member_operator.client_id != operator.client_id:
+        raise HTTPException(404, "operator not found")
+    existing = session.exec(
+        select(DepartmentMember).where(
+            DepartmentMember.department_id == department_id,
+            DepartmentMember.operator_id == operator_id,
+        )
+    ).first()
+    if existing:
+        return {"ok": True, "id": existing.id}
+    row = DepartmentMember(
+        client_id=operator.client_id, department_id=department_id, operator_id=operator_id
+    )
+    session.add(row)
+    session.commit()
+    session.refresh(row)
+    _audit(
+        session, "operator", operator.email, "department.member_add",
+        target=f"department:{department_id}", client_id=operator.client_id,
+        detail={"operator_id": operator_id},
+    )
+    return {"ok": True, "id": row.id}
+
+
+@app.delete("/departments/{department_id}/members/{operator_id}")
+def remove_department_member(
+    department_id: int,
+    operator_id: int,
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
+    _require_department(session, operator.client_id, department_id)
+    row = session.exec(
+        select(DepartmentMember).where(
+            DepartmentMember.client_id == operator.client_id,
+            DepartmentMember.department_id == department_id,
+            DepartmentMember.operator_id == operator_id,
+        )
+    ).first()
+    if not row:
+        raise HTTPException(404, "member not found")
+    session.delete(row)
+    session.commit()
+    _audit(
+        session, "operator", operator.email, "department.member_remove",
+        target=f"department:{department_id}", client_id=operator.client_id,
+        detail={"operator_id": operator_id},
+    )
+    return {"ok": True}
+
+
 @app.delete("/departments/{department_id}")
 def delete_department(
     department_id: int,
     operator: Operator = Depends(require_operator),
     session: Session = Depends(get_session),
 ):
+    """Deleting a queue must never orphan anything hanging off it: its members, the SLA
+    policies scoped to it and the routing fallback go away, and its conversations fall back to
+    the generic queue (keeping their SLA clock, re-matched against the remaining policies)."""
     department = session.get(Department, department_id)
     if not department or department.client_id != operator.client_id:
         raise HTTPException(404, "department not found")
+    for member in session.exec(
+        select(DepartmentMember).where(DepartmentMember.department_id == department.id)
+    ).all():
+        session.delete(member)
+    setting = _routing_setting(session, operator.client_id)
+    if setting and setting.fallback_department_id == department.id:
+        setting.fallback_department_id = None
+        session.add(setting)
+    scoped_policy_ids = [
+        p.id for p in session.exec(select(SlaPolicy).where(SlaPolicy.department_id == department.id)).all()
+    ]
     for conv in session.exec(
         select(Conversation).where(
             Conversation.client_id == operator.client_id,
@@ -1839,11 +2259,223 @@ def delete_department(
         )
     ).all():
         conv.department_id = None
+        conv.sla_policy_id = None
+        _apply_sla(session, conv)  # re-match against the policies that remain
         session.add(conv)
+    # a policy scoped to this department can still be referenced by conversations that have
+    # since moved to another queue: detach those before dropping the policies
+    for conv in session.exec(
+        select(Conversation).where(
+            Conversation.client_id == operator.client_id,
+            Conversation.sla_policy_id.in_(scoped_policy_ids),
+        )
+    ).all() if scoped_policy_ids else []:
+        conv.sla_policy_id = None
+        _apply_sla(session, conv)
+        session.add(conv)
+    session.flush()
+    for policy_id in scoped_policy_ids:
+        policy = session.get(SlaPolicy, policy_id)
+        if policy is not None:
+            session.delete(policy)
+    session.flush()
     session.delete(department)
     session.commit()
     _audit(session, "operator", operator.email, "department.delete", target=f"department:{department_id}", client_id=operator.client_id)
     return {"ok": True}
+
+
+# ---- SLA policies + routing settings (per client) ----
+
+
+def _sla_policy_payload(policy: SlaPolicy) -> dict:
+    return {
+        "id": policy.id,
+        "name": policy.name,
+        "department_id": policy.department_id,
+        "priority": policy.priority,
+        "first_response_minutes": policy.first_response_minutes,
+        "resolution_minutes": policy.resolution_minutes,
+        "active": policy.active,
+    }
+
+
+def _clean_minutes(value: int) -> int:
+    """0 disables the target; anything above a year is a configuration mistake."""
+    return max(0, min(int(value), 525600))
+
+
+@app.get("/sla-policies")
+def list_sla_policies(operator: Operator = Depends(require_operator), session: Session = Depends(get_session)):
+    rows = session.exec(
+        select(SlaPolicy).where(SlaPolicy.client_id == operator.client_id).order_by(SlaPolicy.id)
+    ).all()
+    return [_sla_policy_payload(row) for row in rows]
+
+
+@app.post("/sla-policies")
+def create_sla_policy(
+    name: str = Body(...),
+    first_response_minutes: int = Body(60),
+    resolution_minutes: int = Body(480),
+    department_id: int | None = Body(None),
+    priority: str = Body(""),
+    active: bool = Body(True),
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
+    clean_name = name.strip()[:80]
+    if not clean_name:
+        raise HTTPException(400, "name required")
+    if priority and priority not in PRIORITIES:
+        raise HTTPException(400, "invalid priority")
+    if department_id is not None:
+        _require_department(session, operator.client_id, department_id)
+    policy = SlaPolicy(
+        client_id=operator.client_id,
+        name=clean_name,
+        department_id=department_id,
+        priority=priority,
+        first_response_minutes=_clean_minutes(first_response_minutes),
+        resolution_minutes=_clean_minutes(resolution_minutes),
+        active=active,
+    )
+    session.add(policy)
+    session.commit()
+    session.refresh(policy)
+    _recompute_running_slas(session, operator.client_id)  # a new policy may be the better match
+    _audit(
+        session, "operator", operator.email, "sla_policy.create",
+        target=f"sla_policy:{policy.id}", client_id=operator.client_id,
+        detail=_sla_policy_payload(policy),
+    )
+    return _sla_policy_payload(policy)
+
+
+@app.patch("/sla-policies/{policy_id}")
+def update_sla_policy(
+    policy_id: int,
+    name: str | None = Body(None),
+    first_response_minutes: int | None = Body(None),
+    resolution_minutes: int | None = Body(None),
+    priority: str | None = Body(None),
+    active: bool | None = Body(None),
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
+    policy = session.get(SlaPolicy, policy_id)
+    if not policy or policy.client_id != operator.client_id:
+        raise HTTPException(404, "sla policy not found")
+    if name is not None:
+        clean_name = name.strip()[:80]
+        if not clean_name:
+            raise HTTPException(400, "name required")
+        policy.name = clean_name
+    if priority is not None:
+        if priority and priority not in PRIORITIES:
+            raise HTTPException(400, "invalid priority")
+        policy.priority = priority
+    if first_response_minutes is not None:
+        policy.first_response_minutes = _clean_minutes(first_response_minutes)
+    if resolution_minutes is not None:
+        policy.resolution_minutes = _clean_minutes(resolution_minutes)
+    if active is not None:
+        policy.active = active
+    session.add(policy)
+    session.commit()
+    _recompute_running_slas(session, operator.client_id)
+    _audit(
+        session, "operator", operator.email, "sla_policy.update",
+        target=f"sla_policy:{policy_id}", client_id=operator.client_id,
+        detail=_sla_policy_payload(policy),
+    )
+    return _sla_policy_payload(policy)
+
+
+@app.delete("/sla-policies/{policy_id}")
+def delete_sla_policy(
+    policy_id: int,
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
+    policy = session.get(SlaPolicy, policy_id)
+    if not policy or policy.client_id != operator.client_id:
+        raise HTTPException(404, "sla policy not found")
+    for conv in session.exec(
+        select(Conversation).where(
+            Conversation.client_id == operator.client_id,
+            Conversation.sla_policy_id == policy_id,
+        )
+    ).all():
+        conv.sla_policy_id = None
+        session.add(conv)
+    session.flush()
+    session.delete(policy)
+    session.commit()
+    # the detached conversations now follow whichever policy still matches (possibly none)
+    _recompute_running_slas(session, operator.client_id)
+    _audit(
+        session, "operator", operator.email, "sla_policy.delete",
+        target=f"sla_policy:{policy_id}", client_id=operator.client_id,
+    )
+    return {"ok": True}
+
+
+def _recompute_running_slas(session: Session, client_id: int) -> None:
+    """Re-match every conversation with a running SLA after the policies changed, so the inbox
+    never shows a deadline computed from a policy that no longer exists."""
+    convs = session.exec(
+        select(Conversation).where(
+            Conversation.client_id == client_id,
+            Conversation.sla_started_at.is_not(None),
+            Conversation.closed_at.is_(None),
+        )
+    ).all()
+    for conv in convs:
+        _apply_sla(session, conv)
+        session.add(conv)
+    session.commit()
+
+
+def _routing_payload(setting: RoutingSetting | None) -> dict:
+    return {
+        "mode": setting.mode if setting else "off",
+        "fallback_department_id": setting.fallback_department_id if setting else None,
+        "last_operator_id": setting.last_operator_id if setting else None,
+    }
+
+
+@app.get("/routing-settings")
+def get_routing_settings(operator: Operator = Depends(require_operator), session: Session = Depends(get_session)):
+    return _routing_payload(_routing_setting(session, operator.client_id))
+
+
+@app.put("/routing-settings")
+def set_routing_settings(
+    mode: str = Body(...),
+    fallback_department_id: int | None = Body(None),
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
+    if mode not in ROUTING_MODES:
+        raise HTTPException(400, "invalid mode")
+    if fallback_department_id is not None:
+        _require_department(session, operator.client_id, fallback_department_id)
+    setting = _routing_setting(session, operator.client_id)
+    if setting is None:
+        setting = RoutingSetting(client_id=operator.client_id)
+    setting.mode = mode
+    setting.fallback_department_id = fallback_department_id
+    setting.updated_at = datetime.utcnow()
+    session.add(setting)
+    session.commit()
+    session.refresh(setting)
+    _audit(
+        session, "operator", operator.email, "routing.update",
+        target=f"client:{operator.client_id}", client_id=operator.client_id,
+        detail={"mode": mode, "fallback_department_id": fallback_department_id},
+    )
+    return _routing_payload(setting)
 
 
 def _slugify(text: str) -> str:
@@ -2037,6 +2669,39 @@ def _daily_volume(session: Session, client_id: int | None, days: int = 14) -> li
     return [{"date": str(d), "conversations": int(n)} for d, n in rows]
 
 
+def _sla_stats(session: Session, client_id: int | None) -> dict:
+    """SLA health: how many conversations are running an SLA, how many are at risk or already
+    breached, how many met their targets, and the average first-response delay in minutes."""
+    now = datetime.utcnow()
+
+    def _count(*clauses) -> int:
+        q = select(func.count()).select_from(Conversation).where(Conversation.sla_started_at.is_not(None), *clauses)
+        if client_id is not None:
+            q = q.where(Conversation.client_id == client_id)
+        return int(session.exec(q).one())
+
+    tracked = _count()
+    breached = _count(_sla_breached_clause(now))
+    at_risk = _count(~_sla_breached_clause(now), _sla_warning_clause(now))
+    avg_q = select(
+        func.avg(
+            func.extract("epoch", Conversation.first_response_at - Conversation.sla_started_at) / 60.0
+        )
+    ).where(Conversation.sla_started_at.is_not(None), Conversation.first_response_at.is_not(None))
+    if client_id is not None:
+        avg_q = avg_q.where(Conversation.client_id == client_id)
+    avg_first_response = session.exec(avg_q).one()
+    return {
+        "tracked": tracked,
+        "at_risk": at_risk,
+        "breached": breached,
+        "met": max(tracked - breached - at_risk, 0),
+        # share of tracked conversations still within their targets (null with no data yet)
+        "compliance_rate": round((tracked - breached) / tracked, 3) if tracked else None,
+        "avg_first_response_minutes": round(float(avg_first_response), 1) if avg_first_response is not None else None,
+    }
+
+
 def _build_stats(session: Session, client_id: int | None) -> dict:
     """Aggregated analytics for one client (operator view) or the whole system (client_id=None,
     admin view): conversation status split, AI resolution vs escalation, escalation triggers,
@@ -2065,6 +2730,7 @@ def _build_stats(session: Session, client_id: int | None) -> dict:
         },
         "escalations_by_trigger": {"keyword": esc_kw, "model": esc_model, "llm_down": esc_down},
         "feedback": _feedback_counts(session, client_id),
+        "sla": _sla_stats(session, client_id),
         "volume_daily": _daily_volume(session, client_id),
     }
 

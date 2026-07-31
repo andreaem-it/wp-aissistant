@@ -70,6 +70,18 @@ export const api = {
   departments: () => call("/departments"),
   createDepartment: (name) => call("/departments", { method: "POST", body: { name } }),
   deleteDepartment: (id) => call(`/departments/${id}`, { method: "DELETE" }),
+  departmentMembers: (id) => call(`/departments/${id}/members`),
+  addDepartmentMember: (id, operator_id) =>
+    call(`/departments/${id}/members`, { method: "POST", body: { operator_id } }),
+  removeDepartmentMember: (id, operatorId) =>
+    call(`/departments/${id}/members/${operatorId}`, { method: "DELETE" }),
+  slaPolicies: () => call("/sla-policies"),
+  createSlaPolicy: (body) => call("/sla-policies", { method: "POST", body }),
+  updateSlaPolicy: (id, body) => call(`/sla-policies/${id}`, { method: "PATCH", body }),
+  deleteSlaPolicy: (id) => call(`/sla-policies/${id}`, { method: "DELETE" }),
+  routingSettings: () => call("/routing-settings"),
+  setRoutingSettings: (mode, fallback_department_id = null) =>
+    call("/routing-settings", { method: "PUT", body: { mode, fallback_department_id } }),
   conversationInfo: (id) => call(`/conversations/${id}/info`),
   setConversationInfo: (id, info) => call(`/conversations/${id}/info`, { method: "PUT", body: { info } }),
   cannedResponses: () => call("/canned-responses"),

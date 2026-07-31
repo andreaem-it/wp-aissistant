@@ -27,3 +27,8 @@ escalations_total = Counter(
 ingest_jobs_total = Counter(
     "wpai_ingest_jobs_total", "Ingest jobs finished", ["status"]
 )
+sla_breaches_total = Counter(
+    "wpai_sla_breaches_total",
+    "SLA targets breached (counted once per conversation and target)",
+    ["target"],  # first_response | resolution
+)

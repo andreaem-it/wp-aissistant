@@ -21,16 +21,7 @@ WEBHOOK_URL = os.getenv("OPERATOR_WEBHOOK_URL", "")
 TIMEOUT_SECONDS = float(os.getenv("OPERATOR_WEBHOOK_TIMEOUT_SECONDS", "3"))
 
 
-def notify_new_ticket(client_name: str, conversation_id: int, ticket_id: int, reason: str) -> None:
-    if not WEBHOOK_URL:
-        return
-    payload = {
-        "text": f"[{client_name}] Nuovo ticket #{ticket_id} (conversazione #{conversation_id}): {reason}",
-        "client_name": client_name,
-        "conversation_id": conversation_id,
-        "ticket_id": ticket_id,
-        "reason": reason,
-    }
+def _post(payload: dict, **log_context) -> None:
     try:
         req = urllib.request.Request(
             WEBHOOK_URL,
@@ -40,4 +31,40 @@ def notify_new_ticket(client_name: str, conversation_id: int, ticket_id: int, re
         )
         urllib.request.urlopen(req, timeout=TIMEOUT_SECONDS)
     except Exception as exc:  # noqa: BLE001 — notification is best-effort, never blocks the caller
-        log(logger, logging.WARNING, "notify.webhook_failed", ticket_id=ticket_id, error=str(exc))
+        log(logger, logging.WARNING, "notify.webhook_failed", error=str(exc), **log_context)
+
+
+def notify_new_ticket(client_name: str, conversation_id: int, ticket_id: int, reason: str) -> None:
+    if not WEBHOOK_URL:
+        return
+    _post(
+        {
+            "text": f"[{client_name}] Nuovo ticket #{ticket_id} (conversazione #{conversation_id}): {reason}",
+            "client_name": client_name,
+            "conversation_id": conversation_id,
+            "ticket_id": ticket_id,
+            "reason": reason,
+        },
+        ticket_id=ticket_id,
+    )
+
+
+TARGET_LABELS = {"first_response": "prima risposta", "resolution": "risoluzione"}
+
+
+def notify_sla_breach(client_name: str, conversation_id: int, target: str, due_at: str) -> None:
+    """Fired once per conversation and SLA target by the background monitor."""
+    if not WEBHOOK_URL:
+        return
+    label = TARGET_LABELS.get(target, target)
+    _post(
+        {
+            "text": f"[{client_name}] SLA {label} violato sulla conversazione #{conversation_id} (scadenza {due_at})",
+            "client_name": client_name,
+            "conversation_id": conversation_id,
+            "event": "sla_breach",
+            "target": target,
+            "due_at": due_at,
+        },
+        conversation_id=conversation_id,
+    )

@@ -52,20 +52,50 @@ Tre componenti indipendenti:
    conversazione passa a `escalated` e viene creato un **ticket**. Due meccanismi:
    keyword deterministiche (rimborso, reclamo, elimina account…) + decisione dell'LLM
    (marker testuale `ESCALATE:`, più affidabile del tool-calling nativo sui modelli locali).
-4. **Risposta operatore** — L'operatore risponde dal panel; il messaggio torna nella
-   conversazione, che rientra in stato `open`. Il widget fa polling per riceverlo.
+4. **Instradamento e SLA** — Nel momento dell'escalation la conversazione entra nel flusso
+   help desk: se il tenant ha attivato l'instradamento automatico viene assegnata a turno agli
+   operatori del reparto (round-robin), altrimenti resta nella coda non assegnata. Contestualmente
+   parte l'orologio SLA sulla regola più specifica (reparto + priorità), con due scadenze —
+   **prima risposta** e **risoluzione** — mostrate nell'inbox come `ok`, `in scadenza` o `violato`.
+5. **Risposta operatore** — L'operatore risponde dal panel; il messaggio torna nella
+   conversazione, che rientra in stato `open` e ferma la scadenza di prima risposta. Il widget fa
+   polling per riceverlo. La chiusura della conversazione ferma la scadenza di risoluzione.
+
+## Help desk: assegnazione, reparti e SLA
+
+- **Reparti** — code di supporto del tenant (Vendite, Ordini, Resi…). Gli operatori assegnati a
+  un reparto formano il turno usato dall'instradamento automatico; un reparto senza operatori
+  non è un vicolo cieco: le conversazioni restano nella sua coda, non assegnate.
+- **Priorità** — `low | normal | high | urgent`, impostabile dall'inbox e usata per scegliere la
+  regola SLA.
+- **Regole SLA** — minuti per la prima risposta e per la risoluzione, opzionalmente ristretti a un
+  reparto e/o a una priorità. Vince la regola più specifica; `0` minuti disattiva quella scadenza.
+  Cambiando priorità o reparto le scadenze vengono ricalcolate dall'istante di partenza originale.
+- **Violazioni** — un monitor in background segna le scadenze superate una sola volta per
+  conversazione e target, incrementa `wpai_sla_breaches_total{target=...}`, scrive nell'audit log e
+  invia la notifica al webhook operatori (`OPERATOR_WEBHOOK_URL`).
+- **Visibilità** — l'inbox mostra un badge per conversazione ed è filtrabile per stato SLA;
+  `/stats` espone conversazioni tracciate, a rischio, violate, percentuale di rispetto e tempo
+  medio di prima risposta.
 
 ## Modello dati
 
 - **Client** — tenant, identificato da `api_key`.
 - **Chunk** — pezzo di contenuto embeddato (documento o pagina sito).
 - **Product** — prodotto WooCommerce strutturato (per renderizzare card nel widget).
-- **Conversation** — `open | escalated | closed`; l'accesso del widget alla singola
-  conversazione richiede un token visitatore casuale distinto dalla `api_key`.
+- **Conversation** — `open | escalated | closed`, con priorità, operatore assegnato, reparto
+  e scadenze SLA; l'accesso del widget alla singola conversazione richiede un token visitatore
+  casuale distinto dalla `api_key`.
 - **Message** — `user | assistant | operator`.
 - **Ticket** — `open | answered | closed`, collegato a una conversazione.
 - **Operator** — agente umano che accede al panel; appartiene a un client (password hashed).
 - **OperatorSession** — token di sessione opaco emesso al login, eliminato al logout.
+- **Department / DepartmentMember** — code di supporto del tenant e operatori che le presidiano
+  (il turno usato dall'instradamento automatico).
+- **SlaPolicy** — scadenze di prima risposta e risoluzione, opzionalmente ristrette a un reparto
+  e/o a una priorità; vince la regola più specifica.
+- **RoutingSetting** — modalità di assegnazione automatica del tenant (`off | round_robin`),
+  reparto predefinito e cursore del turno.
 
 ### Due tipi di credenziale
 
@@ -266,6 +296,9 @@ docker compose -f docker-compose.prod.yml up -d
 | `PANEL_PUBLIC_URL` | *(= primo `PANEL_ORIGINS`)* | URL pubblico del panel, usato per costruire i link nelle email (`/?verify=`, `/?reset=`) |
 | `VERIFY_TOKEN_TTL_HOURS` | `48` | Validità del link di verifica email |
 | `RESET_TOKEN_TTL_HOURS` | `1` | Validità del link di reset password |
+| `SLA_MONITOR_ENABLED` | `true` | Avvia il monitor che segnala le scadenze SLA superate (alert + metriche) |
+| `SLA_CHECK_INTERVAL_SECONDS` | `300` | Intervallo tra due controlli SLA |
+| `SLA_WARN_RATIO` | `0.8` | Quota della finestra dopo cui una scadenza passa a `in_scadenza` |
 | `RETRIEVE_FETCH_K` | `20` | Pool di candidati recuperati prima del rerank MMR |
 | `MMR_LAMBDA` | `0.5` | Bilanciamento MMR: `1.0` = solo rilevanza, `0.0` = solo diversità |
 
@@ -295,8 +328,8 @@ Auth via header `Authorization: Bearer <token>`. La colonna *Auth* indica quale 
 | `/ingest/product` | POST | 🔑 | Push prodotto WooCommerce (dal plugin) |
 | `/ingest/document` | POST | 👤 | Upload documento (PDF/immagine/testo) dal panel |
 | `/ingest/jobs/{id}` | GET | 🔀 | Stato di un job di ingest (`queued`/`processing`/`done`/`error`) |
-| `/conversations` | GET | 👤 | Lista conversazioni del client |
-| `/conversations/{id}/routing` | PATCH | 👤 | Imposta priorità, operatore assegnato e reparto della conversazione |
+| `/conversations` | GET | 👤 | Lista conversazioni del client, filtrabile per stato, priorità, reparto, assegnazione e stato SLA (`sla_state=ok\|in_scadenza\|violato`) |
+| `/conversations/{id}/routing` | PATCH | 👤 | Imposta priorità, operatore assegnato e reparto della conversazione (ricalcola le scadenze SLA) |
 | `/conversations/{id}/messages` | GET | 🔀 | Messaggi (polling widget + lettura panel) |
 | `/tickets` | GET | 👤 | Ticket per stato |
 | `/tickets/{id}/reply` | POST | 👤 | Risposta operatore (via ticket) |
@@ -311,7 +344,12 @@ Auth via header `Authorization: Bearer <token>`. La colonna *Auth* indica quale 
 | `/me` | GET | 👤 | Profilo operatore: email, nome client, api_key del widget |
 | `/team/operators` | GET | 👤 | Operatori del tenant disponibili per l'assegnazione |
 | `/departments` | GET/POST | 👤 | Elenca o crea reparti/code di supporto tenant-scoped |
-| `/departments/{id}` | DELETE | 👤 | Elimina un reparto e libera le conversazioni assegnate |
+| `/departments/{id}` | DELETE | 👤 | Elimina un reparto, i suoi membri e le regole SLA collegate; le conversazioni tornano nella coda generale |
+| `/departments/{id}/members` | GET/POST | 👤 | Operatori del turno di un reparto |
+| `/departments/{id}/members/{operator_id}` | DELETE | 👤 | Rimuove un operatore dal turno del reparto |
+| `/sla-policies` | GET/POST | 👤 | Regole SLA del tenant (prima risposta, risoluzione, reparto, priorità) |
+| `/sla-policies/{id}` | PATCH/DELETE | 👤 | Aggiorna o rimuove una regola SLA (le conversazioni in corso vengono riallineate) |
+| `/routing-settings` | GET/PUT | 👤 | Instradamento automatico: `off` o `round_robin`, con reparto predefinito |
 | `/onboarding/status` | GET | 👤 | Checklist di attivazione calcolata da billing, origin, knowledge base e prima chat |
 | `/me/password` | POST | 👤 | Cambia la propria password |
 | `/me/rotate-key` | POST | 👤 | Rigenera l'api_key del proprio client |
