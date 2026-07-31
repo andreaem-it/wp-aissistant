@@ -218,6 +218,23 @@ class SlaPolicy(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
+class ConversationRating(SQLModel, table=True):
+    """CSAT: the visitor's rating of the whole conversation (1–5 + optional comment), distinct
+    from Message.feedback which judges a single AI answer. `resolved_by`, `operator_id` and
+    `department_id` are frozen when the rating is left, so a later re-assignment can't rewrite
+    history in the reports. One rating per conversation: a second submission updates it."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    client_id: int = Field(index=True, foreign_key="client.id")
+    conversation_id: int = Field(index=True, unique=True, foreign_key="conversation.id")
+    score: int  # 1..5
+    comment: str = ""
+    resolved_by: str = "ai"  # ai | operator — who actually answered the visitor
+    operator_id: Optional[int] = Field(default=None, foreign_key="operator.id", index=True)
+    department_id: Optional[int] = Field(default=None, foreign_key="department.id", index=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 class Tag(SQLModel, table=True):
     """Tenant-scoped label for conversations. `source` records whether a human created it or
     the AI classifier did, so the two can be told apart in reports and filters."""

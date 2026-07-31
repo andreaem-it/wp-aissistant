@@ -99,6 +99,11 @@
 .wpai-contact-form input { min-width: 0; flex: 1; padding: 8px 10px; border: 1px solid var(--wpai-border); border-radius: 9px; color: var(--wpai-text); background: var(--wpai-surface); }
 .wpai-contact-form button { padding: 8px 11px; border: 0; border-radius: 9px; color: #fff; background: var(--wpai-accent); cursor: pointer; }
 .wpai-contact.done { color: #16803c; font-size: 12.5px; }
+.wpai-rating { margin: 4px 0 12px; padding: 12px; border: 1px solid var(--wpai-border); border-radius: 14px; background: var(--wpai-surface-soft); }
+.wpai-rating-stars { display: flex; gap: 4px; margin-bottom: 8px; }
+.wpai-star { padding: 4px 5px; border: 0; border-radius: 8px; color: var(--wpai-accent); background: transparent; font-size: 16px; line-height: 1; cursor: pointer; }
+.wpai-star:hover { background: color-mix(in srgb, var(--wpai-accent) 12%, transparent); }
+.wpai-rating.done { color: #16803c; font-size: 12.5px; }
 .wpai-ticket-offer { display:grid; grid-template-columns:30px 1fr; gap:10px; margin:4px 0 12px; padding:12px; border:1px solid color-mix(in srgb,var(--wpai-accent) 24%,var(--wpai-border)); border-radius:15px; background:color-mix(in srgb,var(--wpai-accent) 7%,var(--wpai-surface)); animation:wpai-message-in .3s both; }
 .wpai-ticket-offer>i { display:grid; place-items:center; width:30px; height:30px; border-radius:9px; color:var(--wpai-accent); background:color-mix(in srgb,var(--wpai-accent) 12%,transparent); }
 .wpai-ticket-offer strong,.wpai-ticket-offer span { display:block; }.wpai-ticket-offer strong { margin-bottom:3px; font-size:12.5px; }.wpai-ticket-offer span { color:var(--wpai-muted); font-size:11.5px; line-height:1.45; }

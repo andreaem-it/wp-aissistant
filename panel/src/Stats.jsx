@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   MessagesSquare, UserCheck, CheckCircle2, Bot, Timer, Percent, ThumbsUp, ThumbsDown, ShieldCheck,
-  Tag as TagIcon, Sparkles,
+  Tag as TagIcon, Sparkles, Star,
 } from "lucide-react";
 import { api } from "./api.js";
 import { MiniBars, Breakdown } from "./Charts.jsx";
@@ -9,6 +9,129 @@ import { INTENT_LABELS } from "./inboxFilters.js";
 
 function pct(x) {
   return x === null || x === undefined ? "—" : `${Math.round(x * 100)}%`;
+}
+
+function CsatSection() {
+  const [days, setDays] = useState(30);
+  const [report, setReport] = useState(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    setError("");
+    api.csat(days).then(setReport).catch(() => setError("Impossibile caricare il report CSAT."));
+  }, [days]);
+
+  const summary = report?.summary;
+  return (
+    <div style={{ marginTop: 16 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10, flexWrap: "wrap" }}>
+        <h2 style={{ fontSize: 16, margin: 0 }}>Soddisfazione (CSAT)</h2>
+        <select aria-label="Periodo del report CSAT" value={days} onChange={(e) => setDays(Number(e.target.value))}>
+          <option value={7}>Ultimi 7 giorni</option>
+          <option value={30}>Ultimi 30 giorni</option>
+          <option value={90}>Ultimi 90 giorni</option>
+        </select>
+      </div>
+
+      {error && <p style={{ fontSize: 12.5, color: "var(--red)" }}>{error}</p>}
+      {!report && !error && <p style={{ fontSize: 12.5, color: "var(--text-muted)" }}>Caricamento…</p>}
+
+      {report && summary.responses === 0 && (
+        <div className="wpai-card" style={{ fontSize: 12.5, color: "var(--text-muted)" }}>
+          Nessuna valutazione nel periodo. Il widget la chiede al visitatore quando la
+          conversazione viene chiusa.
+        </div>
+      )}
+
+      {report && summary.responses > 0 && (
+        <>
+          <div className="wpai-stat-grid">
+            <div className="wpai-card wpai-stat-card">
+              <div className="icon"><Star size={18} strokeWidth={2.25} /></div>
+              <div className="value">{summary.average}</div>
+              <div className="label">Voto medio (1–5)</div>
+            </div>
+            <div className="wpai-card wpai-stat-card">
+              <div className="icon"><Percent size={18} strokeWidth={2.25} /></div>
+              <div className="value">{pct(summary.satisfied_rate)}</div>
+              <div className="label">Voti 4–5</div>
+            </div>
+            <div className="wpai-card wpai-stat-card">
+              <div className="icon"><MessagesSquare size={18} strokeWidth={2.25} /></div>
+              <div className="value">{summary.responses}</div>
+              <div className="label">Valutazioni ricevute</div>
+            </div>
+          </div>
+
+          <div className="wpai-two-col">
+            <div className="wpai-card">
+              <div className="wpai-card-title">Distribuzione dei voti</div>
+              <Breakdown
+                items={[5, 4, 3, 2, 1].map((score) => ({
+                  label: `${score} ★`,
+                  value: summary.distribution[String(score)] || 0,
+                }))}
+              />
+            </div>
+            <div className="wpai-card">
+              <div className="wpai-card-title">Chi ha risolto</div>
+              <Breakdown
+                items={report.by_resolution.map((row) => ({
+                  label: `${row.resolved_by === "ai" ? "AI" : "Operatore"} — media ${row.average}`,
+                  value: row.responses,
+                }))}
+              />
+            </div>
+          </div>
+
+          <div className="wpai-two-col">
+            <div className="wpai-card">
+              <div className="wpai-card-title">Per operatore</div>
+              <table className="wpai-table">
+                <tbody>
+                  {report.by_operator.map((row) => (
+                    <tr key={row.operator_id ?? "none"}>
+                      <td>{row.name}</td>
+                      <td>{row.responses} valutazioni</td>
+                      <td style={{ textAlign: "right", fontWeight: 700 }}>{row.average}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="wpai-card">
+              <div className="wpai-card-title">Per reparto</div>
+              <table className="wpai-table">
+                <tbody>
+                  {report.by_department.map((row) => (
+                    <tr key={row.department_id ?? "none"}>
+                      <td>{row.name}</td>
+                      <td>{row.responses} valutazioni</td>
+                      <td style={{ textAlign: "right", fontWeight: 700 }}>{row.average}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {report.comments.length > 0 && (
+            <div className="wpai-card" style={{ marginTop: 16 }}>
+              <div className="wpai-card-title">Ultimi commenti</div>
+              <ul className="wpai-activity">
+                {report.comments.map((c) => (
+                  <li key={c.conversation_id}>
+                    <span>{"★".repeat(c.score)} — {c.comment}</span>
+                    <span className="dim">#{c.conversation_id}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
 }
 
 export default function Stats() {
@@ -100,6 +223,8 @@ export default function Stats() {
           </div>
         </div>
       )}
+
+      <CsatSection />
 
       {sla && (
         <div className="wpai-two-col">

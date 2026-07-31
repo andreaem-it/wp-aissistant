@@ -26,6 +26,7 @@ from .db import (
     Chunk,
     Client,
     Conversation,
+    ConversationRating,
     ConversationTag,
     Department,
     DepartmentMember,
@@ -1426,6 +1427,66 @@ def chat_ticket(
     return {"ok": True, "conversation_id": conv.id}
 
 
+MAX_RATING_COMMENT_CHARS = int(os.getenv("MAX_RATING_COMMENT_CHARS", "1000"))
+
+
+@app.post("/chat/rating")
+def chat_rating(
+    conversation_id: int = Body(...),
+    score: int = Body(...),
+    comment: str = Body(""),
+    conversation_token: str | None = Body(None),
+    client: Client = Depends(require_client),
+    session: Session = Depends(get_session),
+):
+    """CSAT left by the visitor at the end of the chat: one rating per conversation, distinct
+    from the 👍/👎 on a single AI answer. Sending it again updates the previous one — a visitor
+    changing their mind must not create a second data point."""
+    if score not in (1, 2, 3, 4, 5):
+        raise HTTPException(400, "score must be between 1 and 5")
+    conv = session.get(Conversation, conversation_id)
+    if not conv or conv.client_id != client.id:
+        raise HTTPException(404, "conversation not found")
+    _require_conversation_token(conv, conversation_token)
+    handled_by_operator = session.exec(
+        select(Message).where(Message.conversation_id == conv.id, Message.role == "operator")
+    ).first() is not None
+    rating = session.exec(
+        select(ConversationRating).where(ConversationRating.conversation_id == conv.id)
+    ).first()
+    now = datetime.utcnow()
+    if rating is None:
+        rating = ConversationRating(
+            client_id=client.id,
+            conversation_id=conv.id,
+            score=score,
+            comment=(comment or "").strip()[:MAX_RATING_COMMENT_CHARS],
+            resolved_by="operator" if handled_by_operator else "ai",
+            operator_id=conv.assigned_operator_id,
+            department_id=conv.department_id,
+        )
+    else:
+        rating.score = score
+        rating.comment = (comment or "").strip()[:MAX_RATING_COMMENT_CHARS]
+        rating.resolved_by = "operator" if handled_by_operator else "ai"
+        rating.updated_at = now
+    session.add(rating)
+    session.commit()
+    log(logger, logging.INFO, "csat.recorded", client_id=client.id, conversation_id=conv.id, score=score)
+    return {"ok": True}
+
+
+def _rating_payload(rating: ConversationRating | None) -> dict | None:
+    if rating is None:
+        return None
+    return {
+        "score": rating.score,
+        "comment": rating.comment,
+        "resolved_by": rating.resolved_by,
+        "created_at": _iso(rating.created_at),
+    }
+
+
 # transient "operator is typing" state: {conversation_id: (operator_name, monotonic_ts)}.
 # In-memory (ephemeral, fine to lose on restart). ponytail: per-process — with multiple workers a
 # typing ping and the widget's poll can land on different workers; back with Redis if we scale out.
@@ -2377,10 +2438,15 @@ def conversation_messages(
     ).all()
     typing = _operator_typing.get(conversation_id)
     operator_typing_name = typing[0] if typing and (time.monotonic() - typing[1]) < TYPING_TTL else None
+    rated = session.exec(
+        select(ConversationRating).where(ConversationRating.conversation_id == conversation_id)
+    ).first() is not None
     return {
         "status": conv.status,
         "messages": [{"id": m.id, "role": m.role, "content": m.content} for m in messages],
         "operator_typing": operator_typing_name,
+        # lets the widget ask for a CSAT rating only once (no internal data exposed)
+        "rated": rated,
     }
 
 
@@ -2454,6 +2520,15 @@ def list_conversations(
         query.order_by(*_inbox_order(sort)).limit(_bounded_limit(limit))
     ).all()
     tags_by_conversation = tagging.conversation_tags(session, [c.id for c in convs], operator.client_id)
+    ratings_by_conversation = {
+        r.conversation_id: r
+        for r in session.exec(
+            select(ConversationRating).where(
+                ConversationRating.client_id == operator.client_id,
+                ConversationRating.conversation_id.in_([c.id for c in convs] or [0]),
+            )
+        ).all()
+    }
     result = []
     for c in convs:
         last = session.exec(
@@ -2469,6 +2544,7 @@ def list_conversations(
             "sla": _sla_view(c, now),
             "tags": tags_by_conversation.get(c.id, []),
             "classification": tagging.classification_payload(c),
+            "rating": _rating_payload(ratings_by_conversation.get(c.id)),
         })
     return result
 
@@ -2644,6 +2720,8 @@ def _erase_conversation(session: Session, conv: Conversation) -> None:
         session.delete(mention)
     for link in session.exec(select(ConversationTag).where(ConversationTag.conversation_id == conv.id)).all():
         session.delete(link)
+    for rating in session.exec(select(ConversationRating).where(ConversationRating.conversation_id == conv.id)).all():
+        session.delete(rating)
     session.flush()
     for note in session.exec(select(InternalNote).where(InternalNote.conversation_id == conv.id)).all():
         session.delete(note)
@@ -2742,6 +2820,12 @@ def gdpr_export(email: str = Body(..., embed=True), operator: Operator = Depends
                 }
                 for ticket in tickets
             ],
+            # the visitor's own CSAT rating is their data too; internal notes are not
+            "rating": _rating_payload(
+                session.exec(
+                    select(ConversationRating).where(ConversationRating.conversation_id == conv.id)
+                ).first()
+            ),
         })
     _audit(
         session,
@@ -3398,6 +3482,36 @@ def _classification_stats(session: Session, client_id: int | None) -> dict:
     return {"by_intent": _grouped(Conversation.ai_intent), "by_urgency": _grouped(Conversation.ai_urgency)}
 
 
+def _csat_summary(session: Session, client_id: int | None, since: datetime | None = None) -> dict:
+    """CSAT headline numbers: how many visitors answered, the average score and the share of
+    ratings at 4–5 (the usual "satisfied" cut)."""
+    q = select(func.count(), func.avg(ConversationRating.score))
+    if client_id is not None:
+        q = q.where(ConversationRating.client_id == client_id)
+    if since is not None:
+        q = q.where(ConversationRating.created_at >= since)
+    responses, average = session.exec(q).one()
+    responses = int(responses or 0)
+    positive_q = select(func.count()).select_from(ConversationRating).where(ConversationRating.score >= 4)
+    if client_id is not None:
+        positive_q = positive_q.where(ConversationRating.client_id == client_id)
+    if since is not None:
+        positive_q = positive_q.where(ConversationRating.created_at >= since)
+    positive = int(session.exec(positive_q).one() or 0)
+    distribution_q = select(ConversationRating.score, func.count()).group_by(ConversationRating.score)
+    if client_id is not None:
+        distribution_q = distribution_q.where(ConversationRating.client_id == client_id)
+    if since is not None:
+        distribution_q = distribution_q.where(ConversationRating.created_at >= since)
+    distribution = {str(score): int(n) for score, n in session.exec(distribution_q).all()}
+    return {
+        "responses": responses,
+        "average": round(float(average), 2) if average is not None else None,
+        "satisfied_rate": round(positive / responses, 3) if responses else None,
+        "distribution": {str(k): distribution.get(str(k), 0) for k in range(1, 6)},
+    }
+
+
 def _build_stats(session: Session, client_id: int | None) -> dict:
     """Aggregated analytics for one client (operator view) or the whole system (client_id=None,
     admin view): conversation status split, AI resolution vs escalation, escalation triggers,
@@ -3429,6 +3543,7 @@ def _build_stats(session: Session, client_id: int | None) -> dict:
         "sla": _sla_stats(session, client_id),
         "tags": _tag_stats(session, client_id),
         "classification": _classification_stats(session, client_id),
+        "csat": _csat_summary(session, client_id),
         "volume_daily": _daily_volume(session, client_id),
     }
 
@@ -3441,6 +3556,81 @@ def stats(operator: Operator = Depends(require_operator), session: Session = Dep
     data["escalated"] = data["conversations"]["escalated"]
     data["closed"] = data["conversations"]["closed"]
     return data
+
+
+@app.get("/csat")
+def csat_report(
+    days: int = 30,
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
+    """CSAT report over a period: overall numbers plus the split by who handled the
+    conversation (AI or operator), by operator and by department, with the latest comments."""
+    window = min(max(days, 1), 365)
+    since = datetime.utcnow() - timedelta(days=window)
+    client_id = operator.client_id
+
+    def _grouped(column):
+        q = (
+            select(column, func.count(), func.avg(ConversationRating.score))
+            .where(ConversationRating.client_id == client_id, ConversationRating.created_at >= since)
+            .group_by(column)
+        )
+        return session.exec(q).all()
+
+    names = {
+        row.id: _operator_name(row)
+        for row in session.exec(select(Operator).where(Operator.client_id == client_id)).all()
+    }
+    departments = {
+        row.id: row.name
+        for row in session.exec(select(Department).where(Department.client_id == client_id)).all()
+    }
+    comments = session.exec(
+        select(ConversationRating)
+        .where(
+            ConversationRating.client_id == client_id,
+            ConversationRating.created_at >= since,
+            ConversationRating.comment != "",
+        )
+        .order_by(ConversationRating.id.desc())
+        .limit(20)
+    ).all()
+    return {
+        "period_days": window,
+        "summary": _csat_summary(session, client_id, since),
+        "by_resolution": [
+            {"resolved_by": value, "responses": int(n), "average": round(float(avg), 2)}
+            for value, n, avg in _grouped(ConversationRating.resolved_by)
+        ],
+        "by_operator": [
+            {
+                "operator_id": value,
+                "name": names.get(value, "Non assegnata"),
+                "responses": int(n),
+                "average": round(float(avg), 2),
+            }
+            for value, n, avg in _grouped(ConversationRating.operator_id)
+        ],
+        "by_department": [
+            {
+                "department_id": value,
+                "name": departments.get(value, "Nessun reparto"),
+                "responses": int(n),
+                "average": round(float(avg), 2),
+            }
+            for value, n, avg in _grouped(ConversationRating.department_id)
+        ],
+        "comments": [
+            {
+                "conversation_id": row.conversation_id,
+                "score": row.score,
+                "comment": row.comment,
+                "created_at": _iso(row.created_at),
+            }
+            for row in comments
+        ],
+    }
 
 
 @app.get("/admin/stats", dependencies=[Depends(require_admin)])

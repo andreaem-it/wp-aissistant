@@ -77,6 +77,10 @@ Tre componenti indipendenti:
 - **Visibilità** — l'inbox mostra un badge per conversazione ed è filtrabile per stato SLA;
   `/stats` espone conversazioni tracciate, a rischio, violate, percentuale di rispetto e tempo
   medio di prima risposta.
+- **CSAT** — quando l'operatore chiude la conversazione il widget chiede al visitatore un voto
+  da 1 a 5 con commento facoltativo, una sola volta per conversazione. È una misura diversa dal
+  👍/👎 sulla singola risposta AI: il report `/csat` incrocia voto medio, distribuzione, chi ha
+  risolto (AI o operatore), operatore, reparto e periodo.
 - **Tag e classificazione** — tag manuali tenant-scoped associabili a più conversazioni e
   filtrabili nell'inbox. La classificazione AI (intento, argomento, urgenza) parte in background
   dopo un'escalation, oppure su richiesta dal panel; è **solo consultiva**: non tocca stato,
@@ -116,6 +120,8 @@ Tre componenti indipendenti:
   interno, con lo stato di lettura della menzione.
 - **Tag / ConversationTag** — etichette del tenant (manuali o generate dalla classificazione AI)
   e loro associazione multipla alle conversazioni.
+- **ConversationRating** — CSAT: voto 1–5 (con commento facoltativo) lasciato dal visitatore
+  sull'intera conversazione, distinto dal feedback 👍/👎 sulla singola risposta AI.
 
 ### Due tipi di credenziale
 
@@ -321,6 +327,7 @@ docker compose -f docker-compose.prod.yml up -d
 | `SLA_WARN_RATIO` | `0.8` | Quota della finestra dopo cui una scadenza passa a `in_scadenza` |
 | `PRESENCE_TTL_SECONDS` | `20` | Durata di un battito di presenza operatore su una conversazione |
 | `MAX_NOTE_CHARS` | `4000` | Lunghezza massima di una nota interna |
+| `MAX_RATING_COMMENT_CHARS` | `1000` | Lunghezza massima del commento CSAT |
 | `AI_CLASSIFY_ENABLED` | `true` | Classificazione AI automatica della conversazione dopo un'escalation |
 | `MAX_TAGS_PER_CLIENT` | `200` | Tetto ai tag distinti per tenant (la classificazione riusa quelli esistenti) |
 | `CLASSIFY_MAX_MESSAGES` / `CLASSIFY_MAX_CHARS` | `12` / `4000` | Quanta conversazione viene inviata al classificatore |
@@ -348,6 +355,8 @@ Auth via header `Authorization: Bearer <token>`. La colonna *Auth* indica quale 
 | `/chat` | POST | 🔑 | Messaggio visitatore → risposta o escalation (ritorna `message_id`) |
 | `/chat/stream` | POST | 🔑 | Come `/chat` ma in streaming SSE (token progressivi); il widget lo usa con fallback su `/chat` |
 | `/chat/feedback` | POST | 🔑 | Valutazione 👍/👎 su una risposta AI (scoping per conversazione) |
+| `/chat/rating` | POST | 🔑 | CSAT del visitatore sull'intera conversazione (voto 1–5 + commento); reinviarlo aggiorna il precedente |
+| `/csat` | GET | 👤 | Report CSAT per periodo: media, distribuzione, AI vs operatore, per operatore, per reparto e ultimi commenti |
 | `/chat/contact` | POST | 🔑 | Il visitatore lascia l'email (all'escalation) per essere notificato alla risposta operatore |
 | `/ingest/site-page` | POST | 🔑 | Push contenuto pagina/articolo (dal plugin) |
 | `/ingest/product` | POST | 🔑 | Push prodotto WooCommerce (dal plugin) |

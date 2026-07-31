@@ -60,7 +60,7 @@ Queste funzionalità esistono già e non vanno reinserite come nuove feature:
 | SLA e regole di instradamento | **Rilasciata:** regole SLA per reparto/priorità, scadenze prima risposta e risoluzione con stato `ok`/`in scadenza`/`violato`, round-robin sui membri del reparto con fallback alla coda, alert+metriche sulle violazioni e filtri nell'inbox. | Prossimo passo: pausa SLA fuori orario di supporto. | Media |
 | Note interne, menzioni e collision detection | **Rilasciata:** note interne tenant-scoped mai esposte al visitatore, menzioni `@nome` con stato di lettura, presenza sulla conversazione con avviso di risposta in corso e registro azioni per conversazione. | Prossimo passo: notifica push/email sulle menzioni. | Media |
 | Tag e classificazione automatica | **Rilasciata:** tag manuali tenant-scoped con associazione multipla e filtri, classificazione AI (intento/argomento/urgenza) in coda dopo l'escalation o su richiesta, vocabolario chiuso e fallback che lascia la conversazione non classificata. Report per tag e intento in `/stats`. | Prossimo passo: regole automatiche basate sui tag. | Media |
-| CSAT post-conversazione | Misura l'esito del supporto, non solo il singolo messaggio AI. | Voto 1–5, commento opzionale, report per AI/operatore/canale. | Bassa |
+| CSAT post-conversazione | **Rilasciata:** voto 1–5 con commento facoltativo chiesto dal widget alla chiusura, distinto dal feedback sul singolo messaggio; report per AI/operatore/reparto/periodo con distribuzione e ultimi commenti. | Prossimo passo: invito al CSAT anche via email dopo un ticket. | Bassa |
 | Workflow no-code | È una lacuna forte rispetto ai prodotti maturi. | Trigger, condizioni e azioni per escalation, tag, assegnazione, webhook ed email. | Alta |
 | Messaggi proattivi contestuali | Aumenta conversioni e riduce abbandono. | Trigger per URL, tempo sulla pagina, carrello e intento di uscita; frequenza limitata e consenso. | Media |
 | Lead capture e qualificazione | Trasforma il widget anche in strumento commerciale. | Form dinamici, consenso, scoring base, export CSV e webhook CRM. | Media |
@@ -104,12 +104,12 @@ Non iniziare lo sviluppo esteso prima del go/no-go sulla latenza del PoC.
 3. Funnel di onboarding completo e verificato.
 4. Retention/export GDPR.
 
-### Ciclo 2 — Help desk competitivo
+### Ciclo 2 — Help desk competitivo *(completato)*
 
 1. ✅ Modello team/reparti e assegnazione.
 2. ✅ Priorità, SLA, routing e viste salvate.
 3. ✅ Note interne, menzioni e collision detection.
-4. ✅ Tag automatici — resta il CSAT.
+4. ✅ Tag automatici e CSAT.
 
 ### Ciclo 3 — Automazione e crescita
 

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Inbox, MessageCircle, Send, Save, CheckCircle2, RotateCcw, Trash2, Timer, Bookmark, Users,
-  StickyNote, AtSign, History, AlertTriangle, Tag as TagIcon, Sparkles,
+  StickyNote, AtSign, History, AlertTriangle, Tag as TagIcon, Sparkles, Star,
 } from "lucide-react";
 import { api } from "./api.js";
 import { SLA_STATE_CLASS, SLA_STATE_LABELS, describeSla } from "./sla.js";
@@ -445,7 +445,7 @@ export default function Conversations() {
               <p>Nessuna conversazione con questi filtri.</p>
             </div>
           )}
-          {items.map(({ conversation: c, last_message, sla, tags: convTags = [] }) => (
+          {items.map(({ conversation: c, last_message, sla, tags: convTags = [], rating }) => (
             <button
               key={c.id}
               className={"wpai-conv-item" + (c.id === selected ? " active" : "")}
@@ -459,6 +459,11 @@ export default function Conversations() {
                 </div>
                 <div className="preview">{last_message || "—"}</div>
                 <div className="meta">{departments.find((d) => d.id === c.department_id)?.name || "Nessun reparto"} · {operators.find((o) => o.id === c.assigned_operator_id)?.name || "Non assegnata"}</div>
+                {rating && (
+                  <div className="meta" title={rating.comment || ""}>
+                    Valutazione: {"★".repeat(rating.score)}{"☆".repeat(5 - rating.score)}
+                  </div>
+                )}
                 {convTags.length > 0 && (
                   <div className="wpai-tag-row">
                     {convTags.map((t) => (
@@ -532,6 +537,27 @@ export default function Conversations() {
 
         {selected && (
           <aside className="wpai-conv-side">
+            {selectedRow?.rating && (
+              <div className="wpai-card">
+                <div className="wpai-card-title" style={{ marginBottom: 8 }}>
+                  <Star size={15} /> Valutazione del visitatore
+                </div>
+                <div style={{ fontSize: 16 }}>
+                  {"★".repeat(selectedRow.rating.score)}
+                  <span style={{ color: "var(--text-faint)" }}>{"☆".repeat(5 - selectedRow.rating.score)}</span>
+                </div>
+                {selectedRow.rating.comment && (
+                  <p style={{ fontSize: 12.5, margin: "8px 0 0", whiteSpace: "pre-wrap" }}>
+                    “{selectedRow.rating.comment}”
+                  </p>
+                )}
+                <p style={{ fontSize: 11.5, color: "var(--text-muted)", margin: "8px 0 0" }}>
+                  Risolta da {selectedRow.rating.resolved_by === "ai" ? "AI" : "operatore"} ·{" "}
+                  {formatMoment(selectedRow.rating.created_at)}
+                </p>
+              </div>
+            )}
+
             {selectedRow?.sla && (
               <div className="wpai-card">
                 <div className="wpai-card-title" style={{ marginBottom: 10 }}>

@@ -6,6 +6,7 @@
   const CONTACT_KEY = "wpai_contact_given";
   const OPEN_KEY = "wpai_chat_open";
   const TICKET_OFFER_KEY = "wpai_ticket_offer";
+  const RATED_KEY = "wpai_conversation_rated";
 
   function visitorId() {
     let id = localStorage.getItem(VISITOR_KEY);
@@ -217,6 +218,85 @@
       }
     });
     wrap.appendChild(label);
+    wrap.appendChild(form);
+    container.appendChild(wrap);
+    container.scrollTop = container.scrollHeight;
+  }
+
+  // CSAT: chiede una valutazione della conversazione (non della singola risposta) quando
+  // l'operatore la chiude. Mostrata una sola volta per conversazione.
+  function addRatingForm(container, conversationId) {
+    if (!conversationId) return;
+    if (localStorage.getItem(RATED_KEY) === String(conversationId)) return;
+    if (container.querySelector(".wpai-rating")) return;
+    localStorage.setItem(RATED_KEY, String(conversationId)); // non richiederla più, anche se non risponde
+
+    const wrap = document.createElement("div");
+    wrap.className = "wpai-rating";
+    const label = document.createElement("div");
+    label.className = "wpai-contact-label";
+    label.textContent = "Come valuti questa conversazione?";
+    const stars = document.createElement("div");
+    stars.className = "wpai-rating-stars";
+    const form = document.createElement("form");
+    form.className = "wpai-contact-form";
+    const input = document.createElement("input");
+    input.type = "text";
+    input.maxLength = 500;
+    input.placeholder = "Commento (facoltativo)";
+    const submit = document.createElement("button");
+    submit.type = "submit";
+    submit.textContent = "Invia";
+    form.appendChild(input);
+    form.appendChild(submit);
+
+    let chosen = 0;
+    const send = async () => {
+      if (!chosen) return;
+      try {
+        const res = await fetch(`${WPAI.backendUrl}/chat/rating`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${WPAI.apiKey}` },
+          body: JSON.stringify({
+            conversation_id: Number(conversationId),
+            conversation_token: localStorage.getItem(CONV_TOKEN_KEY),
+            score: chosen,
+            comment: input.value || "",
+          }),
+        });
+        if (!res.ok) throw new Error("rating failed");
+        wrap.innerHTML = '<i class="fa-solid fa-check"></i> Grazie per la valutazione.';
+        wrap.className = "wpai-rating done";
+      } catch (e) {
+        // niente conferme ottimistiche: se non è stata registrata, dillo
+        label.textContent = "Non siamo riusciti a registrare la valutazione. Riprova.";
+      }
+    };
+
+    for (let value = 1; value <= 5; value += 1) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "wpai-star";
+      btn.innerHTML = '<i class="fa-regular fa-star"></i>';
+      btn.setAttribute("aria-label", `${value} su 5`);
+      btn.addEventListener("click", () => {
+        chosen = value;
+        [...stars.children].forEach((el, index) => {
+          el.innerHTML = index < value ? '<i class="fa-solid fa-star"></i>' : '<i class="fa-regular fa-star"></i>';
+          el.setAttribute("aria-pressed", index < value ? "true" : "false");
+        });
+        form.hidden = false;
+      });
+      stars.appendChild(btn);
+    }
+    form.hidden = true;
+    form.addEventListener("submit", (e) => {
+      e.preventDefault();
+      send();
+    });
+
+    wrap.appendChild(label);
+    wrap.appendChild(stars);
     wrap.appendChild(form);
     container.appendChild(wrap);
     container.scrollTop = container.scrollHeight;
@@ -545,6 +625,8 @@
           if (m.role === "operator") addMessage(messages, "assistant", m.content);
         }
         setOperatorTyping(messages, data.operator_typing);
+        // conversazione chiusa dall'operatore: chiedi il CSAT, se non è già stato dato
+        if (data.status === "closed" && !data.rated) addRatingForm(messages, conversationId);
       } catch (err) {
         // silent: next tick retries
       }

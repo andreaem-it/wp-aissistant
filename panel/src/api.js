@@ -110,6 +110,7 @@ export const api = {
   createInfoField: (label) => call("/info-fields", { method: "POST", body: { label } }),
   deleteInfoField: (id) => call(`/info-fields/${id}`, { method: "DELETE" }),
   stats: () => call("/stats"),
+  csat: (days = 30) => call("/csat", { params: { days } }),
   knowledgeBase: () => call("/knowledge-base"),
   uploadDocument: (file) => {
     const form = new FormData();
