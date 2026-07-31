@@ -43,6 +43,9 @@ Entrambi usano l'immagine GHCR, Caddy, Redis condiviso, CORS ristretto e backend
 Propagano inoltre billing, email, Sentry, retention, metriche e configurazione worker dalle
 variabili del file `.env`/ambiente.
 
+Per backup giornalieri, restore verificati e disaster recovery usa
+[`BACKUP_AND_RECOVERY.md`](./BACKUP_AND_RECOVERY.md) e gli script in [`scripts/`](./scripts/).
+
 ```bash
 export ADMIN_API_KEY=<token-robusto>
 export POSTGRES_PASSWORD=<password-robusta>

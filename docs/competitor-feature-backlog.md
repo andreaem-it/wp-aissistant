@@ -46,9 +46,9 @@ Queste funzionalità esistono già e non vanno reinserite come nuove feature:
 |---|---|---:|---:|---|
 | Valutazione sistematica RAG | Implementata, dataset tenant da popolare | Alto | Media | Suite live in `backend/evals/`: dataset per tenant, metriche retrieval e answer quality, soglia CI e regression test. |
 | Monitoraggio e alerting operativo | Parziale | Alto | Media | Alert su error rate, latenza, coda ingest, provider AI, email e webhook; runbook e storico incidenti. |
-| Backup, restore e disaster recovery | Da fare | Alto | Media | Backup automatici verificati, prova di ripristino e RPO/RTO dichiarati. |
+| Backup, restore e disaster recovery | Strumenti pronti, scheduling da attivare | Alto | Media | Runbook, dump validato e restore protetto in `deploy/`; resta da schedulare e provare sul database isolato. |
 | Hardening produzione | Parziale | Alto | Bassa | CORS ristretto, domini definitivi, secret rotation, endpoint tecnici protetti e checklist release. |
-| Retention ed export GDPR end-to-end | Parziale | Alto | Media | Policy per tenant, cancellazione automatica, export conversazioni/contatti e audit delle richieste privacy. |
+| Retention ed export GDPR end-to-end | Implementata | Alto | Media | Retention automatica, cancellazione ed export JSON tenant-scoped con audit e flusso guidato nel panel. |
 | Onboarding self-service completo | Parziale | Alto | Media | Signup → verifica email → pagamento → connessione plugin → prima sync → test widget, senza intervento manuale. |
 | Gestione errori visibile al cliente | Parziale | Medio | Bassa | Stati chiari per backend/AI/ingest indisponibili, retry sicuri e nessuna conferma di azioni non riuscite. |
 

@@ -302,6 +302,7 @@ Auth via header `Authorization: Bearer <token>`. La colonna *Auth* indica quale 
 | `/conversations/{id}/status` | POST | 👤 | Chiude (risolta/archiviata) o riapre una conversazione; un nuovo messaggio del visitatore la riapre da solo |
 | `/conversations/{id}` | DELETE | 👤 | GDPR erasure: elimina conversazione + messaggi/ticket/log AI |
 | `/gdpr/erase` | POST | 👤 | GDPR right-to-be-forgotten: elimina tutte le conversazioni con una data email visitatore |
+| `/gdpr/export` | POST | 👤 | GDPR data portability: esporta profilo, conversazioni, messaggi e ticket associati a una email |
 | `/stats` | GET | 👤 | Contatori conversazioni |
 | `/usage` | GET | 🔑/👤 | Uso messaggi del mese vs quota del piano (usato/limite/rimanenti) — per plugin e panel |
 | `/knowledge-base` | GET | 👤 | Documenti/pagine (raggruppati, con conteggio chunk) e prodotti sincronizzati |

@@ -1,17 +1,38 @@
 import { useEffect, useState } from "react";
-import { Plus, Trash2, MessageSquareText, ListChecks, ShieldX } from "lucide-react";
+import { Download, Plus, Trash2, MessageSquareText, ListChecks, ShieldX } from "lucide-react";
 import { api } from "./api.js";
 
 function GdprCard() {
   const [email, setEmail] = useState("");
   const [result, setResult] = useState(null);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState("");
+
+  const exportData = async () => {
+    if (!email.trim()) return;
+    setBusy("export");
+    setResult(null);
+    try {
+      const data = await api.gdprExport(email.trim());
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `wp-aissistant-export-${email.trim().replace(/[^a-z0-9]+/gi, "-")}.json`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      setResult(`Esportate ${data.conversations.length} conversazioni per ${email}.`);
+    } catch {
+      setResult("Errore durante l'esportazione.");
+    } finally {
+      setBusy("");
+    }
+  };
 
   const erase = async (e) => {
     e.preventDefault();
     if (!email.trim()) return;
     if (!window.confirm(`Eliminare definitivamente TUTTE le conversazioni lasciate da ${email}? Non è reversibile.`)) return;
-    setBusy(true);
+    setBusy("erase");
     setResult(null);
     try {
       const r = await api.gdprErase(email.trim());
@@ -20,20 +41,23 @@ function GdprCard() {
     } catch {
       setResult("Errore durante la cancellazione.");
     } finally {
-      setBusy(false);
+      setBusy("");
     }
   };
 
   return (
     <div className="wpai-card">
-      <div className="wpai-card-title"><ShieldX size={15} /> Cancellazione dati (GDPR)</div>
+      <div className="wpai-card-title"><ShieldX size={15} /> Gestione dati (GDPR)</div>
       <p style={{ fontSize: 12.5, color: "var(--text-muted)", margin: "6px 0 12px" }}>
-        Diritto all'oblio: elimina tutte le conversazioni collegate a un'email (quella lasciata
-        dal visitatore all'escalation). Operazione irreversibile.
+        Esporta i dati portabili o applica il diritto all'oblio alle conversazioni collegate
+        all'email lasciata dal visitatore. La cancellazione è irreversibile e viene registrata.
       </p>
       <form onSubmit={erase} style={{ display: "flex", gap: 8 }}>
         <input type="email" value={email} onChange={(e) => { setEmail(e.target.value); setResult(null); }} placeholder="email@visitatore.it" style={{ flex: 1 }} />
-        <button className="wpai-btn danger" type="submit" disabled={busy}>{busy ? "Cancellazione…" : "Elimina"}</button>
+        <button className="wpai-btn" type="button" onClick={exportData} disabled={Boolean(busy)}>
+          <Download size={14} /> {busy === "export" ? "Esportazione…" : "Esporta"}
+        </button>
+        <button className="wpai-btn danger" type="submit" disabled={Boolean(busy)}>{busy === "erase" ? "Cancellazione…" : "Elimina"}</button>
       </form>
       {result && <p style={{ fontSize: 12.5, color: "var(--text-muted)", margin: "10px 0 0" }}>{result}</p>}
     </div>

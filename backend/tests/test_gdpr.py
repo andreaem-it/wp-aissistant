@@ -57,6 +57,41 @@ def test_gdpr_erase_by_email(client, tenant):
         assert s.get(db.Conversation, c) is not None  # different email untouched
 
 
+def test_gdpr_export_is_complete_case_insensitive_and_tenant_scoped(client, tenant):
+    conv_id = _escalated_with_email(client, tenant, "Person@x.it")
+    exported = client.post("/gdpr/export", headers=tenant["op"], json={"email": "person@x.it"})
+    assert exported.status_code == 200
+    body = exported.json()
+    assert body["email"] == "person@x.it"
+    assert len(body["conversations"]) == 1
+    item = body["conversations"][0]
+    assert item["conversation"]["id"] == conv_id
+    assert item["messages"]
+    assert item["tickets"][0]["status"] == "open"
+    assert "access_token_hash" not in item["conversation"]
+
+    other = client.post("/admin/clients", headers=ADMIN, json={"name": "Other Export"}).json()
+    client.post(
+        f"/admin/clients/{other['id']}/operators",
+        headers=ADMIN,
+        json={"email": "export-other@x.it", "password": "password1"},
+    )
+    token = client.post(
+        "/operator/login", json={"email": "export-other@x.it", "password": "password1"}
+    ).json()["token"]
+    empty = client.post(
+        "/gdpr/export",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"email": "person@x.it"},
+    ).json()
+    assert empty["conversations"] == []
+
+
+def test_gdpr_export_rejects_invalid_email(client, tenant):
+    response = client.post("/gdpr/export", headers=tenant["op"], json={"email": "invalid"})
+    assert response.status_code == 400
+
+
 def test_retention_purge_deletes_old(client, tenant):
     conv_id = client.post("/chat", headers=tenant["key"], json={"visitor_id": "v", "message": "ciao"}).json()["conversation_id"]
     # backdate the conversation past the retention window

@@ -63,6 +63,7 @@ export const api = {
   replyConversation: (id, reply) => call(`/conversations/${id}/reply`, { method: "POST", body: { reply } }),
   setConversationStatus: (id, status) => call(`/conversations/${id}/status`, { method: "POST", body: { status } }),
   deleteConversation: (id) => call(`/conversations/${id}`, { method: "DELETE" }),
+  gdprExport: (email) => call("/gdpr/export", { method: "POST", body: { email } }),
   gdprErase: (email) => call("/gdpr/erase", { method: "POST", body: { email } }),
   conversationInfo: (id) => call(`/conversations/${id}/info`),
   setConversationInfo: (id, info) => call(`/conversations/${id}/info`, { method: "PUT", body: { info } }),

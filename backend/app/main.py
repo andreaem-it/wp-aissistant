@@ -1602,6 +1602,83 @@ def gdpr_erase(email: str = Body(..., embed=True), operator: Operator = Depends(
     return {"ok": True, "deleted": len(convs)}
 
 
+def _iso(value: datetime | None) -> str | None:
+    return value.isoformat() + "Z" if value else None
+
+
+@app.post("/gdpr/export")
+def gdpr_export(email: str = Body(..., embed=True), operator: Operator = Depends(require_operator), session: Session = Depends(get_session)):
+    """GDPR data portability: export visitor data known under an email, tenant-scoped.
+
+    Internal model diagnostics and secrets are intentionally excluded; the export contains
+    the visitor profile data, conversation metadata, messages and related support tickets.
+    """
+    normalized_email = email.strip().lower()
+    if not normalized_email or len(normalized_email) > 320 or "@" not in normalized_email:
+        raise HTTPException(400, "valid email required")
+    convs = session.exec(
+        select(Conversation)
+        .where(
+            Conversation.client_id == operator.client_id,
+            func.lower(Conversation.visitor_email) == normalized_email,
+        )
+        .order_by(Conversation.created_at)
+    ).all()
+    exported = []
+    for conv in convs:
+        messages = session.exec(
+            select(Message).where(Message.conversation_id == conv.id).order_by(Message.created_at, Message.id)
+        ).all()
+        tickets = session.exec(
+            select(Ticket).where(Ticket.conversation_id == conv.id).order_by(Ticket.created_at, Ticket.id)
+        ).all()
+        exported.append({
+            "conversation": {
+                "id": conv.id,
+                "visitor_id": conv.visitor_id,
+                "visitor_email": conv.visitor_email,
+                "visitor_url": conv.visitor_url,
+                "status": conv.status,
+                "info": json.loads(conv.info) if conv.info else {},
+                "created_at": _iso(conv.created_at),
+                "updated_at": _iso(conv.updated_at),
+                "closed_at": _iso(conv.closed_at),
+            },
+            "messages": [
+                {
+                    "role": message.role,
+                    "content": message.content,
+                    "created_at": _iso(message.created_at),
+                    "feedback": message.feedback,
+                }
+                for message in messages
+            ],
+            "tickets": [
+                {
+                    "reason": ticket.reason,
+                    "status": ticket.status,
+                    "created_at": _iso(ticket.created_at),
+                    "updated_at": _iso(ticket.updated_at),
+                }
+                for ticket in tickets
+            ],
+        })
+    _audit(
+        session,
+        "operator",
+        operator.email,
+        "gdpr.export",
+        target=normalized_email,
+        client_id=operator.client_id,
+        detail={"conversations": len(exported)},
+    )
+    return {
+        "exported_at": _iso(datetime.utcnow()),
+        "email": normalized_email,
+        "conversations": exported,
+    }
+
+
 def purge_old_conversations(session: Session, days: int) -> int:
     """Data-minimization: delete conversations older than `days`. Returns how many were purged."""
     if days <= 0:
