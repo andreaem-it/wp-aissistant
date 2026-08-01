@@ -20,6 +20,7 @@ ambiente di produzione e conservare evidenze (report, screenshot o link all'inci
 - [ ] Redis condiviso attivo; rate limit chat, ingest e auth verificati.
 - [ ] Rotazione dei secret provata e procedura di emergenza documentata.
 - [ ] Stripe webhook firmato, email provider e mittente verificati.
+- [ ] Webhook WhatsApp firmato, versione Graph supportata, token di verifica e rotazione secret provati.
 
 ## 3. Monitoraggio
 
@@ -63,6 +64,7 @@ ambiente di produzione e conservare evidenze (report, screenshot o link all'inci
 - [ ] Quota esaurita: messaggio dedicato nel widget e upgrade disponibile nel panel.
 - [ ] Sessione scaduta: ritorno al login senza perdere o mostrare dati di altri tenant.
 - [ ] Email/webhook falliti: richiesta principale completata e errore osservabile.
+- [ ] WhatsApp: messaggio inbound, risposta entro 24h e template fuori finestra verificati end-to-end.
 
 ## 8. Release
 

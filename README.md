@@ -14,7 +14,7 @@ esce dal suo perimetro (rimborsi, reclami, modifiche account, domande fuori cont
 
 ## Architettura
 
-Tre componenti indipendenti:
+Componenti indipendenti, collegati da API autenticate:
 
 ```
 ┌─────────────────┐        ┌──────────────────────┐        ┌─────────────────┐
@@ -37,6 +37,7 @@ Tre componenti indipendenti:
 | **Panel** | `panel/` | React 18, Vite | Dashboard operatori (conversazioni, ticket, upload KB, stats) |
 | **Plugin WP** | `wp-plugin/` | PHP (WordPress), JS/CSS vanilla | Widget di chat + sincronizzazione automatica dei contenuti |
 | **Sito marketing** | `website/` | HTML/CSS statico (zero build) | Landing promozionale: feature, prezzi, login/registrazione |
+| **Adapter canali** | `cloudflare/` | Cloudflare Workers | Normalizzazione email e WhatsApp, verifica webhook e isolamento delle credenziali provider |
 
 ## Come funziona
 

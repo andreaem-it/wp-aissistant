@@ -98,6 +98,26 @@ jobs:
         working-directory: panel
         run: npm run build
 
+  whatsapp-worker:
+    name: WhatsApp Worker
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: cloudflare/whatsapp-adapter/package-lock.json
+      - name: Install dependencies
+        working-directory: cloudflare/whatsapp-adapter
+        run: npm ci
+      - name: Unit tests
+        working-directory: cloudflare/whatsapp-adapter
+        run: npm test
+      - name: Build Worker
+        working-directory: cloudflare/whatsapp-adapter
+        run: npx wrangler deploy --dry-run
+
   docker-build:
     name: Backend image build
     runs-on: ubuntu-latest

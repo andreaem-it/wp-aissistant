@@ -46,3 +46,32 @@ I template hanno questo contratto:
 Un template viene accettato dal backend soltanto dopo un opt-in esplicito registrato. L'adapter
 deve verificare che il template sia approvato per il numero del tenant e restituire un HTTP 2xx
 solo dopo l'accettazione da parte del provider.
+
+## Adapter Meta su Cloudflare
+
+Il Worker pronto per il deploy è in `cloudflare/whatsapp-adapter`. Prima dell'attivazione:
+
+1. impostare in `wrangler.jsonc` una versione Graph API attualmente supportata al posto di
+   `vXX.X`;
+2. creare i secret `META_VERIFY_TOKEN`, `META_APP_SECRET`, `OUTBOUND_TOKEN` e
+   `META_TENANTS_JSON` con `wrangler secret put`;
+3. configurare nel backend `WHATSAPP_OUTBOUND_URL=https://<worker>/send` e lo stesso valore
+   di `OUTBOUND_TOKEN` in `WHATSAPP_OUTBOUND_TOKEN`;
+4. registrare `https://<worker>/webhook` come callback WhatsApp in Meta e sottoscrivere il
+   campo `messages`.
+
+`META_TENANTS_JSON` non va mai salvato in un file. La forma del secret è:
+
+```json
+{
+  "4": {
+    "phone_number_id": "ID_NUMERO_META",
+    "access_token": "TOKEN_META",
+    "channel_api_key": "CHIAVE_WPAI_CHANNELS_WRITE"
+  }
+}
+```
+
+Il Worker verifica `X-Hub-Signature-256` usando `META_APP_SECRET`, associa il numero Meta al
+tenant e inoltra al backend solo il payload normalizzato. Eventuali retry Meta restano sicuri
+grazie alla deduplicazione su `wamid`.

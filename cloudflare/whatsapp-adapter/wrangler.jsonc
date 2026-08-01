@@ -1,0 +1,12 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "wp-aissistant-whatsapp-adapter",
+  "main": "src/index.js",
+  "compatibility_date": "2026-08-01",
+  "workers_dev": true,
+  "observability": { "enabled": true },
+  "vars": {
+    "BACKEND_URL": "https://backend.wpaissistant.it",
+    "META_GRAPH_VERSION": "vXX.X"
+  }
+}
