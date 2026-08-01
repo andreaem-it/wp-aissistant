@@ -43,6 +43,7 @@ def test_brevo_thread_headers_are_forwarded(monkeypatch):
         "In-Reply-To": "<root@example.it>",
         "References": "<root@example.it>",
     }
+    assert captured["replyTo"] == {"email": "support@wpaissistant.it"}
 
 
 def test_channel_reply_strips_header_newlines(monkeypatch):

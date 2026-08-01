@@ -47,6 +47,7 @@ EMAIL_TIMEOUT_SECONDS = float(os.getenv("EMAIL_TIMEOUT_SECONDS", "10"))
 BREVO_API_KEY = os.getenv("BREVO_API_KEY", "")
 BREVO_API_URL = "https://api.brevo.com/v3/smtp/email"
 EMAIL_FROM_NAME = os.getenv("EMAIL_FROM_NAME", "WP AIssistant")
+SUPPORT_EMAIL_ADDRESS = os.getenv("SUPPORT_EMAIL_ADDRESS", "support@wpaissistant.it").strip()
 
 
 def _header(value: str) -> str:
@@ -71,7 +72,14 @@ def panel_url() -> str:
     return first.rstrip("/")
 
 
-def send_email(to: str, subject: str, body: str, *, headers: dict[str, str] | None = None) -> bool:
+def send_email(
+    to: str,
+    subject: str,
+    body: str,
+    *,
+    headers: dict[str, str] | None = None,
+    reply_to: str = "",
+) -> bool:
     """Send a plain-text email via the configured provider. Returns True on success (or when
     logged-only in dev), False on a delivery failure. Never raises — callers branch on the bool."""
     subject = _header(subject)
@@ -81,16 +89,18 @@ def send_email(to: str, subject: str, body: str, *, headers: dict[str, str] | No
         log(logger, logging.INFO, "email.not_configured_logged", to=to, subject=subject, body=body)
         return True
     if EMAIL_PROVIDER == "brevo_api":
-        return _send_brevo_api(to, subject, body, headers=headers)
-    return _send_smtp(to, subject, body, headers=headers)
+        return _send_brevo_api(to, subject, body, headers=headers, reply_to=reply_to)
+    return _send_smtp(to, subject, body, headers=headers, reply_to=reply_to)
 
 
-def _send_smtp(to: str, subject: str, body: str, *, headers: dict[str, str] | None = None) -> bool:
+def _send_smtp(to: str, subject: str, body: str, *, headers: dict[str, str] | None = None, reply_to: str = "") -> bool:
     try:
         msg = EmailMessage()
         msg["From"] = SMTP_FROM
         msg["To"] = to
         msg["Subject"] = subject
+        if reply_to:
+            msg["Reply-To"] = _header(reply_to)
         for key, value in (headers or {}).items():
             msg[key] = value
         msg.set_content(body)
@@ -114,7 +124,7 @@ def _send_smtp(to: str, subject: str, body: str, *, headers: dict[str, str] | No
         return False
 
 
-def _send_brevo_api(to: str, subject: str, body: str, *, headers: dict[str, str] | None = None) -> bool:
+def _send_brevo_api(to: str, subject: str, body: str, *, headers: dict[str, str] | None = None, reply_to: str = "") -> bool:
     """Send over Brevo's transactional API (HTTPS/443) — works where outbound SMTP is blocked."""
     payload = {
         "sender": {"email": SMTP_FROM, "name": EMAIL_FROM_NAME},
@@ -124,6 +134,8 @@ def _send_brevo_api(to: str, subject: str, body: str, *, headers: dict[str, str]
     }
     if headers:
         payload["headers"] = headers
+    if reply_to:
+        payload["replyTo"] = {"email": _header(reply_to)}
     req = urllib.request.Request(
         BREVO_API_URL,
         data=json.dumps(payload).encode(),
@@ -188,7 +200,7 @@ def send_channel_reply(to: str, client_name: str, subject: str, body: str, threa
         clean_subject = f"Re: {clean_subject}"
     clean_thread_id = _header(thread_id)
     headers = {"In-Reply-To": clean_thread_id, "References": clean_thread_id} if clean_thread_id else None
-    return send_email(to, clean_subject, body, headers=headers)
+    return send_email(to, clean_subject, body, headers=headers, reply_to=SUPPORT_EMAIL_ADDRESS)
 
 
 def send_test(to: str) -> bool:
