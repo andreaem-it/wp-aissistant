@@ -95,6 +95,7 @@ class Conversation(SQLModel, table=True):
     channel: str = Field(default="web", index=True)
     contact_id: Optional[int] = Field(default=None, foreign_key="contact.id", index=True)
     external_thread_id: str = Field(default="", index=True)
+    channel_subject: str = ""
     # SHA-256 digest of the opaque token issued to the visitor when the conversation is
     # created. The public widget api_key identifies only the tenant; this token proves that
     # the browser owns this specific conversation.
@@ -144,9 +145,16 @@ class Message(SQLModel, table=True):
     conversation_id: int = Field(index=True, foreign_key="conversation.id")
     role: str  # user | assistant | operator
     content: str
+    # Provider message id for idempotent channel webhooks. Web/widget messages keep it null.
+    external_id: Optional[str] = Field(default=None, index=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     # visitor rating on an assistant message: 1 = 👍, -1 = 👎, None = no vote. Feeds quality stats.
     feedback: Optional[int] = None
+    __table_args__ = (
+        UniqueConstraint(
+            "conversation_id", "external_id", name="uq_message_conversation_external_id"
+        ),
+    )
 
 
 class Ticket(SQLModel, table=True):

@@ -416,6 +416,26 @@ def require_client(
     return get_client(authorization[7:].strip(), session)
 
 
+def require_channel_write_key(
+    authorization: str = Header(None),
+    session: Session = Depends(get_session),
+) -> ApiKey:
+    """Server-only credential for inbound channel adapters.
+
+    This deliberately does not accept Client.api_key: that key is embedded in public widget
+    pages and must never authorize injection into the operator inbox.
+    """
+    if not authorization or not authorization.lower().startswith("bearer "):
+        raise HTTPException(401, "missing bearer token")
+    digest = hashlib.sha256(authorization[7:].strip().encode()).hexdigest()
+    key = session.exec(select(ApiKey).where(ApiKey.token_hash == digest)).first()
+    if key is None or key.revoked_at is not None:
+        raise HTTPException(401, "invalid api key")
+    if "channels:write" not in [s for s in (key.scopes or "").split(",") if s]:
+        raise HTTPException(403, "scope richiesto: channels:write")
+    return key
+
+
 def require_admin(authorization: str = Header(None)) -> None:
     """Gates the client-onboarding endpoints behind the ADMIN_API_KEY env var.
     Fails closed: if no admin key is configured the whole /admin surface is disabled."""
@@ -2564,6 +2584,123 @@ def conversation_messages(
     }
 
 
+@app.post("/channels/email/inbound")
+def email_inbound(
+    from_email: str = Body(...),
+    subject: str = Body(...),
+    text: str = Body(...),
+    message_id: str = Body(...),
+    thread_id: str = Body(""),
+    in_reply_to: str = Body(""),
+    from_name: str = Body(""),
+    key: ApiKey = Depends(require_channel_write_key),
+    session: Session = Depends(get_session),
+):
+    """Provider-neutral inbound email adapter.
+
+    An email provider (or a tiny provider-specific adapter) posts normalized fields here using
+    a server-side key scoped to channels:write. Provider message ids make retries idempotent;
+    thread ids keep replies in the same inbox conversation.
+    """
+    address = (from_email or "").strip().lower()[:320]
+    body = (text or "").strip()[:MAX_CHAT_MESSAGE_CHARS]
+    provider_message_id = (message_id or "").strip()[:500]
+    root_thread_id = (thread_id or in_reply_to or provider_message_id).strip()[:500]
+    clean_subject = (subject or "").strip()[:500]
+    if not address or not _EMAIL_RE.fullmatch(address):
+        raise HTTPException(400, "valid from_email required")
+    if not body:
+        raise HTTPException(400, "text required")
+    if not provider_message_id:
+        raise HTTPException(400, "message_id required")
+
+    duplicate = session.exec(
+        select(Message)
+        .join(Conversation, Conversation.id == Message.conversation_id)
+        .where(
+            Conversation.client_id == key.client_id,
+            Conversation.channel == "email",
+            Message.external_id == provider_message_id,
+        )
+    ).first()
+    if duplicate:
+        return {"ok": True, "created": False, "conversation_id": duplicate.conversation_id}
+
+    thread_candidates = [value for value in {root_thread_id, (in_reply_to or "").strip()[:500]} if value]
+    conv = None
+    if thread_candidates:
+        conv = session.exec(
+            select(Conversation).where(
+                Conversation.client_id == key.client_id,
+                Conversation.channel == "email",
+                Conversation.external_thread_id.in_(thread_candidates),
+            )
+        ).first()
+
+    contact = _get_or_create_contact(
+        session,
+        key.client_id,
+        "email",
+        address,
+        email=address,
+        name=(from_name or "").strip()[:255],
+    )
+    now = datetime.utcnow()
+    if conv is None:
+        conv = Conversation(
+            client_id=key.client_id,
+            visitor_id=f"email:{address}",
+            channel="email",
+            contact_id=contact.id,
+            external_thread_id=root_thread_id,
+            channel_subject=clean_subject,
+            visitor_email=address,
+            status="escalated",
+            created_at=now,
+            updated_at=now,
+        )
+        session.add(conv)
+        session.flush()
+    else:
+        conv.contact_id = contact.id
+        conv.visitor_email = address
+        conv.channel_subject = clean_subject or conv.channel_subject
+        conv.status = "escalated"
+        conv.closed_at = None
+        conv.updated_at = now
+        session.add(conv)
+
+    session.add(Message(
+        conversation_id=conv.id,
+        role="user",
+        content=body,
+        external_id=provider_message_id,
+    ))
+    open_ticket = session.exec(
+        select(Ticket).where(Ticket.conversation_id == conv.id, Ticket.status == "open")
+    ).first()
+    ticket_created = open_ticket is None
+    if not open_ticket:
+        open_ticket = Ticket(conversation_id=conv.id, reason=f"Email: {clean_subject or 'senza oggetto'}")
+        session.add(open_ticket)
+    _auto_assign(session, conv)
+    _apply_sla(session, conv, start=True)
+    session.commit()
+    session.refresh(conv)
+    session.refresh(open_ticket)
+    if ticket_created:
+        tenant = session.get(Client, key.client_id)
+        notify_new_ticket(tenant.name if tenant else "Supporto", conv.id, open_ticket.id, open_ticket.reason)
+        events.emit(session, key.client_id, "conversation.escalated", {
+            "conversation_id": conv.id,
+            "ticket_id": open_ticket.id,
+            "reason": open_ticket.reason,
+            "trigger": "email",
+            "channel": "email",
+        }, conv=conv)
+    return {"ok": True, "created": True, "conversation_id": conv.id}
+
+
 @app.get("/conversations")
 def list_conversations(
     before_id: int | None = None,
@@ -2766,15 +2903,33 @@ def reply_ticket(ticket_id: int, reply: str, operator: Operator = Depends(requir
     session.add(conv)
     session.commit()
     _audit(session, "operator", operator.email, "ticket.reply", target=f"ticket:{ticket_id}", client_id=operator.client_id)
-    _notify_visitor_reply(session, operator.client_id, conv)
-    return {"ok": True}
+    delivered = _notify_visitor_reply(session, operator.client_id, conv)
+    return {"ok": True, "delivered": delivered}
 
 
 def _notify_visitor_reply(session, client_id, conv):
     """Best-effort visitor email notification on an operator reply (never blocks the reply)."""
     if conv.visitor_email:
         client = session.get(Client, client_id)
-        email_service.send_visitor_reply(conv.visitor_email, client.name if client else "il supporto", conv.visitor_url)
+        client_name = client.name if client else "il supporto"
+        if conv.channel == "email":
+            messages = session.exec(
+                select(Message)
+                .where(Message.conversation_id == conv.id, Message.role == "operator")
+                .order_by(Message.id.desc())
+                .limit(1)
+            ).all()
+            if messages:
+                return email_service.send_channel_reply(
+                    conv.visitor_email,
+                    client_name,
+                    conv.channel_subject,
+                    messages[0].content,
+                    conv.external_thread_id,
+                )
+        else:
+            return email_service.send_visitor_reply(conv.visitor_email, client_name, conv.visitor_url)
+    return True
 
 
 @app.post("/conversations/{conversation_id}/reply")
@@ -2807,11 +2962,11 @@ def reply_conversation(
         session.add(t)
     session.commit()
     _audit(session, "operator", operator.email, "conversation.reply", target=f"conversation:{conversation_id}", client_id=operator.client_id)
-    _notify_visitor_reply(session, operator.client_id, conv)
+    delivered = _notify_visitor_reply(session, operator.client_id, conv)
     events.emit(session, operator.client_id, "conversation.replied", {
         "conversation_id": conv.id, "via": "panel", "operator": _operator_name(operator),
     }, conv=conv)
-    return {"ok": True}
+    return {"ok": True, "delivered": delivered}
 
 
 @app.post("/conversations/{conversation_id}/status")
@@ -4286,7 +4441,13 @@ def list_workflow_runs(
 # identifies the tenant. These keys are server-side credentials: scoped, revocable, stored as
 # a digest, and rate-limited on their own bucket.
 
-API_SCOPES = ("conversations:read", "conversations:write", "knowledge:write", "stats:read")
+API_SCOPES = (
+    "conversations:read",
+    "conversations:write",
+    "knowledge:write",
+    "stats:read",
+    "channels:write",
+)
 API_KEY_PREFIX = "wpa"
 api_limiter = make_limiter(int(os.getenv("PUBLIC_API_RATE_LIMIT", "120")), 60)
 # don't write last_used_at on every call: one update per minute per key is enough to answer

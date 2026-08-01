@@ -24,6 +24,45 @@ def test_brevo_api_send_success(monkeypatch):
     assert email.send_email("x@y.it", "subj", "body") is True
 
 
+def test_brevo_thread_headers_are_forwarded(monkeypatch):
+    _use_brevo(monkeypatch)
+    captured = {}
+
+    def fake_open(req, timeout=None):
+        import json
+
+        captured.update(json.loads(req.data))
+        return _FakeResp()
+
+    monkeypatch.setattr(email.urllib.request, "urlopen", fake_open)
+    assert email.send_channel_reply(
+        "x@y.it", "Acme", "Ordine 42", "È stato spedito", "<root@example.it>"
+    ) is True
+    assert captured["subject"] == "Re: Ordine 42"
+    assert captured["headers"] == {
+        "In-Reply-To": "<root@example.it>",
+        "References": "<root@example.it>",
+    }
+
+
+def test_channel_reply_strips_header_newlines(monkeypatch):
+    _use_brevo(monkeypatch)
+    captured = {}
+
+    def fake_open(req, timeout=None):
+        import json
+
+        captured.update(json.loads(req.data))
+        return _FakeResp()
+
+    monkeypatch.setattr(email.urllib.request, "urlopen", fake_open)
+    assert email.send_channel_reply(
+        "x@y.it", "Acme", "Ordine\r\nBcc: victim@example.it", "ok", "<root>\r\nX-Bad: yes"
+    ) is True
+    assert "\n" not in captured["subject"]
+    assert "\n" not in captured["headers"]["In-Reply-To"]
+
+
 def test_brevo_api_send_failure_returns_false(monkeypatch):
     _use_brevo(monkeypatch)
 

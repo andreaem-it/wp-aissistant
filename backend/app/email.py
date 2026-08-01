@@ -49,6 +49,11 @@ BREVO_API_URL = "https://api.brevo.com/v3/smtp/email"
 EMAIL_FROM_NAME = os.getenv("EMAIL_FROM_NAME", "WP AIssistant")
 
 
+def _header(value: str) -> str:
+    """Keep provider-controlled thread metadata from becoming an email header injection."""
+    return " ".join((value or "").replace("\r", " ").replace("\n", " ").split())
+
+
 def enabled() -> bool:
     """True when the selected provider is configured enough to actually send. When False,
     send_email() logs the message instead — handy in dev, but prod must configure a provider."""
@@ -66,26 +71,29 @@ def panel_url() -> str:
     return first.rstrip("/")
 
 
-def send_email(to: str, subject: str, body: str) -> bool:
+def send_email(to: str, subject: str, body: str, *, headers: dict[str, str] | None = None) -> bool:
     """Send a plain-text email via the configured provider. Returns True on success (or when
     logged-only in dev), False on a delivery failure. Never raises — callers branch on the bool."""
+    subject = _header(subject)
+    headers = {key: _header(value) for key, value in (headers or {}).items() if _header(value)} or None
     if not enabled():
         # dev/staging fallback: make the link readable without a configured provider
         log(logger, logging.INFO, "email.not_configured_logged", to=to, subject=subject, body=body)
         return True
     if EMAIL_PROVIDER == "brevo_api":
-        return _send_brevo_api(to, subject, body)
-    return _send_smtp(to, subject, body)
+        return _send_brevo_api(to, subject, body, headers=headers)
+    return _send_smtp(to, subject, body, headers=headers)
 
 
-def _send_smtp(to: str, subject: str, body: str) -> bool:
-    msg = EmailMessage()
-    msg["From"] = SMTP_FROM
-    msg["To"] = to
-    msg["Subject"] = subject
-    msg.set_content(body)
-
+def _send_smtp(to: str, subject: str, body: str, *, headers: dict[str, str] | None = None) -> bool:
     try:
+        msg = EmailMessage()
+        msg["From"] = SMTP_FROM
+        msg["To"] = to
+        msg["Subject"] = subject
+        for key, value in (headers or {}).items():
+            msg[key] = value
+        msg.set_content(body)
         if SMTP_TLS == "ssl":
             context = ssl.create_default_context()
             with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, timeout=EMAIL_TIMEOUT_SECONDS, context=context) as smtp:
@@ -106,7 +114,7 @@ def _send_smtp(to: str, subject: str, body: str) -> bool:
         return False
 
 
-def _send_brevo_api(to: str, subject: str, body: str) -> bool:
+def _send_brevo_api(to: str, subject: str, body: str, *, headers: dict[str, str] | None = None) -> bool:
     """Send over Brevo's transactional API (HTTPS/443) — works where outbound SMTP is blocked."""
     payload = {
         "sender": {"email": SMTP_FROM, "name": EMAIL_FROM_NAME},
@@ -114,6 +122,8 @@ def _send_brevo_api(to: str, subject: str, body: str) -> bool:
         "subject": subject,
         "textContent": body,
     }
+    if headers:
+        payload["headers"] = headers
     req = urllib.request.Request(
         BREVO_API_URL,
         data=json.dumps(payload).encode(),
@@ -169,6 +179,16 @@ def send_visitor_reply(to: str, client_name: str, page_url: str | None) -> bool:
         cta = "Torna sul sito e riapri la chat per leggerla.\n\n"
     body = f"Hai ricevuto una risposta dal supporto di {client_name}.\n\n{cta}Grazie!\n"
     return send_email(to, f"Nuova risposta dal supporto — {client_name}", body)
+
+
+def send_channel_reply(to: str, client_name: str, subject: str, body: str, thread_id: str = "") -> bool:
+    """Deliver a panel reply directly into an email-channel thread."""
+    clean_subject = _header(subject) or f"Supporto — {client_name}"
+    if not clean_subject.lower().startswith("re:"):
+        clean_subject = f"Re: {clean_subject}"
+    clean_thread_id = _header(thread_id)
+    headers = {"In-Reply-To": clean_thread_id, "References": clean_thread_id} if clean_thread_id else None
+    return send_email(to, clean_subject, body, headers=headers)
 
 
 def send_test(to: str) -> bool:

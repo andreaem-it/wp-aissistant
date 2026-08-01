@@ -144,7 +144,8 @@ Tre componenti indipendenti:
 - **Conversation** — `open | escalated | closed`, con lingua rilevata, priorità, operatore
   assegnato, reparto, canale/thread e scadenze SLA; l'accesso del widget alla singola conversazione richiede un token visitatore
   casuale distinto dalla `api_key`.
-- **Message** — `user | assistant | operator`.
+- **Message** — `user | assistant | operator`; per i canali esterni conserva anche l'id del
+  provider, così i retry dei webhook restano idempotenti.
 - **Ticket** — `open | answered | closed`, collegato a una conversazione.
 - **Operator** — agente umano che accede al panel; appartiene a un client (password hashed).
 - **OperatorSession** — token di sessione opaco emesso al login, eliminato al logout.
@@ -453,6 +454,7 @@ Auth via header `Authorization: Bearer <token>`. La colonna *Auth* indica quale 
 | `/webhooks/{id}` | PATCH/DELETE | 👤 | Aggiorna (URL, eventi, attivazione) o elimina un endpoint |
 | `/webhooks/{id}/test` | POST | 👤 | Invia una consegna di prova firmata e riporta l'esito reale |
 | `/webhooks/{id}/deliveries` | GET | 👤 | Log delle consegne (stato, tentativi, codice HTTP, errore) |
+| `/channels/email/inbound` | POST | 🔓 | Adapter inbound email (scope `channels:write`), con deduplicazione e threading ([guida](docs/email-channel.md)) |
 | `/v1/conversations` | GET | 🔓 | API pubblica: elenco conversazioni (scope `conversations:read`) |
 | `/v1/conversations/{id}` | GET | 🔓 | Dettaglio con messaggi (senza note interne) |
 | `/v1/conversations/{id}/reply` | POST | 🔓 | Risposta dall'esterno (scope `conversations:write`) |

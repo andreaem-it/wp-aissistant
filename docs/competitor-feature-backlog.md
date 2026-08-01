@@ -72,7 +72,7 @@ Queste funzionalità esistono già e non vanno reinserite come nuove feature:
 
 | Feature | Sequenza consigliata | Complessità |
 |---|---|---:|
-| Email come canale conversazionale | **In sviluppo:** modello unificato Contact/channel/thread introdotto con backfill delle chat web; prossimo blocco inbound, threading e risposta email. | Alta |
+| Email come canale conversazionale | **Rilasciata nel backend:** adapter inbound indipendente dal provider, deduplicazione dei webhook, threading, contatto unificato, ticket/SLA e risposta diretta dal panel con header email di thread. Resta il setup del webhook presso il provider scelto. | Alta |
 | WhatsApp Business | Dopo inbox/assignment e API: template, consenso, finestre di risposta e allegati. | Alta |
 | Instagram/Facebook Messenger | Dopo il modello canale unificato introdotto per email/WhatsApp. | Alta |
 | Integrazioni CRM | HubSpot/Pipedrive come primi connettori, poi Salesforce in base alla domanda. | Alta |

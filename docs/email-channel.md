@@ -1,0 +1,38 @@
+# Canale email
+
+Il backend espone un adapter normalizzato e indipendente dal provider:
+
+```http
+POST /channels/email/inbound
+Authorization: Bearer <scoped_api_key>
+Content-Type: application/json
+
+{
+  "from_email": "cliente@example.com",
+  "from_name": "Mario Rossi",
+  "subject": "Problema con un ordine",
+  "text": "Non riesco a trovare il mio ordine.",
+  "message_id": "<messaggio-univoco@example.com>",
+  "thread_id": "<thread-stabile@example.com>",
+  "in_reply_to": ""
+}
+```
+
+Il webhook inbound del provider va trasformato in questo formato da un adapter sottile (Worker,
+Function o route applicativa). `message_id` è obbligatorio e rende sicuri i retry del provider;
+`thread_id` deve restare stabile per tutta la catena. Se il provider non lo espone, usare il
+Message-ID iniziale e inviare sulle risposte il valore di `In-Reply-To`.
+
+Una nuova email crea una conversazione con canale `email`, un contatto tenant-scoped e un ticket
+con SLA. Le email successive dello stesso thread vengono aggiunte alla conversazione senza
+duplicare ticket ancora aperti. Una risposta dell'operatore dal panel viene inviata al mittente
+come corpo dell'email, con oggetto `Re:` e header `In-Reply-To`/`References`.
+
+L'invio usa la configurazione transazionale già esistente (`EMAIL_PROVIDER=smtp` oppure
+`brevo_api`). In produzione il provider deve essere configurato: in sviluppo, se assente, le email
+vengono solo registrate nei log.
+
+Creare dal panel una chiave API dedicata con il solo scope `channels:write`. La `api_key` del
+widget è pubblica e viene rifiutata da questo endpoint. La chiave scoped non va inserita in regole
+client-side né inoltrata dal provider come parametro URL: conservarla come secret dell'adapter e
+inviarla esclusivamente nell'header Authorization.
