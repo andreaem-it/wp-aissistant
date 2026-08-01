@@ -59,7 +59,76 @@ def test_operator_free_form_reply_is_blocked_after_24_hours(client, tenant, monk
         session.commit()
     monkeypatch.setattr(whatsapp_service, "send_message", lambda **kwargs: (_ for _ in ()).throw(AssertionError()))
     response = client.post(f"/conversations/{conv_id}/reply", headers=tenant["op"], json={"reply": "Messaggio tardivo"})
-    assert response.json() == {"ok": True, "delivered": False}
+    assert response.status_code == 409
+    with Session(db.engine) as session:
+        assert session.exec(
+            select(db.Message).where(db.Message.conversation_id == conv_id, db.Message.role == "operator")
+        ).first() is None
+
+
+def test_consent_allows_approved_template_outside_window(client, tenant, monkeypatch):
+    payload = _payload(consent=True, consent_source="checkout checkbox")
+    conv_id = client.post(
+        "/channels/whatsapp/inbound", headers=_channel_key(client, tenant), json=payload
+    ).json()["conversation_id"]
+    with Session(db.engine) as session:
+        inbound = session.exec(
+            select(db.Message).where(db.Message.conversation_id == conv_id, db.Message.role == "user")
+        ).one()
+        inbound.created_at = datetime.utcnow() - timedelta(hours=25)
+        session.add(inbound)
+        session.commit()
+    sent = {}
+    monkeypatch.setattr(whatsapp_service, "send_template", lambda **kwargs: sent.update(kwargs) or True)
+    status = client.get(f"/conversations/{conv_id}/whatsapp/status", headers=tenant["op"])
+    assert status.json()["window_open"] is False
+    assert status.json()["consent_granted"] is True
+    response = client.post(
+        f"/conversations/{conv_id}/whatsapp/template",
+        headers=tenant["op"],
+        json={"template": "aggiornamento_ordine", "language_code": "it", "parameters": ["Mario", "123"]},
+    )
+    assert response.json() == {"ok": True, "delivered": True}
+    assert sent == {
+        "client_id": tenant["cid"], "to": "+393331234567", "template": "aggiornamento_ordine",
+        "language": "it", "parameters": ["Mario", "123"],
+    }
+
+
+def test_template_requires_consent_and_status_is_tenant_scoped(client, tenant, monkeypatch):
+    conv_id = client.post(
+        "/channels/whatsapp/inbound", headers=_channel_key(client, tenant), json=_payload()
+    ).json()["conversation_id"]
+    monkeypatch.setattr(whatsapp_service, "send_template", lambda **kwargs: (_ for _ in ()).throw(AssertionError()))
+    response = client.post(
+        f"/conversations/{conv_id}/whatsapp/template",
+        headers=tenant["op"],
+        json={"template": "hello_world", "language_code": "it", "parameters": []},
+    )
+    assert response.status_code == 409
+
+    admin = {"Authorization": "Bearer test-admin"}
+    other = client.post("/admin/clients", headers=admin, json={"name": "Status Other"}).json()
+    client.post(
+        f"/admin/clients/{other['id']}/operators", headers=admin,
+        json={"email": "status-other@example.it", "password": "password1"},
+    )
+    token = client.post(
+        "/operator/login", json={"email": "status-other@example.it", "password": "password1"}
+    ).json()["token"]
+    assert client.get(
+        f"/conversations/{conv_id}/whatsapp/status",
+        headers={"Authorization": f"Bearer {token}"},
+    ).status_code == 404
+
+
+def test_granted_consent_requires_a_source(client, tenant):
+    response = client.post(
+        "/channels/whatsapp/inbound",
+        headers=_channel_key(client, tenant),
+        json=_payload(consent=True, consent_source=""),
+    )
+    assert response.status_code == 400
 
 
 def test_whatsapp_is_tenant_scoped_and_rejects_widget_key(client, tenant):

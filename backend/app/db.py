@@ -87,6 +87,21 @@ class Contact(SQLModel, table=True):
     )
 
 
+class WhatsAppConsent(SQLModel, table=True):
+    """Auditable WhatsApp opt-in state, separate from the contact identity itself."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    client_id: int = Field(index=True, foreign_key="client.id")
+    contact_id: int = Field(index=True, foreign_key="contact.id")
+    granted: bool = False
+    source: str = ""
+    granted_at: Optional[datetime] = None
+    revoked_at: Optional[datetime] = None
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    __table_args__ = (
+        UniqueConstraint("client_id", "contact_id", name="uq_whatsapp_consent_tenant_contact"),
+    )
+
+
 class Conversation(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     client_id: int = Field(index=True, foreign_key="client.id")

@@ -49,3 +49,20 @@ def test_send_message_fails_closed_without_configuration(monkeypatch):
         lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError()),
     )
     assert whatsapp.send_message(client_id=7, to="+393331234567", body="test") is False
+
+
+def test_send_template_posts_approved_template_payload(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(whatsapp, "WHATSAPP_OUTBOUND_URL", "https://adapter.example/send")
+    monkeypatch.setattr(whatsapp, "WHATSAPP_OUTBOUND_TOKEN", "adapter-secret")
+    monkeypatch.setattr(
+        whatsapp.urllib.request,
+        "urlopen",
+        lambda request, timeout: captured.update(request=request, timeout=timeout) or _Response(),
+    )
+    assert whatsapp.send_template(
+        client_id=7, to="+393331234567", template="aggiornamento_ordine",
+        language="it", parameters=["Mario", "123"],
+    ) is True
+    assert json.loads(captured["request"].data)["type"] == "template"
+    assert json.loads(captured["request"].data)["parameters"] == ["Mario", "123"]

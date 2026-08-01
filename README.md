@@ -459,6 +459,9 @@ Auth via header `Authorization: Bearer <token>`. La colonna *Auth* indica quale 
 | `/webhooks/{id}/test` | POST | 👤 | Invia una consegna di prova firmata e riporta l'esito reale |
 | `/webhooks/{id}/deliveries` | GET | 👤 | Log delle consegne (stato, tentativi, codice HTTP, errore) |
 | `/channels/email/inbound` | POST | 🔓 | Adapter inbound email (scope `channels:write`), con deduplicazione e threading ([guida](docs/email-channel.md)) |
+| `/channels/whatsapp/inbound` | POST | 🔓 | Adapter inbound WhatsApp (scope `channels:write`), consenso, deduplicazione e threading ([guida](docs/whatsapp-channel.md)) |
+| `/conversations/{id}/whatsapp/status` | GET | 🔒 | Stato finestra di 24 ore e consenso WhatsApp |
+| `/conversations/{id}/whatsapp/template` | POST | 🔒 | Invio di un template WhatsApp approvato con consenso registrato |
 | `/v1/conversations` | GET | 🔓 | API pubblica: elenco conversazioni (scope `conversations:read`) |
 | `/v1/conversations/{id}` | GET | 🔓 | Dettaglio con messaggi (senza note interne) |
 | `/v1/conversations/{id}/reply` | POST | 🔓 | Risposta dall'esterno (scope `conversations:write`) |

@@ -56,6 +56,33 @@ def send_message(*, client_id: int, to: str, body: str, reply_to_message_id: str
     return ok
 
 
+def send_template(*, client_id: int, to: str, template: str, language: str, parameters: list[str]) -> bool:
+    """Send an approved provider template, including outside the 24-hour service window."""
+    if not WHATSAPP_OUTBOUND_URL or not WHATSAPP_OUTBOUND_TOKEN:
+        log(logger, logging.WARNING, "whatsapp.outbound_not_configured", client_id=client_id)
+        return False
+    payload = json.dumps({
+        "client_id": client_id,
+        "to": to,
+        "type": "template",
+        "template": template,
+        "language": language,
+        "parameters": parameters,
+    }).encode()
+    request = urllib.request.Request(
+        WHATSAPP_OUTBOUND_URL,
+        data=payload,
+        method="POST",
+        headers={"Authorization": f"Bearer {WHATSAPP_OUTBOUND_TOKEN}", "Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=WHATSAPP_OUTBOUND_TIMEOUT) as response:
+            return 200 <= response.status < 300
+    except (urllib.error.URLError, TimeoutError, ValueError) as exc:
+        log(logger, logging.WARNING, "whatsapp.template_failed", client_id=client_id, error=type(exc).__name__)
+        return False
+
+
 def config_status() -> dict:
     """Return only non-secret configuration state."""
     return {"configured": bool(WHATSAPP_OUTBOUND_URL and WHATSAPP_OUTBOUND_TOKEN)}

@@ -51,6 +51,7 @@ from .db import (
     Ticket,
     WebhookDelivery,
     WebhookEndpoint,
+    WhatsAppConsent,
     Workflow,
     WorkflowRun,
     engine,
@@ -2614,7 +2615,6 @@ def email_inbound(
         raise HTTPException(400, "text required")
     if not provider_message_id:
         raise HTTPException(400, "message_id required")
-
     duplicate = session.exec(
         select(Message)
         .join(Conversation, Conversation.id == Message.conversation_id)
@@ -2708,6 +2708,8 @@ def whatsapp_inbound(
     text: str = Body(...),
     message_id: str = Body(...),
     from_name: str = Body(""),
+    consent: bool | None = Body(None),
+    consent_source: str = Body(""),
     key: ApiKey = Depends(require_channel_write_key),
     session: Session = Depends(get_session),
 ):
@@ -2721,6 +2723,9 @@ def whatsapp_inbound(
         raise HTTPException(400, "text required")
     if not provider_message_id:
         raise HTTPException(400, "message_id required")
+    clean_consent_source = (consent_source or "").strip()[:255]
+    if consent is True and not clean_consent_source:
+        raise HTTPException(400, "consent_source required when consent is granted")
 
     duplicate = session.exec(
         select(Message)
@@ -2737,6 +2742,22 @@ def whatsapp_inbound(
     contact = _get_or_create_contact(
         session, key.client_id, "whatsapp", number, name=(from_name or "").strip()[:255]
     )
+    if consent is not None:
+        consent_row = session.exec(
+            select(WhatsAppConsent).where(
+                WhatsAppConsent.client_id == key.client_id,
+                WhatsAppConsent.contact_id == contact.id,
+            )
+        ).first()
+        now_consent = datetime.utcnow()
+        if consent_row is None:
+            consent_row = WhatsAppConsent(client_id=key.client_id, contact_id=contact.id)
+        consent_row.granted = consent
+        consent_row.source = clean_consent_source or consent_row.source
+        consent_row.granted_at = now_consent if consent else consent_row.granted_at
+        consent_row.revoked_at = None if consent else now_consent
+        consent_row.updated_at = now_consent
+        session.add(consent_row)
     conv = session.exec(
         select(Conversation).where(
             Conversation.client_id == key.client_id,
@@ -2979,6 +3000,8 @@ def reply_ticket(ticket_id: int, reply: str, operator: Operator = Depends(requir
     # verify the ticket belongs to this operator's client before replying as the operator
     if not ticket or not conv or conv.client_id != operator.client_id:
         raise HTTPException(404, "ticket not found")
+    if conv.channel == "whatsapp" and not _whatsapp_channel_status(session, conv)["window_open"]:
+        raise HTTPException(409, "WhatsApp 24-hour window expired; use an approved template")
     session.add(Message(conversation_id=ticket.conversation_id, role="operator", content=reply))
     now = datetime.utcnow()
     if conv.assigned_operator_id is None:
@@ -3044,6 +3067,91 @@ def _notify_visitor_reply(session, client_id, conv):
     return True
 
 
+def _whatsapp_channel_status(session: Session, conv: Conversation) -> dict:
+    last_inbound = session.exec(
+        select(Message)
+        .where(Message.conversation_id == conv.id, Message.role == "user")
+        .order_by(Message.created_at.desc())
+        .limit(1)
+    ).first()
+    window_expires_at = last_inbound.created_at + timedelta(hours=24) if last_inbound else None
+    consent = session.exec(
+        select(WhatsAppConsent).where(
+            WhatsAppConsent.client_id == conv.client_id,
+            WhatsAppConsent.contact_id == conv.contact_id,
+        )
+    ).first() if conv.contact_id else None
+    return {
+        "window_open": bool(window_expires_at and window_expires_at > datetime.utcnow()),
+        "window_expires_at": _iso(window_expires_at),
+        "consent_granted": bool(consent and consent.granted),
+        "consent_source": consent.source if consent and consent.granted else "",
+    }
+
+
+@app.get("/conversations/{conversation_id}/whatsapp/status")
+def whatsapp_status(
+    conversation_id: int,
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
+    conv = session.get(Conversation, conversation_id)
+    if not conv or conv.client_id != operator.client_id or conv.channel != "whatsapp":
+        raise HTTPException(404, "conversation not found")
+    return _whatsapp_channel_status(session, conv)
+
+
+@app.post("/conversations/{conversation_id}/whatsapp/template")
+def send_whatsapp_template(
+    conversation_id: int,
+    template: str = Body(...),
+    language_code: str = Body("it"),
+    parameters: list[str] = Body(default=[]),
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
+    """Send an approved template after explicit opt-in, including outside the 24-hour window."""
+    conv = session.get(Conversation, conversation_id)
+    if not conv or conv.client_id != operator.client_id or conv.channel != "whatsapp":
+        raise HTTPException(404, "conversation not found")
+    contact = session.get(Contact, conv.contact_id) if conv.contact_id else None
+    status = _whatsapp_channel_status(session, conv)
+    template_name = (template or "").strip()
+    locale = (language_code or "").strip()
+    clean_parameters = [(value or "").strip()[:500] for value in parameters[:10]]
+    if not re.fullmatch(r"[a-z0-9_]{1,128}", template_name):
+        raise HTTPException(400, "invalid template")
+    if not re.fullmatch(r"[a-z]{2}(?:_[A-Z]{2})?", locale):
+        raise HTTPException(400, "invalid language_code")
+    if not status["consent_granted"]:
+        raise HTTPException(409, "WhatsApp consent required")
+    if not contact:
+        raise HTTPException(409, "WhatsApp contact unavailable")
+    delivered = whatsapp_service.send_template(
+        client_id=operator.client_id,
+        to=contact.external_id,
+        template=template_name,
+        language=locale,
+        parameters=clean_parameters,
+    )
+    if not delivered:
+        return {"ok": False, "delivered": False}
+    label = f"Template WhatsApp: {template_name}"
+    if clean_parameters:
+        label += " · " + " · ".join(clean_parameters)
+    session.add(Message(conversation_id=conv.id, role="operator", content=label[:MAX_CHAT_MESSAGE_CHARS]))
+    conv.updated_at = datetime.utcnow()
+    conv.status = "open"
+    session.add(conv)
+    session.commit()
+    _audit(
+        session, "operator", operator.email, "whatsapp.template.send",
+        target=f"conversation:{conv.id}", client_id=operator.client_id,
+        detail={"template": template_name, "language": locale},
+    )
+    return {"ok": True, "delivered": True}
+
+
 @app.post("/conversations/{conversation_id}/reply")
 def reply_conversation(
     conversation_id: int,
@@ -3057,6 +3165,8 @@ def reply_conversation(
     conv = session.get(Conversation, conversation_id)
     if not conv or conv.client_id != operator.client_id:
         raise HTTPException(404, "conversation not found")
+    if conv.channel == "whatsapp" and not _whatsapp_channel_status(session, conv)["window_open"]:
+        raise HTTPException(409, "WhatsApp 24-hour window expired; use an approved template")
     session.add(Message(conversation_id=conversation_id, role="operator", content=reply))
     now = datetime.utcnow()
     if conv.assigned_operator_id is None:
@@ -4790,6 +4900,8 @@ def v1_reply(
     reply: reopens the conversation, closes open tickets, stops the first-response SLA and
     notifies the visitor by email if they left one."""
     conv = _require_conversation(session, key.client_id, conversation_id)
+    if conv.channel == "whatsapp" and not _whatsapp_channel_status(session, conv)["window_open"]:
+        raise HTTPException(409, "WhatsApp 24-hour window expired; use an approved template")
     text = (reply or "").strip()
     if not text:
         raise HTTPException(400, "reply required")

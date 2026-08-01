@@ -61,6 +61,8 @@ export const api = {
   tickets: (status = "open") => call("/tickets", { params: { status } }),
   replyTicket: (id, reply) => call(`/tickets/${id}/reply`, { method: "POST", params: { reply } }),
   replyConversation: (id, reply) => call(`/conversations/${id}/reply`, { method: "POST", body: { reply } }),
+  whatsappStatus: (id) => call(`/conversations/${id}/whatsapp/status`),
+  sendWhatsappTemplate: (id, body) => call(`/conversations/${id}/whatsapp/template`, { method: "POST", body }),
   setConversationStatus: (id, status) => call(`/conversations/${id}/status`, { method: "POST", body: { status } }),
   setConversationRouting: (id, body) => call(`/conversations/${id}/routing`, { method: "PATCH", body }),
   deleteConversation: (id) => call(`/conversations/${id}`, { method: "DELETE" }),

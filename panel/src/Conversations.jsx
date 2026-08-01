@@ -49,6 +49,8 @@ export default function Conversations() {
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [deliveryError, setDeliveryError] = useState("");
+  const [whatsappStatus, setWhatsappStatus] = useState(null);
+  const [templateForm, setTemplateForm] = useState({ template: "", language_code: "it", parameters: "" });
 
   const [canned, setCanned] = useState([]);
   const [fields, setFields] = useState([]);
@@ -205,10 +207,12 @@ export default function Conversations() {
     setNoteMentions([]);
     setNoteError("");
     setDeliveryError("");
+    setWhatsappStatus(null);
     setPresence({ others: [], conflict: false });
     loadMessages(selected);
     loadNotes(selected);
     loadMentions();
+    api.whatsappStatus(selected).then(setWhatsappStatus).catch(() => setWhatsappStatus(null));
     api.conversationInfo(selected).then((d) => setInfoValues(d.info || {})).catch(() => setInfoValues({}));
     const id = setInterval(() => loadMessages(selected), 4000);
     return () => clearInterval(id);
@@ -249,6 +253,29 @@ export default function Conversations() {
       }
       await loadMessages(selected);
       loadNotes(selected);
+      loadList();
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const sendTemplate = async (e) => {
+    e.preventDefault();
+    if (!selected || !templateForm.template.trim()) return;
+    setSending(true);
+    setDeliveryError("");
+    try {
+      const result = await api.sendWhatsappTemplate(selected, {
+        template: templateForm.template.trim(),
+        language_code: templateForm.language_code.trim(),
+        parameters: templateForm.parameters.split("\n").map((value) => value.trim()).filter(Boolean),
+      });
+      if (!result.delivered) {
+        setDeliveryError("Template non consegnato. Verifica adapter, approvazione del template e numero WhatsApp.");
+        return;
+      }
+      setTemplateForm((form) => ({ ...form, parameters: "" }));
+      await loadMessages(selected);
       loadList();
     } finally {
       setSending(false);
@@ -545,6 +572,33 @@ export default function Conversations() {
                   <div>{deliveryError}</div>
                 </div>
               )}
+              {selectedRow?.conversation.channel === "whatsapp" && whatsappStatus && !whatsappStatus.window_open && (
+                <div className="wpai-callout warn" role="status">
+                  <AlertTriangle size={15} aria-hidden="true" />
+                  <div>
+                    La finestra di 24 ore è scaduta. Puoi inviare soltanto un template approvato
+                    {whatsappStatus.consent_granted ? "." : "; manca inoltre il consenso registrato."}
+                  </div>
+                </div>
+              )}
+              {selectedRow?.conversation.channel === "whatsapp" && whatsappStatus && !whatsappStatus.window_open && whatsappStatus.consent_granted && (
+                <form className="wpai-card" onSubmit={sendTemplate}>
+                  <div className="wpai-card-title">Template WhatsApp approvato</div>
+                  <div className="wpai-field">
+                    <label htmlFor="wpai-wa-template">Nome template</label>
+                    <input id="wpai-wa-template" value={templateForm.template} onChange={(e) => setTemplateForm((form) => ({ ...form, template: e.target.value }))} placeholder="aggiornamento_ordine" required />
+                  </div>
+                  <div className="wpai-field">
+                    <label htmlFor="wpai-wa-language">Lingua</label>
+                    <input id="wpai-wa-language" value={templateForm.language_code} onChange={(e) => setTemplateForm((form) => ({ ...form, language_code: e.target.value }))} placeholder="it" required />
+                  </div>
+                  <div className="wpai-field">
+                    <label htmlFor="wpai-wa-parameters">Parametri, uno per riga</label>
+                    <textarea id="wpai-wa-parameters" rows={2} value={templateForm.parameters} onChange={(e) => setTemplateForm((form) => ({ ...form, parameters: e.target.value }))} />
+                  </div>
+                  <button className="wpai-btn" type="submit" disabled={sending}>Invia template</button>
+                </form>
+              )}
               <form className="wpai-reply-bar" onSubmit={(e) => { e.preventDefault(); send(); }}>
                 <textarea
                   rows={1}
@@ -552,8 +606,9 @@ export default function Conversations() {
                   onChange={(e) => { setDraft(e.target.value); pingTyping(); }}
                   onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
                   placeholder="Rispondi come operatore… (Invio per inviare, Shift+Invio a capo)"
+                  disabled={selectedRow?.conversation.channel === "whatsapp" && whatsappStatus && !whatsappStatus.window_open}
                 />
-                <button className="wpai-btn" type="submit" disabled={sending || !draft.trim()}>
+                <button className="wpai-btn" type="submit" disabled={sending || !draft.trim() || (selectedRow?.conversation.channel === "whatsapp" && whatsappStatus && !whatsappStatus.window_open)}>
                   <Send size={15} /> {sending ? "Invio…" : "Invia"}
                 </button>
               </form>
