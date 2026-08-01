@@ -90,6 +90,15 @@ Tre componenti indipendenti:
   visitatore), menzioni `@nome` con elenco delle citazioni non lette, indicatore di presenza sulla
   conversazione che avvisa quando un collega sta già scrivendo, e registro delle azioni
   (`/conversations/{id}/activity`) alimentato dall'audit log del tenant.
+- **Analytics avanzate e gap della knowledge base** — oltre ai contatori, le metriche di esito
+  sul periodo: **deflection** (conversazioni chiuse senza che un umano intervenga), escalation,
+  tempi di prima risposta e risoluzione in media e mediana, trend giornaliero. Il rilevamento
+  dei gap deriva dai log AI a ogni interrogazione — nessuna tabella di lacune da mantenere
+  allineata: una domanda sparisce dall'elenco appena il contenuto esiste. Conta come lacuna
+  solo ciò che dipende davvero dalla knowledge base (l'AI ha deciso di non poter rispondere e
+  non aveva contesto vicino, oppure il visitatore ha bocciato la risposta): un'escalation per
+  parola chiave o un provider AI giù non c'entrano. Dal panel si risponde una volta
+  («Insegna») e la domanda esce dall'elenco.
 - **Lead capture e qualificazione** — form brevi configurabili (testo, email, telefono, scelta)
   mostrati dal widget all'escalation o all'avvio della chat, con testo di consenso registrato
   insieme al lead. Il punteggio è la somma dei punti dei campi effettivamente compilati — nessun
@@ -139,6 +148,8 @@ Tre componenti indipendenti:
   interno, con lo stato di lettura della menzione.
 - **Tag / ConversationTag** — etichette del tenant (manuali o generate dalla classificazione AI)
   e loro associazione multipla alle conversazioni.
+- **KnowledgeGapReview** — decisione dell'operatore su una lacuna rilevata (risposta insegnata
+  o ignorata); le lacune in sé sono derivate, non memorizzate.
 - **LeadForm / Lead** — form di qualificazione del tenant (campi, punti, consenso) e lead
   raccolti, ciascuno con lo snapshot del consenso accettato.
 - **ProactiveRule** — messaggio contestuale del widget con trigger, filtro URL, frequenza e
@@ -407,6 +418,9 @@ Auth via header `Authorization: Bearer <token>`. La colonna *Auth* indica quale 
 | `/chat/stream` | POST | 🔑 | Come `/chat` ma in streaming SSE (token progressivi); il widget lo usa con fallback su `/chat` |
 | `/chat/feedback` | POST | 🔑 | Valutazione 👍/👎 su una risposta AI (scoping per conversazione) |
 | `/chat/rating` | POST | 🔑 | CSAT del visitatore sull'intera conversazione (voto 1–5 + commento); reinviarlo aggiorna il precedente |
+| `/analytics/overview` | GET | 👤 | Deflection, escalation, tempi di prima risposta/risoluzione (media e mediana) e trend giornaliero |
+| `/analytics/knowledge-gaps` | GET | 👤 | Domande senza risposta utile, raggruppate e ordinate per frequenza, con i temi aperti |
+| `/analytics/knowledge-gaps/review` | POST | 👤 | Segna una lacuna come risolta o ignorata |
 | `/widget/lead-form` | GET | 🔑 | Form di qualificazione attivo per il momento indicato (senza i pesi del punteggio) |
 | `/widget/leads` | POST | 🔑 | Invio del form da parte del visitatore (consenso verificato lato server) |
 | `/lead-forms` | GET/POST | 👤 | Form di qualificazione del tenant |

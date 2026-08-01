@@ -6,6 +6,8 @@ import {
 import { api } from "./api.js";
 import { MiniBars, Breakdown } from "./Charts.jsx";
 import { INTENT_LABELS } from "./inboxFilters.js";
+import AnalyticsOverview from "./AnalyticsOverview.jsx";
+import KnowledgeGaps from "./KnowledgeGaps.jsx";
 
 function pct(x) {
   return x === null || x === undefined ? "—" : `${Math.round(x * 100)}%`;
@@ -134,6 +136,38 @@ function CsatSection() {
   );
 }
 
+function AdvancedSection() {
+  const [days, setDays] = useState(30);
+  const [overview, setOverview] = useState(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    setError("");
+    api.analyticsOverview(days).then(setOverview).catch(() => setError("Impossibile caricare le metriche."));
+  }, [days]);
+
+  return (
+    <div style={{ marginTop: 16 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10, flexWrap: "wrap" }}>
+        <h2 style={{ fontSize: 16, margin: 0 }}>Efficacia del supporto</h2>
+        <select aria-label="Periodo delle metriche" value={days} onChange={(e) => setDays(Number(e.target.value))}>
+          <option value={7}>Ultimi 7 giorni</option>
+          <option value={30}>Ultimi 30 giorni</option>
+          <option value={90}>Ultimi 90 giorni</option>
+        </select>
+      </div>
+      {error ? (
+        <p role="alert" style={{ fontSize: 12.5, color: "var(--red)" }}>{error}</p>
+      ) : (
+        <AnalyticsOverview data={overview} />
+      )}
+      <div style={{ marginTop: 16 }}>
+        <KnowledgeGaps days={days} />
+      </div>
+    </div>
+  );
+}
+
 export default function Stats() {
   const [stats, setStats] = useState(null);
 
@@ -223,6 +257,8 @@ export default function Stats() {
           </div>
         </div>
       )}
+
+      <AdvancedSection />
 
       <CsatSection />
 

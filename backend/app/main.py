@@ -75,6 +75,7 @@ from .production_config import enforce_production_config, production_warnings
 from .rag import extract_text, retrieve, retrieve_products, retrieve_with_meta
 from .ratelimit import make_limiter
 from .security import hash_password, password_needs_rehash, verify_password
+from . import analytics
 from . import tagging
 from . import webhooks
 from . import events
@@ -3426,6 +3427,58 @@ def list_knowledge_base(
             for p in products
         ],
     }
+
+
+# ---- Advanced analytics --------------------------------------------------------------------
+
+
+@app.get("/analytics/overview")
+def analytics_overview(
+    days: int = 30,
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
+    """Outcome metrics over a period: deflection, escalations, response and resolution times."""
+    return {
+        **analytics.overview(session, operator.client_id, days),
+        "trend": analytics.trend(session, operator.client_id, days),
+    }
+
+
+@app.get("/analytics/knowledge-gaps")
+def analytics_knowledge_gaps(
+    days: int = 30,
+    limit: int = 20,
+    include_reviewed: bool = False,
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
+    """Questions the knowledge base couldn't serve, most frequent first."""
+    return analytics.knowledge_gaps(
+        session, operator.client_id, days=days,
+        limit=_bounded_limit(limit, default=20, maximum=100),
+        include_reviewed=include_reviewed,
+    )
+
+
+@app.post("/analytics/knowledge-gaps/review")
+def review_knowledge_gap(
+    question: str = Body(...),
+    status: str = Body("taught"),
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
+    """Mark a gap as handled or dismissed so it stops coming back in the list."""
+    if status not in ("taught", "ignored"):
+        raise HTTPException(400, "status must be 'taught' or 'ignored'")
+    if not (question or "").strip():
+        raise HTTPException(400, "question required")
+    review = analytics.review_gap(session, operator.client_id, question, status, operator.email)
+    _audit(
+        session, "operator", operator.email, "knowledge_gap.review",
+        client_id=operator.client_id, detail={"status": status},
+    )
+    return {"ok": True, "question_hash": review.question_hash, "status": review.status}
 
 
 # ---- Lead capture ------------------------------------------------------------------------

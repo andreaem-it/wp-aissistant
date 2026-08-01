@@ -137,6 +137,10 @@ export const api = {
   webhookDeliveries: (id) => call(`/webhooks/${id}/deliveries`),
   stats: () => call("/stats"),
   csat: (days = 30) => call("/csat", { params: { days } }),
+  analyticsOverview: (days = 30) => call("/analytics/overview", { params: { days } }),
+  knowledgeGaps: (days = 30) => call("/analytics/knowledge-gaps", { params: { days } }),
+  reviewKnowledgeGap: (question, status) =>
+    call("/analytics/knowledge-gaps/review", { method: "POST", body: { question, status } }),
   knowledgeBase: () => call("/knowledge-base"),
   uploadDocument: (file) => {
     const form = new FormData();

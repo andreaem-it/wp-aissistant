@@ -218,6 +218,23 @@ class SlaPolicy(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
+class KnowledgeGapReview(SQLModel, table=True):
+    """An operator's decision about a detected knowledge gap.
+
+    The gaps themselves are derived from the AI logs at query time — deriving beats storing,
+    because the answer changes as the knowledge base grows. What must persist is the human
+    decision: this question was answered (taught) or isn't worth answering (ignored), so it
+    stops coming back in the list. `question_hash` is the normalised question, so the same
+    question asked with different spacing or casing is the same row."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    client_id: int = Field(index=True, foreign_key="client.id")
+    question_hash: str = Field(index=True)
+    question: str = ""
+    status: str = "taught"  # taught | ignored
+    operator_email: str = ""
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 class LeadForm(SQLModel, table=True):
     """A short form the widget can show to qualify a visitor. `fields` is a JSON list of
     {key,label,type,required,points}: the points are what makes the score explainable — it is
