@@ -36,3 +36,13 @@ Creare dal panel una chiave API dedicata con il solo scope `channels:write`. La 
 widget è pubblica e viene rifiutata da questo endpoint. La chiave scoped non va inserita in regole
 client-side né inoltrata dal provider come parametro URL: conservarla come secret dell'adapter e
 inviarla esclusivamente nell'header Authorization.
+
+## Cloudflare Email Routing
+
+L'adapter pronto al deploy è in `cloudflare/email-router`. Usa `postal-mime`, rifiuta email senza
+Message-ID o corpo testuale, limita il payload a 10 MB e ignora autoresponder, messaggi bulk e
+loop dal proprio indirizzo. Il token `channels:write` va salvato come secret `CHANNEL_API_KEY`.
+
+Dopo il deploy, in Cloudflare Email Routing creare la regola
+`support@wpaissistant.it` → Worker `wp-aissistant-email-router`. Il Worker inoltra al backend solo
+il contenuto normalizzato; la chiave non transita nell'URL e non è contenuta nel repository.
