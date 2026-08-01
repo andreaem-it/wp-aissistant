@@ -139,8 +139,10 @@ Tre componenti indipendenti:
 - **Client** — tenant, identificato da `api_key`.
 - **Chunk** — pezzo di contenuto embeddato (documento o pagina sito).
 - **Product** — prodotto WooCommerce strutturato (per renderizzare card nel widget).
+- **Contact** — identità tenant-scoped condivisa tra conversazioni e canali; usa il browser id
+  sul web e l'identificatore del provider per email e futuri canali.
 - **Conversation** — `open | escalated | closed`, con lingua rilevata, priorità, operatore
-  assegnato, reparto e scadenze SLA; l'accesso del widget alla singola conversazione richiede un token visitatore
+  assegnato, reparto, canale/thread e scadenze SLA; l'accesso del widget alla singola conversazione richiede un token visitatore
   casuale distinto dalla `api_key`.
 - **Message** — `user | assistant | operator`.
 - **Ticket** — `open | answered | closed`, collegato a una conversazione.

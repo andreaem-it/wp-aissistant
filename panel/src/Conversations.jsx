@@ -431,6 +431,9 @@ export default function Conversations() {
           <option value="">Tutte le lingue</option>
           {Object.entries(LANGUAGE_LABELS).map(([code, label]) => <option key={code} value={code}>{label}</option>)}
         </select>
+        <select aria-label="Canale" value={filters.channel} onChange={(e) => setFilters((f) => ({ ...f, channel: e.target.value }))}>
+          <option value="">Tutti i canali</option><option value="web">Web</option><option value="email">Email</option><option value="whatsapp">WhatsApp</option><option value="messenger">Messenger</option>
+        </select>
         <select aria-label="Ordinamento" value={filters.sort} onChange={(e) => setFilters((f) => ({ ...f, sort: e.target.value }))}>
           <option value="recent">Più recenti</option><option value="oldest">Meno recenti</option><option value="priority">Priorità</option><option value="sla">Scadenza SLA</option>
         </select>
@@ -461,6 +464,7 @@ export default function Conversations() {
                 <div className="meta">
                   #{c.id} · <span className={`wpai-badge ${c.status}`}>{c.status}</span> · {c.priority}
                   {c.language && c.language !== "it" && ` · ${LANGUAGE_LABELS[c.language] || c.language}`}
+                  {c.channel && c.channel !== "web" && ` · ${c.channel}`}
                   {sla && <> · <SlaBadge sla={sla} /></>}
                 </div>
                 <div className="preview">{last_message || "—"}</div>

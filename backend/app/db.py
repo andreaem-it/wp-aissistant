@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 
 from pgvector.sqlalchemy import Vector
+from sqlalchemy import UniqueConstraint
 from sqlmodel import SQLModel, Field, create_engine, Session, Column
 
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+psycopg://rag:rag@localhost:5432/rag")
@@ -67,10 +68,33 @@ class Product(SQLModel, table=True):
     embedding: list[float] = Field(sa_column=Column(Vector(EMBED_DIM)))
 
 
+class Contact(SQLModel, table=True):
+    """A tenant-scoped person/address shared by conversations across every channel.
+
+    `external_id` is channel-specific: browser visitor id for web, normalized address for
+    email, provider user id for messaging channels. It is never globally unique.
+    """
+    id: Optional[int] = Field(default=None, primary_key=True)
+    client_id: int = Field(index=True, foreign_key="client.id")
+    channel: str = Field(default="web", index=True)  # web | email | whatsapp | messenger
+    external_id: str = Field(index=True)
+    email: Optional[str] = Field(default=None, index=True)
+    name: str = ""
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    __table_args__ = (
+        UniqueConstraint("client_id", "channel", "external_id", name="uq_contact_tenant_channel_external"),
+    )
+
+
 class Conversation(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     client_id: int = Field(index=True, foreign_key="client.id")
     visitor_id: str
+    # Unified channel identity. Legacy web fields stay populated for widget compatibility.
+    channel: str = Field(default="web", index=True)
+    contact_id: Optional[int] = Field(default=None, foreign_key="contact.id", index=True)
+    external_thread_id: str = Field(default="", index=True)
     # SHA-256 digest of the opaque token issued to the visitor when the conversation is
     # created. The public widget api_key identifies only the tenant; this token proves that
     # the browser owns this specific conversation.

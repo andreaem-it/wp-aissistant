@@ -26,6 +26,7 @@ from .db import (
     CannedResponse,
     Chunk,
     Client,
+    Contact,
     Conversation,
     ConversationRating,
     ConversationTag,
@@ -467,6 +468,49 @@ def _hash_session_token(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
 
+def _get_or_create_contact(
+    session: Session,
+    client_id: int,
+    channel: str,
+    external_id: str,
+    *,
+    email: str | None = None,
+    name: str = "",
+) -> Contact:
+    """Resolve identity inside one tenant/channel and enrich it without erasing known data."""
+    contact = session.exec(
+        select(Contact).where(
+            Contact.client_id == client_id,
+            Contact.channel == channel,
+            Contact.external_id == external_id,
+        )
+    ).first()
+    if contact:
+        changed = False
+        if email and contact.email != email:
+            contact.email = email
+            changed = True
+        if name and contact.name != name:
+            contact.name = name[:120]
+            changed = True
+        if changed:
+            contact.updated_at = datetime.utcnow()
+            session.add(contact)
+            session.commit()
+        return contact
+    contact = Contact(
+        client_id=client_id,
+        channel=channel,
+        external_id=external_id,
+        email=email,
+        name=name[:120],
+    )
+    session.add(contact)
+    session.commit()
+    session.refresh(contact)
+    return contact
+
+
 def _create_conversation(session: Session, client_id: int, visitor_id: str) -> tuple[Conversation, str]:
     """Create a visitor conversation and return its one-time plaintext access token.
 
@@ -474,9 +518,12 @@ def _create_conversation(session: Session, client_id: int, visitor_id: str) -> t
     therefore cannot authorize access to an individual visitor's transcript.
     """
     token = secrets.token_urlsafe(32)
+    contact = _get_or_create_contact(session, client_id, "web", visitor_id)
     conv = Conversation(
         client_id=client_id,
         visitor_id=visitor_id,
+        channel="web",
+        contact_id=contact.id,
         access_token_hash=_hash_conversation_token(token),
     )
     session.add(conv)
@@ -484,7 +531,7 @@ def _create_conversation(session: Session, client_id: int, visitor_id: str) -> t
     session.refresh(conv)
     # the access token never leaves this function: webhooks carry the conversation id only
     events.emit(session, client_id, "conversation.created", {
-        "conversation_id": conv.id, "visitor_id": conv.visitor_id,
+        "conversation_id": conv.id, "visitor_id": conv.visitor_id, "channel": conv.channel,
     }, conv=conv)
     return conv, token
 
@@ -1422,7 +1469,14 @@ def chat_contact(
     if not conv or conv.client_id != client.id:
         raise HTTPException(404, "conversation not found")
     _require_conversation_token(conv, conversation_token)
-    conv.visitor_email = email.strip()[:255]
+    normalized_email = email.strip().lower()[:255]
+    conv.visitor_email = normalized_email
+    if conv.contact_id:
+        contact = session.get(Contact, conv.contact_id)
+        if contact and contact.client_id == client.id:
+            contact.email = normalized_email
+            contact.updated_at = datetime.utcnow()
+            session.add(contact)
     if url:
         conv.visitor_url = url[:1000]
     session.add(conv)
@@ -2146,7 +2200,7 @@ def _inbox_order(sort: str) -> list:
 
 INBOX_FILTER_KEYS = (
     "status", "priority", "department_id", "assigned_operator_id", "unassigned", "sla_state",
-    "tag_id", "intent", "urgency", "conversation_language",
+    "tag_id", "intent", "urgency", "conversation_language", "channel",
 )
 
 
@@ -2206,6 +2260,11 @@ def _clean_inbox_filters(session: Session, client_id: int, raw: dict) -> dict:
         if conversation_language not in language.SUPPORTED:
             raise HTTPException(400, "invalid language")
         clean["conversation_language"] = conversation_language
+    channel = raw.get("channel")
+    if channel:
+        if channel not in ("web", "email", "whatsapp", "messenger"):
+            raise HTTPException(400, "invalid channel")
+        clean["channel"] = channel
     if raw.get("unassigned"):
         clean["unassigned"] = True
     return clean
@@ -2519,6 +2578,7 @@ def list_conversations(
     intent: str | None = None,
     urgency: str | None = None,
     conversation_language: str | None = None,
+    channel: str | None = None,
     sort: str = "recent",
     operator: Operator = Depends(require_operator),
     session: Session = Depends(get_session),
@@ -2529,6 +2589,10 @@ def list_conversations(
         raise HTTPException(400, "invalid sort")
     now = datetime.utcnow()
     query = select(Conversation).where(Conversation.client_id == operator.client_id)
+    if channel:
+        if channel not in ("web", "email", "whatsapp", "messenger"):
+            raise HTTPException(400, "invalid channel")
+        query = query.where(Conversation.channel == channel)
     if status:
         if status not in ("open", "escalated", "closed"):
             raise HTTPException(400, "invalid status")
@@ -4366,6 +4430,9 @@ def _v1_conversation(session: Session, conv: Conversation, now: datetime) -> dic
     return {
         "id": conv.id,
         "visitor_id": conv.visitor_id,
+        "channel": conv.channel,
+        "contact_id": conv.contact_id,
+        "external_thread_id": conv.external_thread_id,
         "status": conv.status,
         "priority": conv.priority,
         "department_id": conv.department_id,
@@ -5220,6 +5287,7 @@ def conversation_debug(conversation_id: int, session: Session = Depends(get_sess
     return {
         "conversation": {
             "id": conv.id, "client_id": conv.client_id, "visitor_id": conv.visitor_id,
+            "channel": conv.channel, "contact_id": conv.contact_id,
             "status": conv.status, "created_at": conv.created_at, "updated_at": conv.updated_at,
             "closed_at": conv.closed_at,
         },

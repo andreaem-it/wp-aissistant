@@ -31,6 +31,10 @@ describe("toApiFilters", () => {
     });
   });
 
+  it("carries the conversation channel", () => {
+    expect(toApiFilters({ ...EMPTY_FILTERS, channel: "email" })).toEqual({ channel: "email" });
+  });
+
   it("carries tag and classification filters", () => {
     expect(toApiFilters({ ...EMPTY_FILTERS, tag_id: "5", intent: "reso", urgency: "alta" })).toEqual({
       tag_id: 5,
@@ -59,6 +63,7 @@ describe("fromApiFilters", () => {
       intent: "",
       urgency: "",
       conversation_language: "",
+      channel: "",
       sort: "priority",
     });
   });

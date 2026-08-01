@@ -72,7 +72,7 @@ Queste funzionalità esistono già e non vanno reinserite come nuove feature:
 
 | Feature | Sequenza consigliata | Complessità |
 |---|---|---:|
-| Email come canale conversazionale | Prima estensione omnicanale: ingest email, threading, risposta dal panel. | Alta |
+| Email come canale conversazionale | **In sviluppo:** modello unificato Contact/channel/thread introdotto con backfill delle chat web; prossimo blocco inbound, threading e risposta email. | Alta |
 | WhatsApp Business | Dopo inbox/assignment e API: template, consenso, finestre di risposta e allegati. | Alta |
 | Instagram/Facebook Messenger | Dopo il modello canale unificato introdotto per email/WhatsApp. | Alta |
 | Integrazioni CRM | HubSpot/Pipedrive come primi connettori, poi Salesforce in base alla domanda. | Alta |

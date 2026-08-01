@@ -11,6 +11,7 @@ export const EMPTY_FILTERS = {
   intent: "",
   urgency: "",
   conversation_language: "",
+  channel: "",
   sort: "recent",
 };
 
@@ -46,6 +47,7 @@ export function toApiFilters(filters) {
   if (filters.intent) out.intent = filters.intent;
   if (filters.urgency) out.urgency = filters.urgency;
   if (filters.conversation_language) out.conversation_language = filters.conversation_language;
+  if (filters.channel) out.channel = filters.channel;
   if (filters.assignment === "unassigned") out.unassigned = true;
   else if (filters.assignment) out.assigned_operator_id = Number(filters.assignment);
   return out;
@@ -69,6 +71,7 @@ export function fromApiFilters(saved, sort) {
     intent: source.intent || "",
     urgency: source.urgency || "",
     conversation_language: source.conversation_language || "",
+    channel: source.channel || "",
     assignment: source.unassigned
       ? "unassigned"
       : source.assigned_operator_id
