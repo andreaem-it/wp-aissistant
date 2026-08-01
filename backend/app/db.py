@@ -188,6 +188,19 @@ class Message(SQLModel, table=True):
     )
 
 
+class Attachment(SQLModel, table=True):
+    """Private object metadata; bytes live in R2 and are never exposed through public URLs."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    client_id: int = Field(index=True, foreign_key="client.id")
+    conversation_id: int = Field(index=True, foreign_key="conversation.id")
+    message_id: int = Field(index=True, foreign_key="message.id")
+    object_key: str = Field(unique=True)
+    filename: str
+    content_type: str
+    size_bytes: int
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 class Ticket(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     conversation_id: int = Field(index=True, foreign_key="conversation.id")

@@ -3,6 +3,7 @@ import hashlib
 import ipaddress
 import logging
 import os
+from pathlib import Path
 import re
 import secrets
 import threading
@@ -13,6 +14,7 @@ from datetime import datetime, timedelta
 
 import stripe
 from fastapi import Body, Depends, FastAPI, Header, HTTPException, Request, Response, UploadFile
+from starlette.concurrency import run_in_threadpool
 from sqlalchemy import and_, case, func, or_
 from sqlmodel import Session, select
 
@@ -20,6 +22,7 @@ from . import billing
 
 from .db import (
     AiResponseLog,
+    Attachment,
     ApiKey,
     AuditLog,
     AuthToken,
@@ -62,6 +65,7 @@ from .db import (
 from . import email as email_service
 from . import whatsapp as whatsapp_service
 from . import push as push_service
+from . import attachments as attachment_service
 from fastapi.responses import StreamingResponse
 
 import urllib.error
@@ -2592,6 +2596,18 @@ def conversation_messages(
         .order_by(Message.id)
         .limit(_bounded_limit(limit, default=200))
     ).all()
+    message_ids = [message.id for message in messages if message.id is not None]
+    attachment_rows = session.exec(
+        select(Attachment).where(Attachment.message_id.in_(message_ids)).order_by(Attachment.id)
+    ).all() if message_ids else []
+    attachments_by_message: dict[int, list[dict]] = {}
+    for attachment in attachment_rows:
+        attachments_by_message.setdefault(attachment.message_id, []).append({
+            "id": attachment.id,
+            "filename": attachment.filename,
+            "content_type": attachment.content_type,
+            "size_bytes": attachment.size_bytes,
+        })
     typing = _operator_typing.get(conversation_id)
     operator_typing_name = typing[0] if typing and (time.monotonic() - typing[1]) < TYPING_TTL else None
     rated = session.exec(
@@ -2599,7 +2615,15 @@ def conversation_messages(
     ).first() is not None
     return {
         "status": conv.status,
-        "messages": [{"id": m.id, "role": m.role, "content": m.content} for m in messages],
+        "messages": [
+            {
+                "id": m.id,
+                "role": m.role,
+                "content": m.content,
+                "attachments": attachments_by_message.get(m.id, []),
+            }
+            for m in messages
+        ],
         "operator_typing": operator_typing_name,
         # lets the widget ask for a CSAT rating only once (no internal data exposed)
         "rated": rated,
@@ -3231,6 +3255,133 @@ def reply_conversation(
     return {"ok": True, "delivered": delivered}
 
 
+def _safe_attachment_filename(filename: str | None) -> str:
+    """Strip paths/control characters before storing or placing a name in a header."""
+    clean = Path(filename or "allegato").name
+    clean = re.sub(r"[\x00-\x1f\x7f\r\n\"\\]", "_", clean).strip(" .")
+    return clean[:180] or "allegato"
+
+
+def _attachment_payload(attachment: Attachment) -> dict:
+    return {
+        "id": attachment.id,
+        "message_id": attachment.message_id,
+        "filename": attachment.filename,
+        "content_type": attachment.content_type,
+        "size_bytes": attachment.size_bytes,
+        "created_at": _iso(attachment.created_at),
+    }
+
+
+@app.post("/conversations/{conversation_id}/attachments", status_code=201)
+async def upload_conversation_attachment(
+    conversation_id: int,
+    file: UploadFile,
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
+    """Store a private operator attachment and add it to the conversation atomically."""
+    conv = session.get(Conversation, conversation_id)
+    if not conv or conv.client_id != operator.client_id:
+        raise HTTPException(404, "conversation not found")
+    if not attachment_service.configured():
+        raise HTTPException(503, "attachment storage unavailable")
+    content_type = (file.content_type or "").lower().split(";", 1)[0].strip()
+    if content_type not in attachment_service.ALLOWED_TYPES:
+        raise HTTPException(415, "file type not allowed")
+    data = await file.read(attachment_service.MAX_BYTES + 1)
+    if not data:
+        raise HTTPException(400, "empty file")
+    if len(data) > attachment_service.MAX_BYTES:
+        raise HTTPException(413, "file too large")
+    filename = _safe_attachment_filename(file.filename)
+    suffix = Path(filename).suffix.lower()[:12]
+    object_key = f"tenant/{operator.client_id}/conversation/{conversation_id}/{uuid.uuid4().hex}{suffix}"
+    stored = await run_in_threadpool(attachment_service.put, object_key, data, content_type)
+    if not stored:
+        raise HTTPException(502, "attachment upload failed")
+    try:
+        message = Message(conversation_id=conversation_id, role="operator", content=f"Allegato: {filename}")
+        session.add(message)
+        conv.updated_at = datetime.utcnow()
+        session.add(conv)
+        session.flush()
+        attachment = Attachment(
+            client_id=operator.client_id,
+            conversation_id=conversation_id,
+            message_id=message.id,
+            object_key=object_key,
+            filename=filename,
+            content_type=content_type,
+            size_bytes=len(data),
+        )
+        session.add(attachment)
+        session.commit()
+        session.refresh(attachment)
+    except Exception:
+        session.rollback()
+        await run_in_threadpool(attachment_service.delete, object_key)
+        raise
+    _audit(
+        session, "operator", operator.email, "conversation.attachment.upload",
+        target=f"conversation:{conversation_id}", client_id=operator.client_id,
+        detail={"attachment_id": attachment.id, "content_type": content_type, "size_bytes": len(data)},
+    )
+    return _attachment_payload(attachment)
+
+
+@app.get("/attachments/{attachment_id}")
+async def download_attachment(
+    attachment_id: int,
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
+    attachment = session.get(Attachment, attachment_id)
+    if not attachment or attachment.client_id != operator.client_id:
+        raise HTTPException(404, "attachment not found")
+    stored = await run_in_threadpool(attachment_service.get, attachment.object_key)
+    if not stored:
+        raise HTTPException(502, "attachment unavailable")
+    data, _stored_type = stored
+    if len(data) > attachment_service.MAX_BYTES:
+        raise HTTPException(502, "invalid stored attachment")
+    filename = _safe_attachment_filename(attachment.filename)
+    return Response(
+        content=data,
+        media_type=attachment.content_type,
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "private, no-store",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
+@app.delete("/attachments/{attachment_id}")
+async def delete_attachment(
+    attachment_id: int,
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
+    attachment = session.get(Attachment, attachment_id)
+    if not attachment or attachment.client_id != operator.client_id:
+        raise HTTPException(404, "attachment not found")
+    if not await run_in_threadpool(attachment_service.delete, attachment.object_key):
+        raise HTTPException(502, "attachment deletion failed")
+    message_id = attachment.message_id
+    session.delete(attachment)
+    session.flush()
+    message = session.get(Message, message_id)
+    if message:
+        session.delete(message)
+    session.commit()
+    _audit(
+        session, "operator", operator.email, "conversation.attachment.delete",
+        target=f"attachment:{attachment_id}", client_id=operator.client_id,
+    )
+    return {"ok": True}
+
+
 @app.post("/conversations/{conversation_id}/status")
 def set_conversation_status(
     conversation_id: int,
@@ -3275,6 +3426,14 @@ def _erase_conversation(session: Session, conv: Conversation) -> None:
     session.flush()
     for note in session.exec(select(InternalNote).where(InternalNote.conversation_id == conv.id)).all():
         session.delete(note)
+    session.flush()
+    for attachment in session.exec(select(Attachment).where(Attachment.conversation_id == conv.id)).all():
+        if attachment_service.configured() and not attachment_service.delete(attachment.object_key):
+            log(
+                logger, logging.WARNING, "attachment.retention_delete_failed",
+                attachment_id=attachment.id, conversation_id=conv.id,
+            )
+        session.delete(attachment)
     session.flush()
     for m in session.exec(select(Message).where(Message.conversation_id == conv.id)).all():
         session.delete(m)

@@ -391,6 +391,10 @@ Per collegare CRM e automazioni ci sono due strade complementari, documentate in
 | `WHATSAPP_OUTBOUND_URL` | *(non impostato)* | Endpoint HTTPS dell'adapter WhatsApp tenant-aware per le risposte operatore |
 | `WHATSAPP_OUTBOUND_TOKEN` | *(non impostato)* | Bearer token condiviso con l'adapter WhatsApp; le credenziali Meta non entrano nel database |
 | `WHATSAPP_OUTBOUND_TIMEOUT` | `10` | Timeout dell'adapter WhatsApp in secondi |
+| `ATTACHMENT_STORAGE_URL` | *(non impostato)* | URL del Worker Cloudflare autenticato che media l’accesso al bucket R2 privato |
+| `ATTACHMENT_STORAGE_TOKEN` | *(non impostato)* | Bearer token condiviso backend→Worker; non viene mai inviato al browser |
+| `ATTACHMENT_STORAGE_TIMEOUT` | `15` | Timeout upload/download/cancellazione in secondi |
+| `ATTACHMENT_MAX_BYTES` | `10485760` | Dimensione massima di un allegato operatore (10 MB di default) |
 | `VAPID_PUBLIC_KEY` | *(non impostato)* | Chiave pubblica URL-safe per sottoscrivere i browser alle notifiche push |
 | `VAPID_PRIVATE_KEY` | *(non impostato)* | Chiave privata VAPID, conservata soltanto nel backend |
 | `VAPID_SUBJECT` | `mailto:support@wpaissistant.it` | Contatto del mittente Web Push (`mailto:` o URL HTTPS) |
@@ -466,6 +470,8 @@ Auth via header `Authorization: Bearer <token>`. La colonna *Auth* indica quale 
 | `/channels/whatsapp/inbound` | POST | 🔓 | Adapter inbound WhatsApp (scope `channels:write`), consenso, deduplicazione e threading ([guida](docs/whatsapp-channel.md)) |
 | `/conversations/{id}/whatsapp/status` | GET | 🔒 | Stato finestra di 24 ore e consenso WhatsApp |
 | `/conversations/{id}/whatsapp/template` | POST | 🔒 | Invio di un template WhatsApp approvato con consenso registrato |
+| `/conversations/{id}/attachments` | POST | 🔒 | Carica un allegato operatore nel bucket R2 privato e crea il relativo messaggio solo dopo conferma storage |
+| `/attachments/{id}` | GET/DELETE | 🔒 | Scarica o elimina un allegato con controllo tenant e risposta `private, no-store` |
 | `/push/config` | GET | 🔒 | Configurazione e preferenze Web Push dell'operatore |
 | `/push/subscriptions` | POST/DELETE | 🔒 | Attiva o disattiva un dispositivo dell'operatore |
 | `/push/preferences` | PATCH | 🔒 | Preferenze per escalation, assegnazioni, menzioni e SLA |
@@ -591,6 +597,9 @@ Lo stato attuale è un MVP dimostrativo. Prima della produzione:
       `ADMIN_API_KEY`. (Prima l'inserimento era manuale nel DB.)
 
 ### Affidabilità & scalabilità
+- [x] Allegati operatore privati su Cloudflare R2: bucket non pubblico, accesso mediato da
+      Worker con token server-to-server, isolamento tenant, download autenticato, limite 10 MB
+      e cancellazione integrata con eliminazione conversazione/GDPR.
 - [x] Ingest asincrono: gli endpoint accodano un `IngestJob` e un worker in background (thread
       avviato dal lifespan, claim con `FOR UPDATE SKIP LOCKED`) fa l'embedding. Stato su
       `/ingest/jobs/{id}`; job orfani rimessi in coda allo startup.

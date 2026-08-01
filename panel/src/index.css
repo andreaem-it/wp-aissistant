@@ -420,10 +420,19 @@ button.wpai-btn:disabled { opacity: 0.5; cursor: default; }
   gap: 10px;
 }
 
-.wpai-bubble { max-width: 70%; padding: 9px 13px; border-radius: 14px; font-size: 13.5px; line-height: 1.45; }
+.wpai-bubble { max-width: 70%; padding: 9px 13px; border-radius: 14px; font-size: 13.5px; line-height: 1.45; display: flex; flex-direction: column; gap: 7px; }
 .wpai-bubble.user { align-self: flex-end; background: var(--primary); color: #fff; border-bottom-right-radius: 4px; }
 .wpai-bubble.assistant { align-self: flex-start; background: var(--surface-sunken); border-bottom-left-radius: 4px; }
 .wpai-bubble.operator { align-self: flex-start; background: var(--green-soft); border-bottom-left-radius: 4px; }
+.wpai-attachment {
+  display: flex; align-items: center; gap: 7px; max-width: 100%; padding: 7px 9px;
+  border: 1px solid color-mix(in srgb, currentColor 18%, transparent); border-radius: 9px;
+  background: color-mix(in srgb, var(--surface) 75%, transparent); color: inherit; cursor: pointer;
+  font: inherit; font-size: 12px; text-align: left;
+}
+.wpai-attachment span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wpai-attachment svg:last-child { margin-left: auto; flex-shrink: 0; }
+.wpai-attachment:hover { border-color: var(--primary); }
 
 /* ---- Badges ---- */
 
@@ -875,6 +884,12 @@ button.wpai-view-chip { padding: 6px 12px; }
   font: inherit; font-size: 13.5px; line-height: 1.4;
 }
 .wpai-reply-bar .wpai-btn { white-space: nowrap; }
+.wpai-attach-btn { height: 42px; width: 42px; flex-shrink: 0; }
+.wpai-upload-status { margin-top: -7px; font-size: 11.5px; color: var(--text-muted); }
+.wpai-visually-hidden {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+}
 
 /* ---- Conversation right sidebar: info fields + canned responses ---- */
 .wpai-conv-side {

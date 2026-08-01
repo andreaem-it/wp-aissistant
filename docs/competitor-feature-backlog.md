@@ -74,6 +74,7 @@ Queste funzionalità esistono già e non vanno reinserite come nuove feature:
 |---|---|---:|
 | Email come canale conversazionale | **Rilasciata nel backend:** adapter inbound indipendente dal provider, deduplicazione dei webhook, threading, contatto unificato, ticket/SLA e risposta diretta dal panel con header email di thread. Resta il setup del webhook presso il provider scelto. | Alta |
 | WhatsApp Business | **Beta nel prodotto:** adapter provider-neutral, contatto/thread unificato, deduplicazione, ticket/SLA, finestra di 24 ore, consenso tracciato e template approvati dal panel. Worker Meta firmato e multi-tenant pronto al deploy; restano credenziali/numero live, sincronizzazione catalogo template e file allegati. | Alta |
+| Allegati conversazione | **Fondazione rilasciata:** upload operatore dal panel, storage privato Cloudflare R2, download autenticato, isolamento tenant e cancellazione GDPR. Prossimo passo: acquisizione media inbound da WhatsApp/email e visualizzazione inline sicura delle immagini. | Media |
 | Instagram/Facebook Messenger | Dopo il modello canale unificato introdotto per email/WhatsApp. | Alta |
 | Integrazioni CRM | HubSpot/Pipedrive come primi connettori, poi Salesforce in base alla domanda. | Alta |
 | Integrazioni help desk | Import/export e handoff con Zendesk, Freshdesk o Intercom per clienti già strutturati. | Alta |

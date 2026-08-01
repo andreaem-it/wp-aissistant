@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Inbox, MessageCircle, Send, Save, CheckCircle2, RotateCcw, Trash2, Timer, Bookmark, Users,
-  StickyNote, AtSign, History, AlertTriangle, Tag as TagIcon, Sparkles, Star,
+  StickyNote, AtSign, History, AlertTriangle, Tag as TagIcon, Sparkles, Star, Paperclip, Download,
 } from "lucide-react";
 import { api } from "./api.js";
 import { SLA_STATE_CLASS, SLA_STATE_LABELS, describeSla } from "./sla.js";
@@ -48,6 +48,8 @@ export default function Conversations() {
   const [messages, setMessages] = useState([]);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef(null);
   const [deliveryError, setDeliveryError] = useState("");
   const [whatsappStatus, setWhatsappStatus] = useState(null);
   const [templateForm, setTemplateForm] = useState({ template: "", language_code: "it", parameters: "" });
@@ -256,6 +258,44 @@ export default function Conversations() {
       loadList();
     } finally {
       setSending(false);
+    }
+  };
+
+  const uploadAttachment = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file || !selected) return;
+    setUploading(true);
+    setDeliveryError("");
+    try {
+      await api.uploadAttachment(selected, file);
+      await Promise.all([loadMessages(selected), loadList()]);
+    } catch (err) {
+      const messagesByStatus = {
+        413: "Il file supera il limite di 10 MB.",
+        415: "Formato non supportato. Usa immagini, PDF, testo, audio MP3/OGG o video MP4.",
+        503: "Lo spazio allegati non è ancora disponibile.",
+      };
+      setDeliveryError(messagesByStatus[err.status] || "Caricamento dell’allegato non riuscito. Riprova.");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const downloadAttachment = async (attachment) => {
+    setDeliveryError("");
+    try {
+      const blob = await api.downloadAttachment(attachment.id);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = attachment.filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      setDeliveryError("Download dell’allegato non riuscito. Riprova.");
     }
   };
 
@@ -553,7 +593,22 @@ export default function Conversations() {
               </div>
               <div className="wpai-card wpai-thread">
                 {messages.map((m) => (
-                  <div key={m.id} className={`wpai-bubble ${m.role}`}>{m.content}</div>
+                  <div key={m.id} className={`wpai-bubble ${m.role}`}>
+                    <span>{m.content}</span>
+                    {(m.attachments || []).map((attachment) => (
+                      <button
+                        key={attachment.id}
+                        type="button"
+                        className="wpai-attachment"
+                        onClick={() => downloadAttachment(attachment)}
+                        title={`${attachment.filename} · ${Math.max(1, Math.ceil(attachment.size_bytes / 1024))} KB`}
+                      >
+                        <Paperclip size={14} aria-hidden="true" />
+                        <span>{attachment.filename}</span>
+                        <Download size={14} aria-hidden="true" />
+                      </button>
+                    ))}
+                  </div>
                 ))}
               </div>
               {presence.others.length > 0 && (
@@ -600,6 +655,23 @@ export default function Conversations() {
                 </form>
               )}
               <form className="wpai-reply-bar" onSubmit={(e) => { e.preventDefault(); send(); }}>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  className="wpai-visually-hidden"
+                  accept="image/jpeg,image/png,image/webp,application/pdf,text/plain,audio/mpeg,audio/ogg,video/mp4"
+                  onChange={uploadAttachment}
+                />
+                <button
+                  className="wpai-icon-btn wpai-attach-btn"
+                  type="button"
+                  title="Allega un file (max 10 MB)"
+                  aria-label="Allega un file"
+                  disabled={uploading}
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  <Paperclip size={17} />
+                </button>
                 <textarea
                   rows={1}
                   value={draft}
@@ -612,6 +684,7 @@ export default function Conversations() {
                   <Send size={15} /> {sending ? "Invio…" : "Invia"}
                 </button>
               </form>
+              {uploading && <div className="wpai-upload-status" role="status">Caricamento allegato…</div>}
             </>
           )}
         </div>

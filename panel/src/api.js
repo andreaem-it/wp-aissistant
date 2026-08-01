@@ -44,6 +44,22 @@ async function call(path, { method = "GET", params = {}, body, auth = true } = {
   return res.json();
 }
 
+async function download(path) {
+  const res = await fetch(`${BASE}${path}`, {
+    headers: { Authorization: `Bearer ${getToken()}` },
+  });
+  if (res.status === 401) {
+    clearToken();
+    window.location.reload();
+  }
+  if (!res.ok) {
+    const err = new Error(`GET ${path} -> ${res.status}`);
+    err.status = res.status;
+    throw err;
+  }
+  return res.blob();
+}
+
 export const api = {
   login: (email, password) =>
     call("/operator/login", { method: "POST", body: { email, password }, auth: false }),
@@ -62,6 +78,13 @@ export const api = {
   deletePushSubscription: (endpoint) => call("/push/subscriptions", { method: "DELETE", body: { endpoint } }),
   conversations: (params = {}) => call("/conversations", { params }),
   messages: (id) => call(`/conversations/${id}/messages`),
+  uploadAttachment: (id, file) => {
+    const body = new FormData();
+    body.append("file", file);
+    return call(`/conversations/${id}/attachments`, { method: "POST", body });
+  },
+  downloadAttachment: (id) => download(`/attachments/${id}`),
+  deleteAttachment: (id) => call(`/attachments/${id}`, { method: "DELETE" }),
   tickets: (status = "open") => call("/tickets", { params: { status } }),
   replyTicket: (id, reply) => call(`/tickets/${id}/reply`, { method: "POST", params: { reply } }),
   replyConversation: (id, reply) => call(`/conversations/${id}/reply`, { method: "POST", body: { reply } }),
