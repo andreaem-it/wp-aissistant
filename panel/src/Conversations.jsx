@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Inbox, MessageCircle, Send, Save, CheckCircle2, RotateCcw, Trash2, Timer, Bookmark, Users,
   StickyNote, AtSign, History, AlertTriangle, Tag as TagIcon, Sparkles, Star, Paperclip, Download,
+  SlidersHorizontal, X,
 } from "lucide-react";
 import { api } from "./api.js";
 import { SLA_STATE_CLASS, SLA_STATE_LABELS, describeSla } from "./sla.js";
@@ -61,6 +62,7 @@ export default function Conversations() {
   const [operators, setOperators] = useState([]);
   const [departments, setDepartments] = useState([]);
   const [filters, setFilters] = useState(EMPTY_FILTERS);
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [listError, setListError] = useState("");
   const [loadingList, setLoadingList] = useState(true);
   const [views, setViews] = useState([]);
@@ -400,6 +402,9 @@ export default function Conversations() {
     setMessages([]);
     loadList();
   };
+  const activeFilterCount = Object.entries(filters).filter(
+    ([key, value]) => key !== "sort" && value !== "" && value != null,
+  ).length;
 
   return (
     <div>
@@ -476,44 +481,61 @@ export default function Conversations() {
       </div>
       {viewError && <p role="alert" style={{ fontSize: 12.5, color: "var(--red)", margin: "0 0 10px" }}>{viewError}</p>}
 
-      <div className="wpai-filters" style={{ marginBottom: 14 }}>
-        <select value={filters.status} onChange={(e) => setFilters((f) => ({ ...f, status: e.target.value }))}>
+      <div className="wpai-inbox-controls">
+        <div className="wpai-filter-bar">
+          <select aria-label="Stato" value={filters.status} onChange={(e) => setFilters((f) => ({ ...f, status: e.target.value }))}>
           <option value="">Tutti gli stati</option><option value="open">Aperte</option><option value="escalated">Escalation</option><option value="closed">Chiuse</option>
-        </select>
-        <select value={filters.priority} onChange={(e) => setFilters((f) => ({ ...f, priority: e.target.value }))}>
-          <option value="">Tutte le priorità</option><option value="urgent">Urgente</option><option value="high">Alta</option><option value="normal">Normale</option><option value="low">Bassa</option>
-        </select>
-        <select value={filters.assignment} onChange={(e) => setFilters((f) => ({ ...f, assignment: e.target.value }))}>
+          </select>
+          <select aria-label="Assegnazione" value={filters.assignment} onChange={(e) => setFilters((f) => ({ ...f, assignment: e.target.value }))}>
           <option value="">Tutte le assegnazioni</option><option value="unassigned">Non assegnate</option>
           {operators.map((op) => <option key={op.id} value={op.id}>{op.name}</option>)}
-        </select>
-        <select value={filters.department_id} onChange={(e) => setFilters((f) => ({ ...f, department_id: e.target.value }))}>
-          <option value="">Tutti i reparti</option>{departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-        </select>
-        <select aria-label="Stato SLA" value={filters.sla_state} onChange={(e) => setFilters((f) => ({ ...f, sla_state: e.target.value }))}>
-          <option value="">Tutti gli SLA</option><option value="violato">SLA violati</option><option value="in_scadenza">In scadenza</option><option value="ok">Nei tempi</option>
-        </select>
-        <select aria-label="Tag" value={filters.tag_id} onChange={(e) => setFilters((f) => ({ ...f, tag_id: e.target.value }))}>
-          <option value="">Tutti i tag</option>{tags.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-        </select>
-        <select aria-label="Intento" value={filters.intent} onChange={(e) => setFilters((f) => ({ ...f, intent: e.target.value }))}>
-          <option value="">Tutti gli intenti</option>
-          {Object.entries(INTENT_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-        </select>
-        <select aria-label="Urgenza rilevata" value={filters.urgency} onChange={(e) => setFilters((f) => ({ ...f, urgency: e.target.value }))}>
-          <option value="">Tutte le urgenze</option>
-          {Object.entries(URGENCY_LABELS).map(([value, label]) => <option key={value} value={value}>Urgenza {label.toLowerCase()}</option>)}
-        </select>
-        <select aria-label="Lingua" value={filters.conversation_language} onChange={(e) => setFilters((f) => ({ ...f, conversation_language: e.target.value }))}>
-          <option value="">Tutte le lingue</option>
-          {Object.entries(LANGUAGE_LABELS).map(([code, label]) => <option key={code} value={code}>{label}</option>)}
-        </select>
-        <select aria-label="Canale" value={filters.channel} onChange={(e) => setFilters((f) => ({ ...f, channel: e.target.value }))}>
+          </select>
+          <select aria-label="Canale" value={filters.channel} onChange={(e) => setFilters((f) => ({ ...f, channel: e.target.value }))}>
           <option value="">Tutti i canali</option><option value="web">Web</option><option value="email">Email</option><option value="whatsapp">WhatsApp</option><option value="messenger">Messenger</option>
-        </select>
-        <select aria-label="Ordinamento" value={filters.sort} onChange={(e) => setFilters((f) => ({ ...f, sort: e.target.value }))}>
+          </select>
+          <select aria-label="Ordinamento" value={filters.sort} onChange={(e) => setFilters((f) => ({ ...f, sort: e.target.value }))}>
           <option value="recent">Più recenti</option><option value="oldest">Meno recenti</option><option value="priority">Priorità</option><option value="sla">Scadenza SLA</option>
-        </select>
+          </select>
+          <button
+            className={"wpai-filter-toggle" + (showAdvancedFilters ? " active" : "")}
+            type="button"
+            aria-expanded={showAdvancedFilters}
+            onClick={() => setShowAdvancedFilters((open) => !open)}
+          >
+            <SlidersHorizontal size={15} /> Filtri
+            {activeFilterCount > 0 && <span>{activeFilterCount}</span>}
+          </button>
+          {activeFilterCount > 0 && (
+            <button className="wpai-clear-filters" type="button" onClick={() => setFilters(EMPTY_FILTERS)}>
+              <X size={14} /> Azzera
+            </button>
+          )}
+        </div>
+        {showAdvancedFilters && (
+          <div className="wpai-advanced-filters">
+            <label><span>Priorità</span><select value={filters.priority} onChange={(e) => setFilters((f) => ({ ...f, priority: e.target.value }))}>
+              <option value="">Tutte</option><option value="urgent">Urgente</option><option value="high">Alta</option><option value="normal">Normale</option><option value="low">Bassa</option>
+            </select></label>
+            <label><span>Reparto</span><select value={filters.department_id} onChange={(e) => setFilters((f) => ({ ...f, department_id: e.target.value }))}>
+              <option value="">Tutti</option>{departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+            </select></label>
+            <label><span>SLA</span><select value={filters.sla_state} onChange={(e) => setFilters((f) => ({ ...f, sla_state: e.target.value }))}>
+              <option value="">Tutti</option><option value="violato">Violati</option><option value="in_scadenza">In scadenza</option><option value="ok">Nei tempi</option>
+            </select></label>
+            <label><span>Tag</span><select value={filters.tag_id} onChange={(e) => setFilters((f) => ({ ...f, tag_id: e.target.value }))}>
+              <option value="">Tutti</option>{tags.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </select></label>
+            <label><span>Intento</span><select value={filters.intent} onChange={(e) => setFilters((f) => ({ ...f, intent: e.target.value }))}>
+              <option value="">Tutti</option>{Object.entries(INTENT_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            </select></label>
+            <label><span>Urgenza AI</span><select value={filters.urgency} onChange={(e) => setFilters((f) => ({ ...f, urgency: e.target.value }))}>
+              <option value="">Tutte</option>{Object.entries(URGENCY_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            </select></label>
+            <label><span>Lingua</span><select value={filters.conversation_language} onChange={(e) => setFilters((f) => ({ ...f, conversation_language: e.target.value }))}>
+              <option value="">Tutte</option>{Object.entries(LANGUAGE_LABELS).map(([code, label]) => <option key={code} value={code}>{label}</option>)}
+            </select></label>
+          </div>
+        )}
       </div>
       <div className="wpai-split">
         <div className="wpai-conv-list">
