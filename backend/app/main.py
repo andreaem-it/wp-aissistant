@@ -58,6 +58,7 @@ from .db import (
     init_db,
 )
 from . import email as email_service
+from . import whatsapp as whatsapp_service
 from fastapi.responses import StreamingResponse
 
 import urllib.error
@@ -2701,6 +2702,95 @@ def email_inbound(
     return {"ok": True, "created": True, "conversation_id": conv.id}
 
 
+@app.post("/channels/whatsapp/inbound")
+def whatsapp_inbound(
+    from_number: str = Body(...),
+    text: str = Body(...),
+    message_id: str = Body(...),
+    from_name: str = Body(""),
+    key: ApiKey = Depends(require_channel_write_key),
+    session: Session = Depends(get_session),
+):
+    """Accept a normalized inbound WhatsApp text message from a provider adapter."""
+    number = re.sub(r"[^0-9+]", "", (from_number or "").strip())[:32]
+    body = (text or "").strip()[:MAX_CHAT_MESSAGE_CHARS]
+    provider_message_id = (message_id or "").strip()[:500]
+    if not re.fullmatch(r"\+[1-9][0-9]{6,14}", number):
+        raise HTTPException(400, "valid from_number required")
+    if not body:
+        raise HTTPException(400, "text required")
+    if not provider_message_id:
+        raise HTTPException(400, "message_id required")
+
+    duplicate = session.exec(
+        select(Message)
+        .join(Conversation, Conversation.id == Message.conversation_id)
+        .where(
+            Conversation.client_id == key.client_id,
+            Conversation.channel == "whatsapp",
+            Message.external_id == provider_message_id,
+        )
+    ).first()
+    if duplicate:
+        return {"ok": True, "created": False, "conversation_id": duplicate.conversation_id}
+
+    contact = _get_or_create_contact(
+        session, key.client_id, "whatsapp", number, name=(from_name or "").strip()[:255]
+    )
+    conv = session.exec(
+        select(Conversation).where(
+            Conversation.client_id == key.client_id,
+            Conversation.channel == "whatsapp",
+            Conversation.contact_id == contact.id,
+            Conversation.status != "closed",
+        ).order_by(Conversation.id.desc())
+    ).first()
+    now = datetime.utcnow()
+    if conv is None:
+        conv = Conversation(
+            client_id=key.client_id,
+            visitor_id=f"whatsapp:{number}",
+            channel="whatsapp",
+            contact_id=contact.id,
+            external_thread_id=number,
+            status="escalated",
+            created_at=now,
+            updated_at=now,
+        )
+        session.add(conv)
+        session.flush()
+    else:
+        conv.status = "escalated"
+        conv.closed_at = None
+        conv.updated_at = now
+        session.add(conv)
+
+    session.add(Message(conversation_id=conv.id, role="user", content=body, external_id=provider_message_id))
+    open_ticket = session.exec(
+        select(Ticket).where(Ticket.conversation_id == conv.id, Ticket.status == "open")
+    ).first()
+    ticket_created = open_ticket is None
+    if open_ticket is None:
+        open_ticket = Ticket(conversation_id=conv.id, reason="Messaggio WhatsApp")
+        session.add(open_ticket)
+    _auto_assign(session, conv)
+    _apply_sla(session, conv, start=True)
+    session.commit()
+    session.refresh(conv)
+    session.refresh(open_ticket)
+    if ticket_created:
+        tenant = session.get(Client, key.client_id)
+        notify_new_ticket(tenant.name if tenant else "Supporto", conv.id, open_ticket.id, open_ticket.reason)
+        events.emit(session, key.client_id, "conversation.escalated", {
+            "conversation_id": conv.id,
+            "ticket_id": open_ticket.id,
+            "reason": open_ticket.reason,
+            "trigger": "whatsapp",
+            "channel": "whatsapp",
+        }, conv=conv)
+    return {"ok": True, "created": True, "conversation_id": conv.id}
+
+
 @app.get("/conversations")
 def list_conversations(
     before_id: int | None = None,
@@ -2909,6 +2999,28 @@ def reply_ticket(ticket_id: int, reply: str, operator: Operator = Depends(requir
 
 def _notify_visitor_reply(session, client_id, conv):
     """Best-effort visitor email notification on an operator reply (never blocks the reply)."""
+    if conv.channel == "whatsapp" and conv.contact_id:
+        contact = session.get(Contact, conv.contact_id)
+        last_inbound = session.exec(
+            select(Message)
+            .where(Message.conversation_id == conv.id, Message.role == "user")
+            .order_by(Message.created_at.desc())
+            .limit(1)
+        ).first()
+        if not contact or not last_inbound or last_inbound.created_at < datetime.utcnow() - timedelta(hours=24):
+            return False
+        latest_operator = session.exec(
+            select(Message)
+            .where(Message.conversation_id == conv.id, Message.role == "operator")
+            .order_by(Message.id.desc())
+            .limit(1)
+        ).first()
+        return bool(latest_operator) and whatsapp_service.send_message(
+            client_id=client_id,
+            to=contact.external_id,
+            body=latest_operator.content,
+            reply_to_message_id=last_inbound.external_id or "",
+        )
     if conv.visitor_email:
         client = session.get(Client, client_id)
         client_name = client.name if client else "il supporto"

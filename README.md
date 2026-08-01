@@ -387,6 +387,9 @@ Per collegare CRM e automazioni ci sono due strade complementari, documentate in
 | `SMTP_USER` / `SMTP_PASSWORD` | *(non impostati)* | Credenziali SMTP |
 | `SMTP_FROM` | *(= `SMTP_USER`)* | Indirizzo mittente |
 | `SUPPORT_EMAIL_ADDRESS` | `support@wpaissistant.it` | Reply-To delle conversazioni email, instradato al Worker inbound |
+| `WHATSAPP_OUTBOUND_URL` | *(non impostato)* | Endpoint HTTPS dell'adapter WhatsApp tenant-aware per le risposte operatore |
+| `WHATSAPP_OUTBOUND_TOKEN` | *(non impostato)* | Bearer token condiviso con l'adapter WhatsApp; le credenziali Meta non entrano nel database |
+| `WHATSAPP_OUTBOUND_TIMEOUT` | `10` | Timeout dell'adapter WhatsApp in secondi |
 | `SMTP_TLS` | `true` | `true` = STARTTLS, `ssl` = SMTPS, `false` = nessuna cifratura |
 | `PANEL_PUBLIC_URL` | *(= primo `PANEL_ORIGINS`)* | URL pubblico del panel, usato per costruire i link nelle email (`/?verify=`, `/?reset=`) |
 | `VERIFY_TOKEN_TTL_HOURS` | `48` | Validità del link di verifica email |
