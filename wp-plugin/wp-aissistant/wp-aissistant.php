@@ -2,13 +2,13 @@
 /**
  * Plugin Name: WP AIssistant
  * Description: Floating AI chat widget backed by a RAG backend, with automatic site content sync.
- * Version: 1.1.6
+ * Version: 1.1.7
  */
 
 if (!defined('ABSPATH')) exit;
 
 define('WPAI_OPTION', 'wpai_settings');
-define('WPAI_VERSION', '1.1.6'); // keep in sync with the "Version:" header above
+define('WPAI_VERSION', '1.1.7'); // keep in sync with the "Version:" header above
 
 // The backend is a single hosted service (not something each site owner runs), so its URL
 // isn't a setting — it's hardcoded here. Override only for local/staging testing by defining
@@ -291,7 +291,9 @@ add_action('wp_enqueue_scripts', function () {
     if (!wpai_opt('api_key')) return;
     wp_enqueue_style('wpai-fontawesome', WPAI_FONTAWESOME_URL, [], null);
     wp_enqueue_style('wpai-chat', plugins_url('assets/chat-widget.css', __FILE__), [], WPAI_VERSION);
-    wp_enqueue_script('wpai-chat', plugins_url('assets/chat-widget.js', __FILE__), [], WPAI_VERSION, true);
+    // il catalogo dei testi è una dipendenza del widget: caricato prima, senza bundler
+    wp_enqueue_script('wpai-chat-i18n', plugins_url('assets/chat-i18n.js', __FILE__), [], WPAI_VERSION, true);
+    wp_enqueue_script('wpai-chat', plugins_url('assets/chat-widget.js', __FILE__), ['wpai-chat-i18n'], WPAI_VERSION, true);
     wp_localize_script('wpai-chat', 'WPAI', [
         'backendUrl' => rtrim(WPAI_BACKEND_URL, '/'),
         'apiKey' => wpai_opt('api_key'),
@@ -321,6 +323,8 @@ add_action('wp_enqueue_scripts', function () {
         // path, so a subdirectory install (e.g. example.com/shop/) would build a wrong
         // order-lookup callback URL. Send the real site URL explicitly instead.
         'siteUrl' => home_url(),
+        // lingua del sito: suggerimento iniziale, il backend rileva poi la lingua dai messaggi
+        'locale' => determine_locale(),
     ]);
 });
 

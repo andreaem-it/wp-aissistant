@@ -127,7 +127,10 @@ jobs:
       - name: Check widget JavaScript syntax
         run: |
           node --check wp-plugin/wp-aissistant/assets/chat-widget.js
+          node --check wp-plugin/wp-aissistant/assets/chat-i18n.js
           node --check wp-plugin/wp-aissistant/assets/admin-sync.js
+      - name: Widget unit tests
+        run: node --test wp-plugin/tests/*.test.js
       - name: Build zip
         working-directory: wp-plugin
         run: ./build.sh

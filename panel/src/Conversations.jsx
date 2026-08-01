@@ -9,6 +9,7 @@ import { actionLabel, actorLabel, formatMoment } from "./activity.js";
 import {
   EMPTY_FILTERS,
   INTENT_LABELS,
+  LANGUAGE_LABELS,
   URGENCY_LABELS,
   fromApiFilters,
   hasActiveFilters,
@@ -426,6 +427,10 @@ export default function Conversations() {
           <option value="">Tutte le urgenze</option>
           {Object.entries(URGENCY_LABELS).map(([value, label]) => <option key={value} value={value}>Urgenza {label.toLowerCase()}</option>)}
         </select>
+        <select aria-label="Lingua" value={filters.conversation_language} onChange={(e) => setFilters((f) => ({ ...f, conversation_language: e.target.value }))}>
+          <option value="">Tutte le lingue</option>
+          {Object.entries(LANGUAGE_LABELS).map(([code, label]) => <option key={code} value={code}>{label}</option>)}
+        </select>
         <select aria-label="Ordinamento" value={filters.sort} onChange={(e) => setFilters((f) => ({ ...f, sort: e.target.value }))}>
           <option value="recent">Più recenti</option><option value="oldest">Meno recenti</option><option value="priority">Priorità</option><option value="sla">Scadenza SLA</option>
         </select>
@@ -455,6 +460,7 @@ export default function Conversations() {
               <div className="wpai-conv-item-body">
                 <div className="meta">
                   #{c.id} · <span className={`wpai-badge ${c.status}`}>{c.status}</span> · {c.priority}
+                  {c.language && c.language !== "it" && ` · ${LANGUAGE_LABELS[c.language] || c.language}`}
                   {sla && <> · <SlaBadge sla={sla} /></>}
                 </div>
                 <div className="preview">{last_message || "—"}</div>

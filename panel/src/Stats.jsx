@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
 import {
   MessagesSquare, UserCheck, CheckCircle2, Bot, Timer, Percent, ThumbsUp, ThumbsDown, ShieldCheck,
-  Tag as TagIcon, Sparkles, Star,
+  Tag as TagIcon, Sparkles, Star, Languages,
 } from "lucide-react";
 import { api } from "./api.js";
 import { MiniBars, Breakdown } from "./Charts.jsx";
-import { INTENT_LABELS } from "./inboxFilters.js";
+import { INTENT_LABELS, LANGUAGE_LABELS } from "./inboxFilters.js";
 import AnalyticsOverview from "./AnalyticsOverview.jsx";
 import KnowledgeGaps from "./KnowledgeGaps.jsx";
 
@@ -202,6 +202,10 @@ export default function Stats() {
     value,
   }));
 
+  const languageBreakdown = Object.entries(stats.languages || {})
+    .map(([code, value]) => ({ label: LANGUAGE_LABELS[code] || code, value }))
+    .sort((a, b) => b.value - a.value);
+
   const sla = stats.sla;
   const slaBreakdown = sla
     ? [
@@ -243,6 +247,14 @@ export default function Stats() {
               <Breakdown items={stats.tags.map((t) => ({ label: t.source === "ai" ? `${t.name} (AI)` : t.name, value: t.conversations }))} />
             ) : (
               <p style={{ fontSize: 12.5, color: "var(--text-muted)", margin: "6px 0 0" }}>Nessun tag usato finora.</p>
+            )}
+          </div>
+          <div className="wpai-card">
+            <div className="wpai-card-title"><Languages size={15} /> Lingue dei visitatori</div>
+            {languageBreakdown.length > 0 ? (
+              <Breakdown items={languageBreakdown} />
+            ) : (
+              <p style={{ fontSize: 12.5, color: "var(--text-muted)", margin: "6px 0 0" }}>Nessun dato.</p>
             )}
           </div>
           <div className="wpai-card">

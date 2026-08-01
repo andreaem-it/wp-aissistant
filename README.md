@@ -90,6 +90,16 @@ Tre componenti indipendenti:
   visitatore), menzioni `@nome` con elenco delle citazioni non lette, indicatore di presenza sulla
   conversazione che avvisa quando un collega sta già scrivendo, e registro delle azioni
   (`/conversations/{id}/activity`) alimentato dall'audit log del tenant.
+- **Multilingua** — la lingua del visitatore viene rilevata a **ogni messaggio** con un
+  riconoscitore deterministico (parole funzionali, nessuna chiamata AI in più sul percorso
+  della chat) e il locale del browser resta solo un suggerimento: se il testo dice qualcosa,
+  vince il testo. L'assistente risponde in quella lingua **anche quando la knowledge base è in
+  un'altra**: gli embedding `bge-m3` sono multilingua, quindi il retrieval non viene mai
+  filtrato per lingua e un contenuto italiano può rispondere a una domanda in tedesco. Le
+  risposte deterministiche (carrello, ordini, fuori ambito) sono tradotte a template, non
+  rigenerate: un dato d'ordine non deve poter cambiare passando da una lingua all'altra.
+  Il widget ha un catalogo di testi separato (`chat-i18n.js`) e l'inbox filtra per lingua.
+  Lingue supportate: italiano, inglese, spagnolo, francese, tedesco, portoghese.
 - **Analytics avanzate e gap della knowledge base** — oltre ai contatori, le metriche di esito
   sul periodo: **deflection** (conversazioni chiuse senza che un umano intervenga), escalation,
   tempi di prima risposta e risoluzione in media e mediana, trend giornaliero. Il rilevamento
@@ -129,8 +139,8 @@ Tre componenti indipendenti:
 - **Client** — tenant, identificato da `api_key`.
 - **Chunk** — pezzo di contenuto embeddato (documento o pagina sito).
 - **Product** — prodotto WooCommerce strutturato (per renderizzare card nel widget).
-- **Conversation** — `open | escalated | closed`, con priorità, operatore assegnato, reparto
-  e scadenze SLA; l'accesso del widget alla singola conversazione richiede un token visitatore
+- **Conversation** — `open | escalated | closed`, con lingua rilevata, priorità, operatore
+  assegnato, reparto e scadenze SLA; l'accesso del widget alla singola conversazione richiede un token visitatore
   casuale distinto dalla `api_key`.
 - **Message** — `user | assistant | operator`.
 - **Ticket** — `open | answered | closed`, collegato a una conversazione.
@@ -454,7 +464,7 @@ Auth via header `Authorization: Bearer <token>`. La colonna *Auth* indica quale 
 | `/ingest/product` | POST | 🔑 | Push prodotto WooCommerce (dal plugin) |
 | `/ingest/document` | POST | 👤 | Upload documento (PDF/immagine/testo) dal panel |
 | `/ingest/jobs/{id}` | GET | 🔀 | Stato di un job di ingest (`queued`/`processing`/`done`/`error`) |
-| `/conversations` | GET | 👤 | Lista conversazioni del client, filtrabile per stato, priorità, reparto, assegnazione e stato SLA (`sla_state=ok\|in_scadenza\|violato`) e ordinabile (`sort=recent\|oldest\|priority\|sla`); filtra anche per `tag_id`, `intent` e `urgency` |
+| `/conversations` | GET | 👤 | Lista conversazioni del client, filtrabile per stato, priorità, reparto, assegnazione e stato SLA (`sla_state=ok\|in_scadenza\|violato`) e ordinabile (`sort=recent\|oldest\|priority\|sla`); filtra anche per `tag_id`, `intent`, `urgency` e `conversation_language` |
 | `/conversations/{id}/routing` | PATCH | 👤 | Imposta priorità, operatore assegnato e reparto della conversazione (ricalcola le scadenze SLA) |
 | `/conversations/{id}/messages` | GET | 🔀 | Messaggi (polling widget + lettura panel) |
 | `/tickets` | GET | 👤 | Ticket per stato |

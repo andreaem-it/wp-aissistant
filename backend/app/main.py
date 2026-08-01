@@ -76,6 +76,8 @@ from .rag import extract_text, retrieve, retrieve_products, retrieve_with_meta
 from .ratelimit import make_limiter
 from .security import hash_password, password_needs_rehash, verify_password
 from . import analytics
+from . import i18n
+from . import language
 from . import tagging
 from . import webhooks
 from . import events
@@ -659,7 +661,7 @@ def _audit(session, actor_type, actor_id, action, target="", client_id=None, det
         log(logger, logging.WARNING, "audit.failed", action=action, error=str(exc))
 
 
-def _build_system(context: list[str]) -> str:
+def _build_system(context: list[str], language: str | None = None) -> str:
     return (
         "You are a customer support assistant. Handle greetings and small talk yourself, "
         "normally, without calling any tool. For substantive questions, answer only using "
@@ -671,6 +673,7 @@ def _build_system(context: list[str]) -> str:
         "these actions. When a visitor asks to add a product to the cart, tell them to use the "
         "\"Aggiungi al carrello\" button on the product card; only the site can confirm that "
         "the operation succeeded.\n\nContext:\n" + "\n---\n".join(context)
+        + i18n.prompt_language_instruction(language)
     )
 
 
@@ -686,16 +689,8 @@ def _is_cart_mutation_request(message: str) -> bool:
     return bool(_CART_MUTATION_RE.search(message or ""))
 
 
-def _cart_instruction_reply(products: list[dict]) -> str:
-    if products:
-        return (
-            "Per aggiungere il prodotto, usa il pulsante “Aggiungi al carrello” "
-            "nella scheda qui sotto."
-        )
-    return (
-        "Posso aiutarti a trovare il prodotto, ma non ne ho identificato uno con certezza. "
-        "Indicami il nome esatto: potrai aggiungerlo dal pulsante nella sua scheda."
-    )
+def _cart_instruction_reply(products: list[dict], language: str | None = None) -> str:
+    return i18n.t("cart.use_button" if products else "cart.no_product", language)
 
 
 _SMALL_TALK_RE = re.compile(
@@ -703,10 +698,8 @@ _SMALL_TALK_RE = re.compile(
     r"arrivederci|a presto|come stai|chi sei|cosa (?:sai|puoi) fare)[!?.\s]*$",
     re.IGNORECASE,
 )
-_OUT_OF_SCOPE_REPLY = (
-    "Posso aiutarti con i prodotti, i servizi e l’assistenza relativi a questo sito. "
-    "Non posso rispondere a domande di cultura generale."
-)
+def _out_of_scope_reply(language: str | None = None) -> str:
+    return i18n.t("scope.out_of_scope", language)
 
 
 def _is_small_talk(message: str) -> bool:
@@ -772,23 +765,27 @@ def _order_lookup(origin: str, api_key: str, order_number: str, identifier: str,
         return {"error": str(exc)}
 
 
-def _format_order_reply(data: dict) -> str:
+def _format_order_reply(data: dict, language: str | None = None) -> str:
     """Deterministic templating from the plugin's structured response — never a second LLM
-    round-trip, so order/financial facts can't be hallucinated."""
+    round-trip, so order/financial facts can't be hallucinated. Translated the same way, for
+    the same reason: re-generating these lines in another language would be a chance to get a
+    financial fact wrong."""
     if not data.get("verified"):
-        return ("Non sono riuscito a verificare l'ordine con i dati forniti. Controlla il "
-                "numero d'ordine e riprova, oppure chiedimi di parlare con un operatore.")
-    status = data.get("status") or "non disponibile"
+        return i18n.t("order.not_verified", language)
+    status = data.get("status") or i18n.t("order.status_unknown", language)
     shipping = data.get("shipping_date")
-    lines = [f"Stato dell'ordine: {status}."]
-    lines.append(f"Data di spedizione: {shipping}." if shipping else "Non è ancora stata registrata una data di spedizione.")
+    lines = [i18n.t("order.status", language, value=status)]
+    lines.append(
+        i18n.t("order.shipping_date", language, value=shipping) if shipping
+        else i18n.t("order.no_shipping_date", language)
+    )
     if data.get("verified") == "full":
         if data.get("total"):
-            lines.append(f"Totale: {data['total']}.")
+            lines.append(i18n.t("order.total", language, value=data["total"]))
         if data.get("items"):
-            lines.append("Articoli: " + ", ".join(data["items"]) + ".")
+            lines.append(i18n.t("order.items", language, value=", ".join(data["items"])))
         if data.get("shipping_address"):
-            lines.append(f"Indirizzo di spedizione: {data['shipping_address']}.")
+            lines.append(i18n.t("order.shipping_address", language, value=data["shipping_address"]))
     return " ".join(lines)
 
 
@@ -880,6 +877,7 @@ def _prepare_chat_turn(
     message: str,
     conversation_id: int | None,
     conversation_token: str | None,
+    locale: str | None = None,
 ) -> tuple[Conversation, str, list[dict]]:
     """Shared state transition for both blocking and SSE chat transports."""
     if not message.strip():
@@ -904,6 +902,9 @@ def _prepare_chat_turn(
         ).all()
     ]
     session.add(Message(conversation_id=conv.id, role="user", content=message))
+    # Re-detected every turn: a visitor can switch language mid-conversation, and the browser
+    # locale is only a hint — what they actually type wins when it says something.
+    conv.language = language.detect(message, hint=locale, default=conv.language or language.DEFAULT)
     conv.updated_at = datetime.utcnow()
     if conv.status == "closed":
         conv.status = "open"
@@ -955,7 +956,7 @@ def _save_order_lookup_reply(
     retrieval_meta: list[dict] | None = None,
     llm_meta: dict | None = None,
 ) -> tuple[str, Message]:
-    reply_text = _format_order_reply(data)
+    reply_text = _format_order_reply(data, conv.language)
     reply_msg = Message(conversation_id=conv.id, role="assistant", content=reply_text)
     session.add(reply_msg)
     conv.updated_at = datetime.utcnow()
@@ -984,6 +985,7 @@ def chat_stream_endpoint(
     wp_user_token: str | None = Body(None),
     site_url: str | None = Body(None),
     support_available: bool = Body(True),
+    locale: str | None = Body(None),  # browser language, used only as a hint
     client: Client = Depends(rate_limit_chat),
     session: Session = Depends(get_session),
 ):
@@ -1015,6 +1017,7 @@ def chat_stream_endpoint(
                 message=message,
                 conversation_id=conversation_id,
                 conversation_token=conversation_token,
+                locale=locale,
             )
 
             yield _sse({
@@ -1061,7 +1064,7 @@ def chat_stream_endpoint(
                     products = retrieve_products(s, client_id, message)
                 except LLMUnavailableError:
                     products = []
-                reply_text = _cart_instruction_reply(products)
+                reply_text = _cart_instruction_reply(products, conv.language)
                 reply_msg = Message(conversation_id=conv.id, role="assistant", content=reply_text)
                 s.add(reply_msg)
                 conv.updated_at = datetime.utcnow()
@@ -1092,7 +1095,7 @@ def chat_stream_endpoint(
             try:
                 context, retrieval_meta = retrieve_with_meta(s, client_id, message)
                 if not _is_small_talk(message) and not _retrieval_is_in_scope(retrieval_meta):
-                    full = _OUT_OF_SCOPE_REPLY
+                    full = _out_of_scope_reply(conv.language)
                     reply_msg = Message(conversation_id=conv.id, role="assistant", content=full)
                     s.add(reply_msg)
                     conv.updated_at = datetime.utcnow()
@@ -1115,7 +1118,7 @@ def chat_stream_endpoint(
                         "products": [],
                     })
                     return
-                system = _build_system(context)
+                system = _build_system(context, conv.language)
                 for kind, payload in llm_chat_stream(system, history, message):
                     if kind == "meta":
                         meta = payload
@@ -1205,6 +1208,7 @@ def chat_endpoint(
     wp_user_token: str | None = Body(None),
     site_url: str | None = Body(None),
     support_available: bool = Body(True),
+    locale: str | None = Body(None),  # browser language, used only as a hint
     client: Client = Depends(rate_limit_chat),
     session: Session = Depends(get_session),
 ):
@@ -1215,6 +1219,7 @@ def chat_endpoint(
         message=message,
         conversation_id=conversation_id,
         conversation_token=conversation_token,
+        locale=locale,
     )
     early_action = _deterministic_chat_action(
         session,
@@ -1251,7 +1256,7 @@ def chat_endpoint(
             products = retrieve_products(session, client.id, message)
         except LLMUnavailableError:
             products = []
-        reply_text = _cart_instruction_reply(products)
+        reply_text = _cart_instruction_reply(products, conv.language)
         reply_msg = Message(conversation_id=conv.id, role="assistant", content=reply_text)
         session.add(reply_msg)
         conv.updated_at = datetime.utcnow()
@@ -1275,7 +1280,7 @@ def chat_endpoint(
             reply_msg = Message(
                 conversation_id=conv.id,
                 role="assistant",
-                content=_OUT_OF_SCOPE_REPLY,
+                content=_out_of_scope_reply(conv.language),
             )
             session.add(reply_msg)
             conv.updated_at = datetime.utcnow()
@@ -1294,11 +1299,11 @@ def chat_endpoint(
                 "conversation_id": conv.id,
                 "conversation_token": access_token,
                 "status": "open",
-                "reply": _OUT_OF_SCOPE_REPLY,
+                "reply": _out_of_scope_reply(conv.language),
                 "products": [],
                 "message_id": reply_msg.id,
             }
-        system = _build_system(context)
+        system = _build_system(context, conv.language)
         result = llm_chat(system, history, message)
     except LLMUnavailableError as exc:
         # model provider unreachable after retries — hand off instead of failing the request
@@ -2141,7 +2146,7 @@ def _inbox_order(sort: str) -> list:
 
 INBOX_FILTER_KEYS = (
     "status", "priority", "department_id", "assigned_operator_id", "unassigned", "sla_state",
-    "tag_id", "intent", "urgency",
+    "tag_id", "intent", "urgency", "conversation_language",
 )
 
 
@@ -2196,6 +2201,11 @@ def _clean_inbox_filters(session: Session, client_id: int, raw: dict) -> dict:
         if urgency not in llm_urgencies:
             raise HTTPException(400, "invalid urgency")
         clean["urgency"] = urgency
+    conversation_language = raw.get("conversation_language")
+    if conversation_language:
+        if conversation_language not in language.SUPPORTED:
+            raise HTTPException(400, "invalid language")
+        clean["conversation_language"] = conversation_language
     if raw.get("unassigned"):
         clean["unassigned"] = True
     return clean
@@ -2508,6 +2518,7 @@ def list_conversations(
     tag_id: int | None = None,
     intent: str | None = None,
     urgency: str | None = None,
+    conversation_language: str | None = None,
     sort: str = "recent",
     operator: Operator = Depends(require_operator),
     session: Session = Depends(get_session),
@@ -2559,6 +2570,10 @@ def list_conversations(
         if urgency not in llm_urgencies:
             raise HTTPException(400, "invalid urgency")
         query = query.where(Conversation.ai_urgency == urgency)
+    if conversation_language:
+        if conversation_language not in language.SUPPORTED:
+            raise HTTPException(400, "invalid language")
+        query = query.where(Conversation.language == conversation_language)
     if before_id:
         query = query.where(Conversation.id < before_id)
     convs = session.exec(
@@ -4856,6 +4871,15 @@ def _csat_summary(session: Session, client_id: int | None, since: datetime | Non
     }
 
 
+def _language_stats(session: Session, client_id: int | None) -> dict:
+    """How many conversations in each language — the signal that says whether translating the
+    knowledge base is worth it."""
+    q = select(Conversation.language, func.count()).group_by(Conversation.language)
+    if client_id is not None:
+        q = q.where(Conversation.client_id == client_id)
+    return {code: int(n) for code, n in session.exec(q).all() if code}
+
+
 def _build_stats(session: Session, client_id: int | None) -> dict:
     """Aggregated analytics for one client (operator view) or the whole system (client_id=None,
     admin view): conversation status split, AI resolution vs escalation, escalation triggers,
@@ -4888,6 +4912,7 @@ def _build_stats(session: Session, client_id: int | None) -> dict:
         "tags": _tag_stats(session, client_id),
         "classification": _classification_stats(session, client_id),
         "csat": _csat_summary(session, client_id),
+        "languages": _language_stats(session, client_id),
         "volume_daily": _daily_volume(session, client_id),
     }
 

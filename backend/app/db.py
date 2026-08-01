@@ -87,6 +87,9 @@ class Conversation(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=datetime.utcnow)
     closed_at: Optional[datetime] = None
     status: str = "open"  # open | escalated | closed
+    # language the visitor writes in (see app/language.py); the assistant answers in it even
+    # when the knowledge base is in another language
+    language: str = Field(default="it", index=True)
     priority: str = Field(default="normal", index=True)  # low | normal | high | urgent
     assigned_operator_id: Optional[int] = Field(default=None, foreign_key="operator.id", index=True)
     department_id: Optional[int] = Field(default=None, foreign_key="department.id", index=True)

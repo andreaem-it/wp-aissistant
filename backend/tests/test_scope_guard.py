@@ -24,7 +24,14 @@ def test_scope_requires_a_selected_close_result(monkeypatch):
 
 
 def test_out_of_scope_reply_does_not_offer_escalation():
-    reply = main._OUT_OF_SCOPE_REPLY.lower()
-    assert "cultura generale" in reply
-    assert "operatore" not in reply
-    assert "ticket" not in reply
+    """Il rifiuto fuori ambito non deve promettere un umano: vale in ogni lingua, perché una
+    traduzione che offre un operatore creerebbe un'aspettativa che il codice non mantiene."""
+    from app import language
+
+    promesse = ("operator", "operatore", "ticket", "agent", "mitarbeiter")
+    for code in language.SUPPORTED:
+        reply = main._out_of_scope_reply(code).lower()
+        assert reply
+        assert not any(parola in reply for parola in promesse), code
+    assert "cultura generale" in main._out_of_scope_reply("it").lower()
+    assert "general knowledge" in main._out_of_scope_reply("en").lower()

@@ -25,6 +25,12 @@ describe("toApiFilters", () => {
     ).toEqual({ status: "escalated", priority: "urgent", department_id: 3, sla_state: "violato" });
   });
 
+  it("carries the conversation language", () => {
+    expect(toApiFilters({ ...EMPTY_FILTERS, conversation_language: "en" })).toEqual({
+      conversation_language: "en",
+    });
+  });
+
   it("carries tag and classification filters", () => {
     expect(toApiFilters({ ...EMPTY_FILTERS, tag_id: "5", intent: "reso", urgency: "alta" })).toEqual({
       tag_id: 5,
@@ -52,6 +58,7 @@ describe("fromApiFilters", () => {
       tag_id: "",
       intent: "",
       urgency: "",
+      conversation_language: "",
       sort: "priority",
     });
   });

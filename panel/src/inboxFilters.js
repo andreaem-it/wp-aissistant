@@ -10,7 +10,17 @@ export const EMPTY_FILTERS = {
   tag_id: "",
   intent: "",
   urgency: "",
+  conversation_language: "",
   sort: "recent",
+};
+
+export const LANGUAGE_LABELS = {
+  it: "Italiano",
+  en: "Inglese",
+  es: "Spagnolo",
+  fr: "Francese",
+  de: "Tedesco",
+  pt: "Portoghese",
 };
 
 export const INTENT_LABELS = {
@@ -35,6 +45,7 @@ export function toApiFilters(filters) {
   if (filters.tag_id) out.tag_id = Number(filters.tag_id);
   if (filters.intent) out.intent = filters.intent;
   if (filters.urgency) out.urgency = filters.urgency;
+  if (filters.conversation_language) out.conversation_language = filters.conversation_language;
   if (filters.assignment === "unassigned") out.unassigned = true;
   else if (filters.assignment) out.assigned_operator_id = Number(filters.assignment);
   return out;
@@ -57,6 +68,7 @@ export function fromApiFilters(saved, sort) {
     tag_id: source.tag_id ? String(source.tag_id) : "",
     intent: source.intent || "",
     urgency: source.urgency || "",
+    conversation_language: source.conversation_language || "",
     assignment: source.unassigned
       ? "unassigned"
       : source.assigned_operator_id

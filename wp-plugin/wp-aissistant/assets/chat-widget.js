@@ -12,6 +12,15 @@
   const PROACTIVE_SESSION_KEY = "wpai_proactive_session_";
   const PROACTIVE_OPTOUT_KEY = "wpai_proactive_optout";
 
+  // Lingua del widget: impostazione del sito WordPress, poi browser, poi italiano. Il backend
+  // riceve comunque il locale come suggerimento e rileva la lingua da ciò che il visitatore
+  // scrive davvero.
+  const I18N = window.WPAI_I18N;
+  const LANG = I18N ? I18N.resolve(WPAI.locale, navigator.language) : "it";
+  function t(key, values) {
+    return I18N ? I18N.t(key, LANG, values) : key;
+  }
+
   function visitorId() {
     let id = localStorage.getItem(VISITOR_KEY);
     if (!id) {
@@ -90,7 +99,7 @@
       const addButton = document.createElement("button");
       addButton.type = "button";
       addButton.className = "wpai-add-to-cart";
-      addButton.textContent = "Aggiungi al carrello";
+      addButton.textContent = t("cart.add");
       let optionsUrl = "";
       addButton.addEventListener("click", async () => {
         if (optionsUrl) {
@@ -99,7 +108,7 @@
         }
         if (addButton.disabled) return;
         addButton.disabled = true;
-        addButton.textContent = "Aggiungo…";
+        addButton.textContent = t("cart.adding");
         try {
           const response = await fetch(WPAI.ajaxUrl, {
             method: "POST",
@@ -115,13 +124,13 @@
             const error = result && result.data ? result.data : {};
             if (error.product_url) {
               optionsUrl = error.product_url;
-              addButton.textContent = "Scegli le opzioni";
+              addButton.textContent = t("cart.options");
               addButton.disabled = false;
               return;
             }
             throw new Error(error.message || "Aggiunta non riuscita");
           }
-          addButton.textContent = "✓ Aggiunto";
+          addButton.textContent = t("cart.added");
           addButton.classList.add("is-added");
           if (window.jQuery) {
             window.jQuery(document.body).trigger("added_to_cart", [
@@ -132,9 +141,9 @@
             window.jQuery(document.body).trigger("wc_fragment_refresh");
           }
           document.body.dispatchEvent(new CustomEvent("wpai_cart_updated", {detail: result.data}));
-          addMessage(container, "assistant", `${p.title || "Il prodotto"} è stato aggiunto al carrello.`);
+          addMessage(container, "assistant", t("cart.added_message", { product: p.title || t("cart.product") }));
         } catch (error) {
-          addButton.textContent = "Riprova";
+          addButton.textContent = t("common.retry");
           addButton.disabled = false;
           addButton.title = error.message || "";
         }
@@ -168,7 +177,7 @@
     if (!messageId) return;
     const wrap = document.createElement("div");
     wrap.className = "wpai-feedback";
-    for (const [value, icon, aria] of [["up", "fa-thumbs-up", "Risposta utile"], ["down", "fa-thumbs-down", "Risposta non utile"]]) {
+    for (const [value, icon, aria] of [["up", "fa-thumbs-up", t("feedback.up")], ["down", "fa-thumbs-down", t("feedback.down")]]) {
       const btn = document.createElement("button");
       btn.type = "button";
       btn.className = "wpai-fb-btn wpai-fb-" + value;
@@ -189,7 +198,7 @@
     wrap.className = "wpai-contact";
     const label = document.createElement("div");
     label.className = "wpai-contact-label";
-    label.textContent = "Lascia la tua email per essere avvisato della risposta:";
+    label.textContent = t("contact.label");
     const form = document.createElement("form");
     form.className = "wpai-contact-form";
     const input = document.createElement("input");
@@ -198,7 +207,7 @@
     input.placeholder = "tua@email.it";
     const btn = document.createElement("button");
     btn.type = "submit";
-    btn.textContent = "Avvisami";
+    btn.textContent = t("contact.submit");
     form.appendChild(input);
     form.appendChild(btn);
     form.addEventListener("submit", async (e) => {
@@ -215,7 +224,7 @@
           }),
         });
         localStorage.setItem(CONTACT_KEY, String(conversationId));
-        wrap.innerHTML = '<i class="fa-solid fa-check"></i> Ti avviseremo via email appena rispondiamo.';
+        wrap.innerHTML = '<i class="fa-solid fa-check"></i> ' + t("contact.done");
         wrap.className = "wpai-contact done";
       } catch (e2) {
         // best-effort: don't block the chat if the contact save fails
@@ -239,7 +248,7 @@
     wrap.className = "wpai-rating";
     const label = document.createElement("div");
     label.className = "wpai-contact-label";
-    label.textContent = "Come valuti questa conversazione?";
+    label.textContent = t("rating.question");
     const stars = document.createElement("div");
     stars.className = "wpai-rating-stars";
     const form = document.createElement("form");
@@ -247,10 +256,10 @@
     const input = document.createElement("input");
     input.type = "text";
     input.maxLength = 500;
-    input.placeholder = "Commento (facoltativo)";
+    input.placeholder = t("rating.comment");
     const submit = document.createElement("button");
     submit.type = "submit";
-    submit.textContent = "Invia";
+    submit.textContent = t("lead.submit");
     form.appendChild(input);
     form.appendChild(submit);
 
@@ -269,11 +278,11 @@
           }),
         });
         if (!res.ok) throw new Error("rating failed");
-        wrap.innerHTML = '<i class="fa-solid fa-check"></i> Grazie per la valutazione.';
+        wrap.innerHTML = '<i class="fa-solid fa-check"></i> ' + t("rating.thanks");
         wrap.className = "wpai-rating done";
       } catch (e) {
         // niente conferme ottimistiche: se non è stata registrata, dillo
-        label.textContent = "Non siamo riusciti a registrare la valutazione. Riprova.";
+        label.textContent = t("rating.error");
       }
     };
 
@@ -282,7 +291,7 @@
       btn.type = "button";
       btn.className = "wpai-star";
       btn.innerHTML = '<i class="fa-regular fa-star"></i>';
-      btn.setAttribute("aria-label", `${value} su 5`);
+      btn.setAttribute("aria-label", t("rating.stars", { n: value }));
       btn.addEventListener("click", () => {
         chosen = value;
         [...stars.children].forEach((el, index) => {
@@ -387,13 +396,13 @@
 
     const submit = document.createElement("button");
     submit.type = "submit";
-    submit.textContent = "Invia";
+    submit.textContent = t("lead.submit");
     el.appendChild(submit);
 
     el.addEventListener("submit", async (event) => {
       event.preventDefault();
       submit.disabled = true;
-      submit.textContent = "Invio…";
+      submit.textContent = t("lead.sending");
       const data = {};
       for (const [key, control] of Object.entries(inputs)) data[key] = control.value;
       try {
@@ -409,12 +418,12 @@
           }),
         });
         if (!res.ok) throw new Error("invio non riuscito");
-        wrap.innerHTML = '<i class="fa-solid fa-check"></i> Grazie, ti ricontattiamo presto.';
+        wrap.innerHTML = '<i class="fa-solid fa-check"></i> ' + t("lead.done");
         wrap.className = "wpai-contact done";
       } catch (e2) {
         // niente conferme ottimistiche: se non è stato registrato, dillo e lascia riprovare
         submit.disabled = false;
-        submit.textContent = "Riprova";
+        submit.textContent = t("common.retry");
       }
     });
 
@@ -497,7 +506,7 @@
     const reply = document.createElement("button");
     reply.type = "button";
     reply.className = "wpai-proactive-reply";
-    reply.textContent = "Rispondi";
+    reply.textContent = t("proactive.reply");
     reply.addEventListener("click", () => {
       bubble.remove();
       addMessage(messages, "assistant", rule.message);
@@ -508,13 +517,13 @@
     const dismiss = document.createElement("button");
     dismiss.type = "button";
     dismiss.className = "wpai-proactive-dismiss";
-    dismiss.textContent = "Non ora";
+    dismiss.textContent = t("proactive.later");
     dismiss.addEventListener("click", () => bubble.remove());
 
     const never = document.createElement("button");
     never.type = "button";
     never.className = "wpai-proactive-never";
-    never.textContent = "Non mostrare più";
+    never.textContent = t("proactive.never");
     never.addEventListener("click", () => {
       localStorage.setItem(PROACTIVE_OPTOUT_KEY, "1");
       bubble.remove();
@@ -523,7 +532,7 @@
     const close = document.createElement("button");
     close.type = "button";
     close.className = "wpai-proactive-close";
-    close.setAttribute("aria-label", "Chiudi il messaggio");
+    close.setAttribute("aria-label", t("proactive.close"));
     close.innerHTML = '<i class="fa-solid fa-xmark" aria-hidden="true"></i>';
     close.addEventListener("click", () => bubble.remove());
 
@@ -729,6 +738,7 @@
           wp_user_token: await userToken(),
           site_url: WPAI.siteUrl,
           support_available: supportAvailable(),
+          locale: LANG,
         }),
       });
     } finally {
@@ -751,12 +761,12 @@
     if (data.status === "escalated") {
       if (localStorage.getItem(ESCALATED_KEY) !== String(data.conversation_id)) {
         localStorage.setItem(ESCALATED_KEY, String(data.conversation_id));
-        addMessage(messages, "system", "La tua richiesta è stata inoltrata a un operatore, ti risponderemo qui appena possibile.");
+        addMessage(messages, "system", t("chat.escalated"));
         addContactForm(messages, data.conversation_id);
         addLeadForm(messages, data.conversation_id);
       }
     } else if (data.status === "quota_exceeded") {
-      addMessage(messages, "system", "Il limite di messaggi è stato raggiunto. Riprova più tardi o contatta il supporto.");
+      addMessage(messages, "system", t("chat.quota"));
     } else if (data.status === "ticket_offered") {
       addTicketOffer(messages, data.conversation_id, data.reason);
     } else {
@@ -787,6 +797,7 @@
           wp_user_token: await userToken(),
           site_url: WPAI.siteUrl,
           support_available: supportAvailable(),
+          locale: LANG,
         }),
       });
     } catch (e) {
@@ -826,13 +837,13 @@
         setTyping(messages, false);
         if (localStorage.getItem(ESCALATED_KEY) !== String(convId)) {
           localStorage.setItem(ESCALATED_KEY, String(convId));
-          addMessage(messages, "system", "La tua richiesta è stata inoltrata a un operatore, ti risponderemo qui appena possibile.");
+          addMessage(messages, "system", t("chat.escalated"));
           addContactForm(messages, convId);
           addLeadForm(messages, convId);
         }
       } else if (evt.type === "quota_exceeded") {
         setTyping(messages, false);
-        addMessage(messages, "system", "Il limite di messaggi è stato raggiunto. Riprova più tardi o contatta il supporto.");
+        addMessage(messages, "system", t("chat.quota"));
       } else if (evt.type === "ticket_offered") {
         setTyping(messages, false);
         addTicketOffer(messages, convId, evt.reason);
@@ -876,7 +887,7 @@
       const el = document.createElement("div");
       el.id = "wpai-op-typing";
       el.className = "wpai-msg assistant wpai-typing";
-      el.textContent = `${name} sta scrivendo...`;
+      el.textContent = `${name} ${t("chat.typing")}`;
       container.appendChild(el);
       container.scrollTop = container.scrollHeight;
     }
@@ -968,7 +979,7 @@
     const toggle = document.createElement("button");
     toggle.id = "wpai-toggle";
     toggle.type = "button";
-    toggle.setAttribute("aria-label", "Apri la chat");
+    toggle.setAttribute("aria-label", t("chat.open"));
     toggle.setAttribute("aria-expanded", "false");
     toggle.setAttribute("aria-controls", "wpai-window");
     const toggleLabel = document.createElement("span");
@@ -1039,7 +1050,7 @@
     const input = document.createElement("input");
     input.id = "wpai-input";
     input.type = "text";
-    input.placeholder = "Scrivi un messaggio…";
+    input.placeholder = t("chat.placeholder");
     input.autocomplete = "off";
     input.setAttribute("aria-label", "Messaggio");
     const send = document.createElement("button");
@@ -1060,7 +1071,7 @@
       win.classList.toggle("open", open);
       root.classList.toggle("wpai-is-open", open);
       toggle.setAttribute("aria-expanded", String(open));
-      toggle.setAttribute("aria-label", open ? "Chiudi la chat" : "Apri la chat");
+      toggle.setAttribute("aria-label", open ? t("chat.close") : t("chat.open"));
       toggleIcon.className = open ? "fa-solid fa-xmark" : "fa-solid fa-comment-dots";
       localStorage.setItem(OPEN_KEY, open ? "1" : "0");
       if (open) window.setTimeout(() => input.focus(), 180);
@@ -1105,7 +1116,7 @@
         try {
           await sendMessage(text, messages);
         } catch (err2) {
-          addMessage(messages, "system", "Errore di connessione, riprova tra poco.");
+          addMessage(messages, "system", t("chat.error"));
         }
       }
     });
