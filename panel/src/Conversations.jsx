@@ -48,6 +48,7 @@ export default function Conversations() {
   const [messages, setMessages] = useState([]);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
+  const [deliveryError, setDeliveryError] = useState("");
 
   const [canned, setCanned] = useState([]);
   const [fields, setFields] = useState([]);
@@ -203,6 +204,7 @@ export default function Conversations() {
     setNoteDraft("");
     setNoteMentions([]);
     setNoteError("");
+    setDeliveryError("");
     setPresence({ others: [], conflict: false });
     loadMessages(selected);
     loadNotes(selected);
@@ -234,9 +236,17 @@ export default function Conversations() {
     const text = draft.trim();
     if (!text || !selected) return;
     setSending(true);
+    setDeliveryError("");
     try {
-      await api.replyConversation(selected, text);
+      const result = await api.replyConversation(selected, text);
       setDraft("");
+      if (result.delivered === false) {
+        setDeliveryError(
+          selectedRow?.conversation.channel === "whatsapp"
+            ? "Risposta salvata ma non consegnata. La finestra WhatsApp di 24 ore potrebbe essere scaduta oppure il canale non è ancora configurato."
+            : "Risposta salvata ma non consegnata al destinatario. Verifica la configurazione del canale."
+        );
+      }
       await loadMessages(selected);
       loadNotes(selected);
       loadList();
@@ -527,6 +537,12 @@ export default function Conversations() {
                       ? `${presence.others.filter((o) => o.composing).map((o) => o.name).join(", ")} sta già scrivendo una risposta.`
                       : `Anche ${presence.others.map((o) => o.name).join(", ")} sta guardando questa conversazione.`}
                   </div>
+                </div>
+              )}
+              {deliveryError && (
+                <div className="wpai-callout warn" role="alert">
+                  <AlertTriangle size={15} aria-hidden="true" />
+                  <div>{deliveryError}</div>
                 </div>
               )}
               <form className="wpai-reply-bar" onSubmit={(e) => { e.preventDefault(); send(); }}>
