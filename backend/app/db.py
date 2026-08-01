@@ -102,6 +102,22 @@ class WhatsAppConsent(SQLModel, table=True):
     )
 
 
+class PushSubscription(SQLModel, table=True):
+    """One browser push subscription owned by one tenant-scoped operator."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    client_id: int = Field(index=True, foreign_key="client.id")
+    operator_id: int = Field(index=True, foreign_key="operator.id")
+    endpoint: str = Field(unique=True)
+    p256dh: str
+    auth: str
+    escalations: bool = True
+    assignments: bool = True
+    mentions: bool = True
+    sla_breaches: bool = True
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 class Conversation(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     client_id: int = Field(index=True, foreign_key="client.id")

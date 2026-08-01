@@ -43,6 +43,9 @@ def production_warnings(env: Mapping[str, str]) -> list[str]:
         warnings.append("BREVO_API_KEY is required when EMAIL_PROVIDER=brevo_api")
     if email_provider == "smtp" and not env.get("SMTP_HOST", "").strip():
         warnings.append("SMTP_HOST is required when EMAIL_PROVIDER=smtp")
+    vapid = [env.get(name, "").strip() for name in ("VAPID_PUBLIC_KEY", "VAPID_PRIVATE_KEY", "VAPID_SUBJECT")]
+    if any(vapid) and not all(vapid):
+        warnings.append("VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY and VAPID_SUBJECT must be configured together")
     return warnings
 
 

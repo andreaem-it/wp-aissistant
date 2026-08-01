@@ -391,6 +391,9 @@ Per collegare CRM e automazioni ci sono due strade complementari, documentate in
 | `WHATSAPP_OUTBOUND_URL` | *(non impostato)* | Endpoint HTTPS dell'adapter WhatsApp tenant-aware per le risposte operatore |
 | `WHATSAPP_OUTBOUND_TOKEN` | *(non impostato)* | Bearer token condiviso con l'adapter WhatsApp; le credenziali Meta non entrano nel database |
 | `WHATSAPP_OUTBOUND_TIMEOUT` | `10` | Timeout dell'adapter WhatsApp in secondi |
+| `VAPID_PUBLIC_KEY` | *(non impostato)* | Chiave pubblica URL-safe per sottoscrivere i browser alle notifiche push |
+| `VAPID_PRIVATE_KEY` | *(non impostato)* | Chiave privata VAPID, conservata soltanto nel backend |
+| `VAPID_SUBJECT` | `mailto:support@wpaissistant.it` | Contatto del mittente Web Push (`mailto:` o URL HTTPS) |
 | `SMTP_TLS` | `true` | `true` = STARTTLS, `ssl` = SMTPS, `false` = nessuna cifratura |
 | `PANEL_PUBLIC_URL` | *(= primo `PANEL_ORIGINS`)* | URL pubblico del panel, usato per costruire i link nelle email (`/?verify=`, `/?reset=`) |
 | `VERIFY_TOKEN_TTL_HOURS` | `48` | Validità del link di verifica email |
@@ -463,6 +466,9 @@ Auth via header `Authorization: Bearer <token>`. La colonna *Auth* indica quale 
 | `/channels/whatsapp/inbound` | POST | 🔓 | Adapter inbound WhatsApp (scope `channels:write`), consenso, deduplicazione e threading ([guida](docs/whatsapp-channel.md)) |
 | `/conversations/{id}/whatsapp/status` | GET | 🔒 | Stato finestra di 24 ore e consenso WhatsApp |
 | `/conversations/{id}/whatsapp/template` | POST | 🔒 | Invio di un template WhatsApp approvato con consenso registrato |
+| `/push/config` | GET | 🔒 | Configurazione e preferenze Web Push dell'operatore |
+| `/push/subscriptions` | POST/DELETE | 🔒 | Attiva o disattiva un dispositivo dell'operatore |
+| `/push/preferences` | PATCH | 🔒 | Preferenze per escalation, assegnazioni, menzioni e SLA |
 | `/v1/conversations` | GET | 🔓 | API pubblica: elenco conversazioni (scope `conversations:read`) |
 | `/v1/conversations/{id}` | GET | 🔓 | Dettaglio con messaggi (senza note interne) |
 | `/v1/conversations/{id}/reply` | POST | 🔓 | Risposta dall'esterno (scope `conversations:write`) |

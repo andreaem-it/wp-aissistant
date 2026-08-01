@@ -21,6 +21,7 @@ ambiente di produzione e conservare evidenze (report, screenshot o link all'inci
 - [ ] Rotazione dei secret provata e procedura di emergenza documentata.
 - [ ] Stripe webhook firmato, email provider e mittente verificati.
 - [ ] Webhook WhatsApp firmato, versione Graph supportata, token di verifica e rotazione secret provati.
+- [ ] Coppia VAPID configurata; push ricevuto a panel chiuso e click diretto verificato su desktop/mobile.
 
 ## 3. Monitoraggio
 

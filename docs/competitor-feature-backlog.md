@@ -77,7 +77,7 @@ Queste funzionalità esistono già e non vanno reinserite come nuove feature:
 | Instagram/Facebook Messenger | Dopo il modello canale unificato introdotto per email/WhatsApp. | Alta |
 | Integrazioni CRM | HubSpot/Pipedrive come primi connettori, poi Salesforce in base alla domanda. | Alta |
 | Integrazioni help desk | Import/export e handoff con Zendesk, Freshdesk o Intercom per clienti già strutturati. | Alta |
-| Notifiche push/PWA operatore | Dopo presenza, assegnazione e SLA; utile per team senza panel sempre aperto. | Media |
+| Notifiche push/PWA operatore | **Rilasciata:** panel installabile, sottoscrizioni multi-dispositivo per operatore, preferenze e push su escalation, assegnazioni, menzioni e violazioni SLA; click diretto sulla conversazione e rimozione automatica endpoint scaduti. | Media |
 | SDK/widget headless | API e componenti per siti non WordPress, mantenendo il plugin come canale principale. | Alta |
 | Marketplace e connettori | Solo dopo API/webhook stabili e modello di permessi definito. | Alta |
 

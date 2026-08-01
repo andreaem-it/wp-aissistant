@@ -56,6 +56,10 @@ export const api = {
   resendVerification: (email) =>
     call("/auth/resend-verification", { method: "POST", body: { email }, auth: false }),
   logout: () => call("/operator/logout", { method: "POST" }),
+  pushConfig: () => call("/push/config"),
+  savePushSubscription: (body) => call("/push/subscriptions", { method: "POST", body }),
+  updatePushPreferences: (preferences) => call("/push/preferences", { method: "PATCH", body: { preferences } }),
+  deletePushSubscription: (endpoint) => call("/push/subscriptions", { method: "DELETE", body: { endpoint } }),
   conversations: (params = {}) => call("/conversations", { params }),
   messages: (id) => call(`/conversations/${id}/messages`),
   tickets: (status = "open") => call("/tickets", { params: { status } }),

@@ -41,3 +41,9 @@ def test_stripe_requires_webhook_secret():
     env = safe_env()
     env["STRIPE_SECRET_KEY"] = "sk_live_example"
     assert any("STRIPE_WEBHOOK_SECRET" in warning for warning in production_warnings(env))
+
+
+def test_partial_vapid_configuration_is_reported():
+    env = safe_env()
+    env["VAPID_PUBLIC_KEY"] = "public-only"
+    assert any("VAPID_PRIVATE_KEY" in warning for warning in production_warnings(env))

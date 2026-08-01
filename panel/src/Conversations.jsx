@@ -44,7 +44,7 @@ function SlaBadge({ sla }) {
 
 export default function Conversations() {
   const [items, setItems] = useState([]);
-  const [selected, setSelected] = useState(null);
+  const [selected, setSelected] = useState(() => Number(new URLSearchParams(window.location.search).get("conversation")) || null);
   const [messages, setMessages] = useState([]);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);

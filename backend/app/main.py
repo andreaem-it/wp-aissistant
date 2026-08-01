@@ -44,6 +44,7 @@ from .db import (
     Plan,
     ProactiveRule,
     Product,
+    PushSubscription,
     RoutingSetting,
     SavedView,
     SlaPolicy,
@@ -60,6 +61,7 @@ from .db import (
 )
 from . import email as email_service
 from . import whatsapp as whatsapp_service
+from . import push as push_service
 from fastapi.responses import StreamingResponse
 
 import urllib.error
@@ -892,6 +894,12 @@ def _escalate(session, client_id, client_name, conv, reason, *, outcome, trigger
     metrics.escalations_total.labels(trigger=trigger).inc()
     _log_ai_response(session, client_id, conv.id, outcome, retrieval_meta=retrieval_meta, llm_meta=llm_meta)
     notify_new_ticket(client_name, conv.id, ticket.id, reason)
+    push_service.send(
+        session, client_id, "assignment" if assignee else "escalation",
+        title="Nuova conversazione assegnata" if assignee else "Nuova escalation",
+        body=reason[:180], conversation_id=conv.id,
+        operator_ids=[assignee.id] if assignee else None,
+    )
     events.emit(session, client_id, "conversation.escalated", {
         "conversation_id": conv.id, "ticket_id": ticket.id, "reason": reason, "trigger": trigger,
     }, conv=conv, depth=depth)
@@ -2052,6 +2060,12 @@ def create_note(
         )
     if mentioned:
         session.commit()
+        push_service.send(
+            session, operator.client_id, "mention",
+            title=f"{_operator_name(operator)} ti ha menzionato",
+            body=text[:180], conversation_id=conversation_id,
+            operator_ids=[member.id for member in mentioned],
+        )
     _audit(
         session, "operator", operator.email, "note.create",
         target=f"conversation:{conversation_id}", client_id=operator.client_id,
@@ -2524,6 +2538,12 @@ def check_sla_breaches(session: Session) -> int:
                 detail={"target": target, "due_at": _iso(due_at)},
             )
             notify_sla_breach(client_name, conv.id, target, _iso(due_at) or "")
+            push_service.send(
+                session, conv.client_id, "sla_breach",
+                title="SLA violato", body=f"Conversazione #{conv.id}: {target}",
+                conversation_id=conv.id,
+                operator_ids=[conv.assigned_operator_id] if conv.assigned_operator_id else None,
+            )
             events.emit(session, conv.client_id, "sla.breached", {
                 "conversation_id": conv.id, "target": target, "due_at": _iso(due_at),
             }, conv=conv)
@@ -2684,7 +2704,7 @@ def email_inbound(
     if not open_ticket:
         open_ticket = Ticket(conversation_id=conv.id, reason=f"Email: {clean_subject or 'senza oggetto'}")
         session.add(open_ticket)
-    _auto_assign(session, conv)
+    assignee = _auto_assign(session, conv)
     _apply_sla(session, conv, start=True)
     session.commit()
     session.refresh(conv)
@@ -2692,6 +2712,12 @@ def email_inbound(
     if ticket_created:
         tenant = session.get(Client, key.client_id)
         notify_new_ticket(tenant.name if tenant else "Supporto", conv.id, open_ticket.id, open_ticket.reason)
+        push_service.send(
+            session, key.client_id, "assignment" if assignee else "escalation",
+            title="Nuova email assegnata" if assignee else "Nuova email di supporto",
+            body=open_ticket.reason, conversation_id=conv.id,
+            operator_ids=[assignee.id] if assignee else None,
+        )
         events.emit(session, key.client_id, "conversation.escalated", {
             "conversation_id": conv.id,
             "ticket_id": open_ticket.id,
@@ -2794,7 +2820,7 @@ def whatsapp_inbound(
     if open_ticket is None:
         open_ticket = Ticket(conversation_id=conv.id, reason="Messaggio WhatsApp")
         session.add(open_ticket)
-    _auto_assign(session, conv)
+    assignee = _auto_assign(session, conv)
     _apply_sla(session, conv, start=True)
     session.commit()
     session.refresh(conv)
@@ -2802,6 +2828,12 @@ def whatsapp_inbound(
     if ticket_created:
         tenant = session.get(Client, key.client_id)
         notify_new_ticket(tenant.name if tenant else "Supporto", conv.id, open_ticket.id, open_ticket.reason)
+        push_service.send(
+            session, key.client_id, "assignment" if assignee else "escalation",
+            title="Nuovo WhatsApp assegnato" if assignee else "Nuovo messaggio WhatsApp",
+            body=open_ticket.reason, conversation_id=conv.id,
+            operator_ids=[assignee.id] if assignee else None,
+        )
         events.emit(session, key.client_id, "conversation.escalated", {
             "conversation_id": conv.id,
             "ticket_id": open_ticket.id,
@@ -2935,6 +2967,7 @@ def update_conversation_routing(
     conv = session.get(Conversation, conversation_id)
     if not conv or conv.client_id != operator.client_id:
         raise HTTPException(404, "conversation not found")
+    previous_assignee_id = conv.assigned_operator_id
     if priority is not None:
         if priority not in ("low", "normal", "high", "urgent"):
             raise HTTPException(400, "invalid priority")
@@ -2959,6 +2992,13 @@ def update_conversation_routing(
     conv.updated_at = datetime.utcnow()
     session.add(conv)
     session.commit()
+    if conv.assigned_operator_id and conv.assigned_operator_id != previous_assignee_id:
+        push_service.send(
+            session, operator.client_id, "assignment",
+            title="Conversazione assegnata",
+            body=f"La conversazione #{conv.id} è stata assegnata a te.",
+            conversation_id=conv.id, operator_ids=[conv.assigned_operator_id],
+        )
     _audit(
         session, "operator", operator.email, "conversation.routing",
         target=f"conversation:{conversation_id}", client_id=operator.client_id,
@@ -5986,6 +6026,10 @@ def delete_operator(operator_id: int, session: Session = Depends(get_session)):
         session.add(conv)
     for s in session.exec(select(OperatorSession).where(OperatorSession.operator_id == operator_id)).all():
         session.delete(s)
+    for subscription in session.exec(
+        select(PushSubscription).where(PushSubscription.operator_id == operator_id)
+    ).all():
+        session.delete(subscription)
     session.commit()  # flush the FK-dependent sessions before deleting their operator
     client_id = operator.client_id
     session.delete(operator)
@@ -6075,6 +6119,94 @@ def get_me(operator: Operator = Depends(require_operator), session: Session = De
         "plan_name": plan.name if plan else None,
         "billing_status": client.billing_status,
     }
+
+
+@app.get("/push/config")
+def push_config(operator: Operator = Depends(require_operator), session: Session = Depends(get_session)):
+    rows = session.exec(
+        select(PushSubscription).where(PushSubscription.operator_id == operator.id)
+    ).all()
+    first = rows[0] if rows else None
+    return {
+        "configured": push_service.configured(),
+        "public_key": push_service.VAPID_PUBLIC_KEY if push_service.configured() else "",
+        "subscriptions": len(rows),
+        "preferences": {
+            "escalations": first.escalations if first else True,
+            "assignments": first.assignments if first else True,
+            "mentions": first.mentions if first else True,
+            "sla_breaches": first.sla_breaches if first else True,
+        },
+    }
+
+
+@app.post("/push/subscriptions")
+def save_push_subscription(
+    endpoint: str = Body(...),
+    keys: dict = Body(...),
+    preferences: dict = Body(default={}),
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
+    clean_endpoint = (endpoint or "").strip()[:2000]
+    p256dh = str(keys.get("p256dh", "")).strip()[:500]
+    auth = str(keys.get("auth", "")).strip()[:500]
+    if not clean_endpoint.startswith("https://") or not p256dh or not auth:
+        raise HTTPException(400, "invalid push subscription")
+    row = session.exec(select(PushSubscription).where(PushSubscription.endpoint == clean_endpoint)).first()
+    if row is not None and (row.client_id != operator.client_id or row.operator_id != operator.id):
+        raise HTTPException(409, "push subscription already belongs to another operator")
+    if row is None:
+        row = PushSubscription(
+            client_id=operator.client_id, operator_id=operator.id,
+            endpoint=clean_endpoint, p256dh=p256dh, auth=auth,
+        )
+    row.client_id = operator.client_id
+    row.operator_id = operator.id
+    row.p256dh = p256dh
+    row.auth = auth
+    for field in ("escalations", "assignments", "mentions", "sla_breaches"):
+        if field in preferences:
+            setattr(row, field, bool(preferences[field]))
+    row.updated_at = datetime.utcnow()
+    session.add(row)
+    session.commit()
+    return {"ok": True}
+
+
+@app.patch("/push/preferences")
+def update_push_preferences(
+    preferences: dict = Body(..., embed=True),
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
+    rows = session.exec(select(PushSubscription).where(PushSubscription.operator_id == operator.id)).all()
+    for row in rows:
+        for field in ("escalations", "assignments", "mentions", "sla_breaches"):
+            if field in preferences:
+                setattr(row, field, bool(preferences[field]))
+        row.updated_at = datetime.utcnow()
+        session.add(row)
+    session.commit()
+    return {"ok": True}
+
+
+@app.delete("/push/subscriptions")
+def delete_push_subscription(
+    endpoint: str = Body(..., embed=True),
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
+    row = session.exec(
+        select(PushSubscription).where(
+            PushSubscription.operator_id == operator.id,
+            PushSubscription.endpoint == (endpoint or "").strip(),
+        )
+    ).first()
+    if row:
+        session.delete(row)
+        session.commit()
+    return {"ok": True}
 
 
 @app.get("/onboarding/status")

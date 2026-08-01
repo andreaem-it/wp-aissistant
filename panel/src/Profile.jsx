@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Eye, EyeOff, Copy, Check, Circle, RefreshCw, KeyRound, CreditCard, User } from "lucide-react";
+import { Eye, EyeOff, Copy, Check, Circle, RefreshCw, KeyRound, CreditCard, User, Bell } from "lucide-react";
 import { api } from "./api.js";
 
 function NameCard({ me }) {
@@ -277,6 +277,61 @@ function PasswordCard() {
   );
 }
 
+function base64Key(value) {
+  const raw = atob((value + "=".repeat((4 - value.length % 4) % 4)).replace(/-/g, "+").replace(/_/g, "/"));
+  return Uint8Array.from([...raw].map((char) => char.charCodeAt(0)));
+}
+
+function PushCard() {
+  const [config, setConfig] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  const [deviceEnabled, setDeviceEnabled] = useState(false);
+  const supported = "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+  useEffect(() => { api.pushConfig().then(setConfig).catch(() => setConfig(null)); }, []);
+  useEffect(() => {
+    if (supported) navigator.serviceWorker.ready.then((registration) => registration.pushManager.getSubscription()).then((subscription) => setDeviceEnabled(Boolean(subscription))).catch(() => {});
+  }, [supported]);
+  const enable = async () => {
+    setBusy(true); setMessage("");
+    try {
+      if (await Notification.requestPermission() !== "granted") { setMessage("Permesso notifiche non concesso."); return; }
+      const registration = await navigator.serviceWorker.ready;
+      const current = await registration.pushManager.getSubscription();
+      const subscription = current || await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: base64Key(config.public_key) });
+      await api.savePushSubscription({ ...subscription.toJSON(), preferences: config.preferences });
+      setConfig((value) => ({ ...value, subscriptions: 1 }));
+      setDeviceEnabled(true);
+      setMessage("Notifiche attivate su questo dispositivo.");
+    } catch { setMessage("Impossibile attivare le notifiche su questo dispositivo."); }
+    finally { setBusy(false); }
+  };
+  const disable = async () => {
+    setBusy(true); setMessage("");
+    try {
+      const subscription = await (await navigator.serviceWorker.ready).pushManager.getSubscription();
+      if (subscription) { await api.deletePushSubscription(subscription.endpoint); await subscription.unsubscribe(); }
+      setConfig((value) => ({ ...value, subscriptions: 0 }));
+      setDeviceEnabled(false);
+      setMessage("Notifiche disattivate su questo dispositivo.");
+    } finally { setBusy(false); }
+  };
+  const preference = async (name, checked) => {
+    const preferences = { ...config.preferences, [name]: checked };
+    setConfig((value) => ({ ...value, preferences }));
+    await api.updatePushPreferences(preferences).catch(() => {});
+  };
+  if (!config) return null;
+  const labels = { escalations: "Nuove escalation", assignments: "Conversazioni assegnate", mentions: "Menzioni nelle note", sla_breaches: "Violazioni SLA" };
+  return <div className="wpai-card" style={{ marginBottom: 16 }}>
+    <div className="wpai-card-head"><div className="wpai-card-icon"><Bell size={16} /></div><div><div className="wpai-card-title">Notifiche push</div><div className="wpai-card-sub">Ricevi avvisi anche quando il panel non è aperto.</div></div></div>
+    {!supported && <p className="wpai-error">Questo browser non supporta le notifiche push.</p>}
+    {supported && !config.configured && <p className="wpai-error">Le notifiche non sono ancora configurate sul server.</p>}
+    {supported && config.configured && <><div style={{ display: "grid", gap: 8, margin: "14px 0" }}>{Object.entries(labels).map(([key, label]) => <label key={key} style={{ display: "flex", gap: 8, alignItems: "center" }}><input type="checkbox" checked={config.preferences[key]} onChange={(e) => preference(key, e.target.checked)} /> {label}</label>)}</div><button className="wpai-btn" onClick={deviceEnabled ? disable : enable} disabled={busy}>{busy ? "Attendi…" : deviceEnabled ? "Disattiva su questo dispositivo" : "Attiva notifiche"}</button></>}
+    {message && <div className="wpai-success" style={{ marginTop: 10, marginBottom: 0 }}>{message}</div>}
+  </div>;
+}
+
 export default function Profile() {
   const [me, setMe] = useState(null);
 
@@ -292,6 +347,7 @@ export default function Profile() {
       <p style={{ color: "var(--text-muted)", fontSize: 13.5, marginTop: -14, marginBottom: 20 }}>{me.email}</p>
       <OnboardingCard />
       <NameCard me={me} />
+      <PushCard />
       <ApiKeyCard me={me} onRotated={(api_key) => setMe((m) => ({ ...m, api_key }))} />
       <BillingCard me={me} />
       <PasswordCard />
