@@ -213,6 +213,9 @@ function Deliveries({ endpointId, availableEvents }) {
             <span><b>{stats.failed}</b><small>Fallite</small></span>
             <span><b>{stats.average_attempts}</b><small>Tentativi medi</small></span>
           </div>}
+          {stats?.degraded && <div className="wpai-callout warn wpai-webhook-alert" role="alert">
+            <b>Endpoint degradato</b><span>{stats.alert}</span>
+          </div>}
           <table className="wpai-table" style={{ marginTop: 8 }}>
             <tbody>
               {rows.map((row) => (

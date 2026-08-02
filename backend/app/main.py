@@ -6161,14 +6161,21 @@ def webhook_delivery_stats(
         counts[row.status] = counts.get(row.status, 0) + 1
         attempts += row.attempts
     total = len(rows)
+    success_rate = round(counts["success"] * 100 / total, 1) if total else None
+    degraded = total >= 5 and (counts["failed"] >= 3 or success_rate < 95)
     return {
         "days": window,
         "total": total,
         "success": counts["success"],
         "pending": counts["pending"],
         "failed": counts["failed"],
-        "success_rate": round(counts["success"] * 100 / total, 1) if total else None,
+        "success_rate": success_rate,
         "average_attempts": round(attempts / total, 2) if total else 0,
+        "degraded": degraded,
+        "alert": (
+            "Affidabilità webhook ridotta: verifica endpoint e ultime consegne fallite."
+            if degraded else ""
+        ),
     }
 
 

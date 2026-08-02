@@ -305,10 +305,25 @@ def test_test_endpoint_reports_the_real_outcome(client, tenant, monkeypatch):
     stats = client.get(f"/webhooks/{created['id']}/stats", headers=tenant["op"]).json()
     assert stats == {
         "days": 30, "total": 2, "success": 1, "pending": 0, "failed": 1,
-        "success_rate": 50.0, "average_attempts": 1.0,
+        "success_rate": 50.0, "average_attempts": 1.0, "degraded": False, "alert": "",
     }
     other = _other_tenant(client, "Stats Other")
     assert client.get(f"/webhooks/{created['id']}/stats", headers=other["op"]).status_code == 404
+
+
+def test_webhook_stats_flag_a_degraded_endpoint(client, tenant):
+    created = _endpoint(client, tenant)
+    with Session(db.engine) as session:
+        for _ in range(5):
+            session.add(db.WebhookDelivery(
+                client_id=tenant["cid"], endpoint_id=created["id"], event="conversation.created",
+                payload="{}", status="failed", attempts=5,
+            ))
+        session.commit()
+    stats = client.get(f"/webhooks/{created['id']}/stats", headers=tenant["op"]).json()
+    assert stats["degraded"] is True
+    assert stats["success_rate"] == 0.0
+    assert stats["alert"]
 
 
 def test_failed_delivery_can_be_replayed_without_overwriting_history(client, tenant, monkeypatch):
