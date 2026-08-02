@@ -293,6 +293,15 @@ def test_test_endpoint_reports_the_real_outcome(client, tenant, monkeypatch):
     assert client.get(
         f"/webhooks/{created['id']}/deliveries", headers=tenant["op"], params={"status": "broken"},
     ).status_code == 400
+    newest_id = log[0]["id"]
+    older = client.get(
+        f"/webhooks/{created['id']}/deliveries", headers=tenant["op"],
+        params={"before_id": newest_id, "limit": 1},
+    ).json()
+    assert [row["id"] for row in older] == [log[1]["id"]]
+    assert client.get(
+        f"/webhooks/{created['id']}/deliveries", headers=tenant["op"], params={"before_id": 0},
+    ).status_code == 400
 
 
 def test_failed_delivery_can_be_replayed_without_overwriting_history(client, tenant, monkeypatch):

@@ -6097,6 +6097,7 @@ def list_webhook_deliveries(
     limit: int = 50,
     status: str = "",
     event: str = "",
+    before_id: int | None = None,
     operator: Operator = Depends(require_operator),
     session: Session = Depends(get_session),
 ):
@@ -6112,6 +6113,10 @@ def list_webhook_deliveries(
         query = query.where(WebhookDelivery.status == status)
     if event:
         query = query.where(WebhookDelivery.event == event)
+    if before_id is not None:
+        if before_id <= 0:
+            raise HTTPException(400, "cursore consegna non valido")
+        query = query.where(WebhookDelivery.id < before_id)
     rows = session.exec(
         query
         .order_by(WebhookDelivery.id.desc())

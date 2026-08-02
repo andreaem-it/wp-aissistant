@@ -989,6 +989,7 @@ button.wpai-view-chip { padding: 6px 12px; }
 .wpai-payload-row pre { margin: 0; max-height: 260px; overflow: auto; padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-subtle); color: var(--text); font-size: 11.5px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
 .wpai-delivery-filters { display: flex; gap: 8px; margin-top: 8px; }
 .wpai-delivery-filters select { min-width: 170px; font-size: 12px; }
+.wpai-load-more { margin-top: 8px; width: 100%; justify-content: center; }
 
 .wpai-conv-toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
 .wpai-conv-toolbar .wpai-btn.ghost { margin-left: auto; }

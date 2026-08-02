@@ -145,12 +145,26 @@ function Deliveries({ endpointId, availableEvents }) {
   const [error, setError] = useState("");
   const [payloadOpen, setPayloadOpen] = useState(null);
   const [filters, setFilters] = useState({ status: "", event: "" });
+  const [loadingMore, setLoadingMore] = useState(false);
+  const PAGE_SIZE = 50;
 
   const load = useCallback(
     () => api.webhookDeliveries(endpointId, filters).then(setRows).catch(() => setRows([])),
     [endpointId, filters],
   );
   useEffect(() => { if (open) load(); }, [open, load]);
+  const loadMore = async () => {
+    if (!rows.length) return;
+    setLoadingMore(true);
+    try {
+      const older = await api.webhookDeliveries(endpointId, {
+        ...filters, limit: PAGE_SIZE, before_id: rows[rows.length - 1].id,
+      });
+      setRows((current) => [...current, ...older]);
+    } finally {
+      setLoadingMore(false);
+    }
+  };
   const replay = async (deliveryId) => {
     setReplaying(deliveryId);
     setError("");
@@ -224,6 +238,9 @@ function Deliveries({ endpointId, availableEvents }) {
               {rows.length === 0 && <tr><td colSpan="4" style={{ color: "var(--text-muted)" }}>Nessuna consegna.</td></tr>}
             </tbody>
           </table>
+          {rows.length >= PAGE_SIZE && <button className="wpai-btn ghost wpai-load-more" disabled={loadingMore} onClick={loadMore}>
+            {loadingMore ? "Caricamento…" : "Carica consegne precedenti"}
+          </button>}
           {error && <p style={{ color: "var(--red)", fontSize: 12.5, margin: "8px 0 0" }}>{error}</p>}
         </>
       )}
