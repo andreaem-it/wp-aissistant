@@ -6096,6 +6096,55 @@ def list_webhook_deliveries(
     ]
 
 
+@app.post("/webhooks/{endpoint_id}/deliveries/{delivery_id}/replay")
+def replay_webhook_delivery(
+    endpoint_id: int,
+    delivery_id: int,
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
+    """Create a new signed attempt from a failed delivery, preserving the original audit log."""
+    endpoint = session.get(WebhookEndpoint, endpoint_id)
+    if not endpoint or endpoint.client_id != operator.client_id:
+        raise HTTPException(404, "webhook not found")
+    original = session.get(WebhookDelivery, delivery_id)
+    if (
+        not original
+        or original.endpoint_id != endpoint.id
+        or original.client_id != operator.client_id
+    ):
+        raise HTTPException(404, "delivery not found")
+    if original.status != "failed":
+        raise HTTPException(409, "solo una consegna fallita può essere riprovata")
+    if not endpoint.active:
+        raise HTTPException(409, "riattiva il webhook prima di riprovare")
+    replay = WebhookDelivery(
+        client_id=operator.client_id,
+        endpoint_id=endpoint.id,
+        event=original.event,
+        payload=original.payload,
+        max_attempts=webhooks.MAX_ATTEMPTS,
+        next_attempt_at=datetime.utcnow(),
+    )
+    session.add(replay)
+    session.commit()
+    session.refresh(replay)
+    ok = webhooks.deliver(session, replay)
+    _audit(
+        session, "operator", operator.email, "webhook.delivery_replay",
+        target=f"webhook-delivery:{replay.id}", client_id=operator.client_id,
+        detail={"original_delivery_id": original.id, "ok": ok},
+    )
+    return {
+        "ok": ok,
+        "delivery_id": replay.id,
+        "original_delivery_id": original.id,
+        "status": replay.status,
+        "response_status": replay.response_status,
+        "error": replay.error,
+    }
+
+
 # ---- Analytics helpers (shared by operator /stats and admin /admin/stats) ----
 
 

@@ -141,12 +141,27 @@ function ApiKeys() {
 function Deliveries({ endpointId }) {
   const [rows, setRows] = useState([]);
   const [open, setOpen] = useState(false);
+  const [replaying, setReplaying] = useState(null);
+  const [error, setError] = useState("");
 
   const load = useCallback(
     () => api.webhookDeliveries(endpointId).then(setRows).catch(() => setRows([])),
     [endpointId],
   );
   useEffect(() => { if (open) load(); }, [open, load]);
+  const replay = async (deliveryId) => {
+    setReplaying(deliveryId);
+    setError("");
+    try {
+      const result = await api.replayWebhookDelivery(endpointId, deliveryId);
+      await load();
+      if (!result.ok) setError(`Nuovo tentativo non riuscito${result.error ? `: ${result.error}` : "."}`);
+    } catch {
+      setError("Impossibile riprovare la consegna. Verifica che il webhook sia attivo.");
+    } finally {
+      setReplaying(null);
+    }
+  };
 
   return (
     <div style={{ marginTop: 8 }}>
@@ -174,11 +189,19 @@ function Deliveries({ endpointId }) {
                     <br />
                     {formatMoment(row.delivered_at || row.created_at)}
                   </td>
+                  <td style={{ textAlign: "right" }}>
+                    {row.status === "failed" && (
+                      <button className="wpai-btn ghost" disabled={replaying === row.id} onClick={() => replay(row.id)}>
+                        <RefreshCw size={13} /> {replaying === row.id ? "Riprovo…" : "Riprova"}
+                      </button>
+                    )}
+                  </td>
                 </tr>
               ))}
-              {rows.length === 0 && <tr><td style={{ color: "var(--text-muted)" }}>Nessuna consegna.</td></tr>}
+              {rows.length === 0 && <tr><td colSpan="4" style={{ color: "var(--text-muted)" }}>Nessuna consegna.</td></tr>}
             </tbody>
           </table>
+          {error && <p style={{ color: "var(--red)", fontSize: 12.5, margin: "8px 0 0" }}>{error}</p>}
         </>
       )}
     </div>

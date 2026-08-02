@@ -176,6 +176,8 @@ export const api = {
   deleteWebhook: (id) => call(`/webhooks/${id}`, { method: "DELETE" }),
   testWebhook: (id) => call(`/webhooks/${id}/test`, { method: "POST" }),
   webhookDeliveries: (id) => call(`/webhooks/${id}/deliveries`),
+  replayWebhookDelivery: (endpointId, deliveryId) =>
+    call(`/webhooks/${endpointId}/deliveries/${deliveryId}/replay`, { method: "POST" }),
   stats: () => call("/stats"),
   csat: (days = 30) => call("/csat", { params: { days } }),
   analyticsOverview: (days = 30) => call("/analytics/overview", { params: { days } }),

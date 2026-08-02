@@ -259,6 +259,34 @@ def test_test_endpoint_reports_the_real_outcome(client, tenant, monkeypatch):
     assert [d["status"] for d in log] == ["success", "failed"]  # più recente per prima
 
 
+def test_failed_delivery_can_be_replayed_without_overwriting_history(client, tenant, monkeypatch):
+    _transport(monkeypatch, 500)
+    created = _endpoint(client, tenant)
+    failed = client.post(f"/webhooks/{created['id']}/test", headers=tenant["op"]).json()
+    assert failed["ok"] is False
+
+    transport = _transport(monkeypatch, 204)
+    replay = client.post(
+        f"/webhooks/{created['id']}/deliveries/{failed['delivery_id']}/replay",
+        headers=tenant["op"],
+    )
+    assert replay.status_code == 200
+    assert replay.json()["ok"] is True
+    assert replay.json()["delivery_id"] != failed["delivery_id"]
+    assert transport.calls[0]["headers"]["X-WPAI-Delivery"] == str(replay.json()["delivery_id"])
+    assert [row["status"] for row in _deliveries(client, tenant, created["id"])] == ["success", "failed"]
+
+
+def test_delivery_replay_is_tenant_scoped_and_requires_failed_state(client, tenant, monkeypatch):
+    _transport(monkeypatch, 200)
+    created = _endpoint(client, tenant)
+    delivered = client.post(f"/webhooks/{created['id']}/test", headers=tenant["op"]).json()
+    other = _other_tenant(client, "Replay Other")
+    path = f"/webhooks/{created['id']}/deliveries/{delivered['delivery_id']}/replay"
+    assert client.post(path, headers=other["op"]).status_code == 404
+    assert client.post(path, headers=tenant["op"]).status_code == 409
+
+
 def test_deliveries_never_cross_tenants(client, tenant, monkeypatch):
     transport = _transport(monkeypatch, 200)
     mine = _endpoint(client, tenant, events=["conversation.created"])
