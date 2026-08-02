@@ -6095,15 +6095,25 @@ def test_webhook(
 def list_webhook_deliveries(
     endpoint_id: int,
     limit: int = 50,
+    status: str = "",
+    event: str = "",
     operator: Operator = Depends(require_operator),
     session: Session = Depends(get_session),
 ):
     endpoint = session.get(WebhookEndpoint, endpoint_id)
     if not endpoint or endpoint.client_id != operator.client_id:
         raise HTTPException(404, "webhook not found")
+    if status and status not in {"pending", "success", "failed"}:
+        raise HTTPException(400, "stato consegna non valido")
+    if event and event not in webhooks.EVENTS:
+        raise HTTPException(400, "evento webhook non valido")
+    query = select(WebhookDelivery).where(WebhookDelivery.endpoint_id == endpoint.id)
+    if status:
+        query = query.where(WebhookDelivery.status == status)
+    if event:
+        query = query.where(WebhookDelivery.event == event)
     rows = session.exec(
-        select(WebhookDelivery)
-        .where(WebhookDelivery.endpoint_id == endpoint.id)
+        query
         .order_by(WebhookDelivery.id.desc())
         .limit(_bounded_limit(limit, default=50))
     ).all()

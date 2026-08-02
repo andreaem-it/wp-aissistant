@@ -138,16 +138,17 @@ function ApiKeys() {
   );
 }
 
-function Deliveries({ endpointId }) {
+function Deliveries({ endpointId, availableEvents }) {
   const [rows, setRows] = useState([]);
   const [open, setOpen] = useState(false);
   const [replaying, setReplaying] = useState(null);
   const [error, setError] = useState("");
   const [payloadOpen, setPayloadOpen] = useState(null);
+  const [filters, setFilters] = useState({ status: "", event: "" });
 
   const load = useCallback(
-    () => api.webhookDeliveries(endpointId).then(setRows).catch(() => setRows([])),
-    [endpointId],
+    () => api.webhookDeliveries(endpointId, filters).then(setRows).catch(() => setRows([])),
+    [endpointId, filters],
   );
   useEffect(() => { if (open) load(); }, [open, load]);
   const replay = async (deliveryId) => {
@@ -174,6 +175,18 @@ function Deliveries({ endpointId }) {
           <button className="wpai-btn ghost" style={{ marginLeft: 8 }} onClick={load}>
             <RefreshCw size={13} /> Aggiorna
           </button>
+          <div className="wpai-delivery-filters">
+            <select aria-label="Filtra consegne per stato" value={filters.status} onChange={(e) => setFilters((value) => ({ ...value, status: e.target.value }))}>
+              <option value="">Tutti gli stati</option>
+              <option value="success">Consegnati</option>
+              <option value="pending">In attesa</option>
+              <option value="failed">Falliti</option>
+            </select>
+            <select aria-label="Filtra consegne per evento" value={filters.event} onChange={(e) => setFilters((value) => ({ ...value, event: e.target.value }))}>
+              <option value="">Tutti gli eventi</option>
+              {availableEvents.map((event) => <option value={event} key={event}>{event}</option>)}
+            </select>
+          </div>
           <table className="wpai-table" style={{ marginTop: 8 }}>
             <tbody>
               {rows.map((row) => (
@@ -342,7 +355,7 @@ function Webhooks() {
                 {testResult.text}
               </p>
             )}
-            <Deliveries endpointId={endpoint.id} />
+            <Deliveries endpointId={endpoint.id} availableEvents={events} />
           </div>
         ))}
         {!loading && endpoints.length === 0 && (

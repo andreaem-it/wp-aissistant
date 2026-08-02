@@ -285,6 +285,15 @@ def test_test_endpoint_reports_the_real_outcome(client, tenant, monkeypatch):
     assert log[0]["payload"]["schema_version"] == "1.0"
     assert log[0]["payload"]["test"] is True
 
+    failed_only = client.get(
+        f"/webhooks/{created['id']}/deliveries", headers=tenant["op"],
+        params={"status": "failed", "event": "conversation.created"},
+    ).json()
+    assert [row["status"] for row in failed_only] == ["failed"]
+    assert client.get(
+        f"/webhooks/{created['id']}/deliveries", headers=tenant["op"], params={"status": "broken"},
+    ).status_code == 400
+
 
 def test_failed_delivery_can_be_replayed_without_overwriting_history(client, tenant, monkeypatch):
     _transport(monkeypatch, 500)
