@@ -36,6 +36,7 @@ Componenti indipendenti, collegati da API autenticate:
 | **Backend** | `backend/` | FastAPI, SQLModel, Postgres + pgvector, LiteLLM | API RAG, chat, ticketing, ingest |
 | **Panel** | `panel/` | React 18, Vite | Dashboard operatori (conversazioni, ticket, upload KB, stats) |
 | **Plugin WP** | `wp-plugin/` | PHP (WordPress), JS/CSS vanilla | Widget di chat + sincronizzazione automatica dei contenuti |
+| **SDK browser** | `sdk/browser/` | JavaScript ESM | Client headless per siti non WordPress, sessione e API visitatore ([guida](docs/browser-sdk.md)) |
 | **Sito marketing** | `website/` | HTML/CSS statico (zero build) | Landing promozionale: feature, prezzi, login/registrazione |
 | **Adapter canali** | `cloudflare/` | Cloudflare Workers | Normalizzazione email, WhatsApp e canali Meta, verifica webhook e isolamento delle credenziali provider |
 

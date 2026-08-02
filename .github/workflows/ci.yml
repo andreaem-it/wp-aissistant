@@ -158,6 +158,18 @@ jobs:
         working-directory: cloudflare/crm-adapter
         run: npx wrangler deploy --dry-run
 
+  browser-sdk:
+    name: Headless browser SDK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Unit tests
+        working-directory: sdk/browser
+        run: npm test
+
   docker-build:
     name: Backend image build
     runs-on: ubuntu-latest
