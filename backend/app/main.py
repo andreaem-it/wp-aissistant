@@ -55,6 +55,7 @@ from .db import (
     RoutingSetting,
     SavedView,
     SlaPolicy,
+    SupportSchedule,
     Tag,
     Ticket,
     WebhookDelivery,
@@ -73,6 +74,7 @@ from . import push as push_service
 from . import attachments as attachment_service
 from . import crm as crm_service
 from . import helpdesk as helpdesk_service
+from . import business_hours
 from fastapi.responses import StreamingResponse
 
 import urllib.error
@@ -1677,12 +1679,28 @@ def _apply_sla(session: Session, conv: Conversation, *, start: bool = False) -> 
     conv.sla_policy_id = policy.id if policy else None
     conv.first_response_due_at = conv.first_response_warn_at = None
     conv.resolution_due_at = conv.resolution_warn_at = None
+    schedule = session.exec(select(SupportSchedule).where(
+        SupportSchedule.client_id == conv.client_id,
+        SupportSchedule.enabled == True,  # noqa: E712
+    )).first()
+
+    def deadline(minutes: float) -> datetime:
+        if schedule is None:
+            return started + timedelta(minutes=minutes)
+        return business_hours.add_business_minutes(
+            started, minutes,
+            weekdays=schedule.weekdays,
+            start_time=schedule.start_time,
+            end_time=schedule.end_time,
+            timezone_name=schedule.timezone,
+        )
+
     if policy and policy.first_response_minutes > 0:
-        conv.first_response_due_at = started + timedelta(minutes=policy.first_response_minutes)
-        conv.first_response_warn_at = started + timedelta(minutes=policy.first_response_minutes * SLA_WARN_RATIO)
+        conv.first_response_due_at = deadline(policy.first_response_minutes)
+        conv.first_response_warn_at = deadline(policy.first_response_minutes * SLA_WARN_RATIO)
     if policy and policy.resolution_minutes > 0:
-        conv.resolution_due_at = started + timedelta(minutes=policy.resolution_minutes)
-        conv.resolution_warn_at = started + timedelta(minutes=policy.resolution_minutes * SLA_WARN_RATIO)
+        conv.resolution_due_at = deadline(policy.resolution_minutes)
+        conv.resolution_warn_at = deadline(policy.resolution_minutes * SLA_WARN_RATIO)
     # a deadline moved back into the future is a new target: allow it to alert again
     now = datetime.utcnow()
     if conv.first_response_due_at is None or conv.first_response_due_at > now:
@@ -4054,6 +4072,74 @@ def delete_department(
 
 
 # ---- SLA policies + routing settings (per client) ----
+
+
+def _support_schedule_payload(row: SupportSchedule | None) -> dict:
+    if row is None:
+        return {
+            "enabled": False, "weekdays": [1, 2, 3, 4, 5], "start_time": "09:00",
+            "end_time": "18:00", "timezone": "Europe/Rome", "source": "panel",
+        }
+    return {
+        "enabled": row.enabled,
+        "weekdays": business_hours.parse_weekdays(row.weekdays),
+        "start_time": row.start_time,
+        "end_time": row.end_time,
+        "timezone": row.timezone,
+        "source": row.source,
+        "updated_at": _iso(row.updated_at),
+    }
+
+
+@app.get("/support-schedule")
+def get_support_schedule(
+    operator: Operator = Depends(require_operator), session: Session = Depends(get_session),
+):
+    row = session.exec(select(SupportSchedule).where(
+        SupportSchedule.client_id == operator.client_id,
+    )).first()
+    return _support_schedule_payload(row)
+
+
+@app.put("/support-schedule")
+def set_support_schedule(
+    body: dict = Body(...),
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
+    try:
+        weekdays = business_hours.parse_weekdays(body.get("weekdays", []))
+        start_time = business_hours.parse_time(body.get("start_time", "")).strftime("%H:%M")
+        end_time = business_hours.parse_time(body.get("end_time", "")).strftime("%H:%M")
+        timezone_name = business_hours.validate_timezone(body.get("timezone", ""))
+        if start_time == end_time:
+            raise ValueError("L’orario di apertura e chiusura non può coincidere")
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    row = session.exec(select(SupportSchedule).where(
+        SupportSchedule.client_id == operator.client_id,
+    )).first() or SupportSchedule(client_id=operator.client_id)
+    row.enabled = bool(body.get("enabled", False))
+    row.weekdays = ",".join(str(day) for day in weekdays)
+    row.start_time = start_time
+    row.end_time = end_time
+    row.timezone = timezone_name
+    row.source = "panel"
+    row.updated_at = datetime.utcnow()
+    session.add(row)
+    session.commit()
+    for conversation in session.exec(select(Conversation).where(
+        Conversation.client_id == operator.client_id,
+        Conversation.sla_started_at.is_not(None),
+        Conversation.closed_at.is_(None),
+    )).all():
+        _apply_sla(session, conversation)
+        session.add(conversation)
+    session.commit()
+    _audit(session, "operator", operator.email, "support_schedule.update",
+           target=f"client:{operator.client_id}", client_id=operator.client_id,
+           detail={"enabled": row.enabled, "timezone": row.timezone})
+    return _support_schedule_payload(row)
 
 
 def _sla_policy_payload(policy: SlaPolicy) -> dict:

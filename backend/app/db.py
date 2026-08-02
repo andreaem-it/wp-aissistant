@@ -297,6 +297,22 @@ class SlaPolicy(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
+class SupportSchedule(SQLModel, table=True):
+    """Tenant business calendar used by SLA deadlines and human-support availability."""
+    __table_args__ = (UniqueConstraint("client_id"),)
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    client_id: int = Field(index=True, foreign_key="client.id")
+    enabled: bool = False
+    weekdays: str = "1,2,3,4,5"  # ISO weekdays, Monday=1
+    start_time: str = "09:00"
+    end_time: str = "18:00"
+    timezone: str = "Europe/Rome"
+    source: str = "panel"  # panel | wordpress
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 class KnowledgeGapReview(SQLModel, table=True):
     """An operator's decision about a detected knowledge gap.
 

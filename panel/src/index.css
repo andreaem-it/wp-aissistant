@@ -496,6 +496,12 @@ button.wpai-btn:disabled { opacity: 0.5; cursor: default; }
 .wpai-ticket-handoff > div { display: flex; flex-wrap: wrap; gap: 6px; }
 .wpai-btn-small { min-height: 30px; padding: 5px 9px; font-size: 12px; display: inline-flex; align-items: center; gap: 5px; }
 @media (max-width: 760px) { .wpai-helpdesk-grid { grid-template-columns: 1fr; } .wpai-ticket-handoff { align-items: flex-start; flex-direction: column; } }
+.wpai-day-picker { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; margin-bottom: 12px; }
+.wpai-day-picker button { border: 1px solid var(--border); background: var(--surface); color: var(--text-muted); border-radius: 8px; padding: 7px 3px; cursor: pointer; font-size: 11.5px; font-weight: 650; }
+.wpai-day-picker button.active { border-color: var(--primary); background: var(--primary-soft); color: var(--primary); }
+.wpai-schedule-fields { display: grid; grid-template-columns: 1fr 1fr 1.5fr; gap: 8px; margin-bottom: 12px; }
+.wpai-schedule-fields label { display: grid; gap: 4px; color: var(--text-muted); font-size: 11.5px; font-weight: 600; }
+@media (max-width: 760px) { .wpai-schedule-fields { grid-template-columns: 1fr 1fr; } .wpai-schedule-fields label:last-child { grid-column: 1 / -1; } }
 
 /* ---- Stats ---- */
 

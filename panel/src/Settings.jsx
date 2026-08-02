@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import {
-  Download, Plus, Trash2, MessageSquareText, ListChecks, ShieldX, Timer, Shuffle, Tag as TagIcon,
+  Download, Plus, Trash2, MessageSquareText, ListChecks, ShieldX, Timer, Shuffle, Tag as TagIcon, Clock3,
 } from "lucide-react";
 import { api } from "./api.js";
 
@@ -227,6 +227,56 @@ function DepartmentsManager({ departments, operators, reload }) {
 }
 
 const PRIORITY_LABELS = { "": "Tutte le priorità", urgent: "Urgente", high: "Alta", normal: "Normale", low: "Bassa" };
+const DAY_LABELS = ["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"];
+
+function SupportScheduleManager() {
+  const browserTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "Europe/Rome";
+  const [form, setForm] = useState(null);
+  const [state, setState] = useState({ saving: false, message: "" });
+
+  useEffect(() => {
+    api.supportSchedule().then((data) => setForm({ ...data, timezone: data.timezone || browserTimezone }))
+      .catch(() => setState({ saving: false, message: "Impossibile caricare gli orari." }));
+  }, [browserTimezone]);
+
+  const toggleDay = (day) => setForm((value) => ({
+    ...value,
+    weekdays: value.weekdays.includes(day) ? value.weekdays.filter((item) => item !== day) : [...value.weekdays, day].sort(),
+  }));
+  const save = async (event) => {
+    event.preventDefault();
+    setState({ saving: true, message: "" });
+    try {
+      const saved = await api.setSupportSchedule(form);
+      setForm(saved);
+      setState({ saving: false, message: "Orari salvati. Le scadenze SLA aperte sono state ricalcolate." });
+    } catch {
+      setState({ saving: false, message: "Controlla giorni, orari e fuso orario." });
+    }
+  };
+  if (!form) return <div className="wpai-card"><div className="wpai-card-title"><Clock3 size={15} /> Orari di supporto</div><p className="dim">Caricamento…</p></div>;
+  return <form className="wpai-card" onSubmit={save}>
+    <div className="wpai-card-title"><Clock3 size={15} /> Orari di supporto</div>
+    <p style={{ fontSize: 12.5, color: "var(--text-muted)", margin: "6px 0 12px" }}>
+      Quando sono attivi, il tempo fuori orario non consuma lo SLA. Il fuso sarà sincronizzato
+      automaticamente dal plugin WordPress; qui puoi già verificarlo o correggerlo.
+    </p>
+    <label className="wpai-switch-row" style={{ marginBottom: 12 }}>
+      <span><b>Conta solo le ore lavorative</b><small>Valido per prima risposta e risoluzione</small></span>
+      <input type="checkbox" checked={form.enabled} onChange={(event) => setForm((value) => ({ ...value, enabled: event.target.checked }))} />
+    </label>
+    <div className="wpai-day-picker">
+      {DAY_LABELS.map((label, index) => <button type="button" key={label} className={form.weekdays.includes(index + 1) ? "active" : ""} onClick={() => toggleDay(index + 1)}>{label}</button>)}
+    </div>
+    <div className="wpai-schedule-fields">
+      <label>Da<input type="time" value={form.start_time} onChange={(event) => setForm((value) => ({ ...value, start_time: event.target.value }))} /></label>
+      <label>A<input type="time" value={form.end_time} onChange={(event) => setForm((value) => ({ ...value, end_time: event.target.value }))} /></label>
+      <label>Fuso orario<input value={form.timezone} onChange={(event) => setForm((value) => ({ ...value, timezone: event.target.value }))} placeholder="Europe/Rome" /></label>
+    </div>
+    <button className="wpai-btn" type="submit" disabled={state.saving || form.weekdays.length === 0}>{state.saving ? "Salvataggio…" : "Salva orari"}</button>
+    {state.message && <p style={{ fontSize: 12.5, color: "var(--text-muted)", margin: "9px 0 0" }}>{state.message}</p>}
+  </form>;
+}
 
 function SlaManager({ departments }) {
   const [items, setItems] = useState([]);
@@ -506,6 +556,7 @@ export default function Settings() {
         <DepartmentsManager departments={departments} operators={operators} reload={loadDepartments} />
         <div style={{ display: "grid", gap: 16, alignContent: "start" }}>
           <RoutingManager departments={departments} />
+          <SupportScheduleManager />
           <SlaManager departments={departments} />
           <TagsManager />
         </div>

@@ -61,6 +61,29 @@ def test_sla_starts_on_escalation_and_shows_deadlines(client, tenant):
     assert row["sla"]["resolution"]["due_at"] is not None
 
 
+def test_support_schedule_is_tenant_scoped_and_recomputes_running_sla(client, tenant):
+    _policy(client, tenant, first_response_minutes=120)
+    conv_id = _escalated_conversation(client, tenant, visitor="business-hours")
+    before = _conv(conv_id).first_response_due_at
+    response = client.put("/support-schedule", headers=tenant["op"], json={
+        "enabled": True, "weekdays": [1, 2, 3, 4, 5], "start_time": "09:00",
+        "end_time": "18:00", "timezone": "Europe/Rome",
+    })
+    assert response.status_code == 200
+    assert response.json()["weekdays"] == [1, 2, 3, 4, 5]
+    assert _conv(conv_id).first_response_due_at >= before
+    other = _other_tenant(client, "Schedule Other")
+    assert client.get("/support-schedule", headers=other["op"]).json()["enabled"] is False
+    assert client.get("/support-schedule", headers=tenant["key"]).status_code == 401
+
+
+def test_support_schedule_rejects_invalid_calendar(client, tenant):
+    base = {"enabled": True, "weekdays": [1], "start_time": "09:00", "end_time": "18:00", "timezone": "Europe/Rome"}
+    assert client.put("/support-schedule", headers=tenant["op"], json={**base, "weekdays": []}).status_code == 400
+    assert client.put("/support-schedule", headers=tenant["op"], json={**base, "timezone": "invalid"}).status_code == 400
+    assert client.put("/support-schedule", headers=tenant["op"], json={**base, "end_time": "09:00"}).status_code == 400
+
+
 def test_conversation_without_policy_has_no_sla(client, tenant):
     conv_id = _escalated_conversation(client, tenant)
     rows = client.get("/conversations", headers=tenant["op"]).json()

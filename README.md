@@ -468,6 +468,7 @@ Auth via header `Authorization: Bearer <token>`. La colonna *Auth* indica quale 
 | `/helpdesk/connections` | GET | 👤 | Collegamenti helpdesk Zendesk/Freshdesk del tenant |
 | `/helpdesk/connections/{provider}` | PUT/DELETE | 👤 | Configura o rimuove una destinazione helpdesk |
 | `/tickets/{id}/helpdesk-export` | POST | 👤 | Trasferisce contatto e transcript al provider configurato con retry idempotente |
+| `/support-schedule` | GET/PUT | 👤 | Calendario lavorativo tenant-scoped usato per sospendere gli SLA fuori orario |
 | `/widget/proactive` | GET | 🔑 | Regole proattive attive per il widget (solo trigger e messaggio) |
 | `/widget/proactive/{id}/event` | POST | 🔑 | Conta una visualizzazione o una chat aperta dal messaggio |
 | `/proactive-rules` | GET/POST | 👤 | Messaggi proattivi del tenant, con i contatori di conversione |
