@@ -6139,6 +6139,39 @@ def list_webhook_deliveries(
     ]
 
 
+@app.get("/webhooks/{endpoint_id}/stats")
+def webhook_delivery_stats(
+    endpoint_id: int,
+    days: int = 30,
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
+    endpoint = session.get(WebhookEndpoint, endpoint_id)
+    if not endpoint or endpoint.client_id != operator.client_id:
+        raise HTTPException(404, "webhook not found")
+    window = max(1, min(days, 365))
+    since = datetime.utcnow() - timedelta(days=window)
+    rows = session.exec(select(WebhookDelivery).where(
+        WebhookDelivery.endpoint_id == endpoint.id,
+        WebhookDelivery.created_at >= since,
+    )).all()
+    counts = {"success": 0, "pending": 0, "failed": 0}
+    attempts = 0
+    for row in rows:
+        counts[row.status] = counts.get(row.status, 0) + 1
+        attempts += row.attempts
+    total = len(rows)
+    return {
+        "days": window,
+        "total": total,
+        "success": counts["success"],
+        "pending": counts["pending"],
+        "failed": counts["failed"],
+        "success_rate": round(counts["success"] * 100 / total, 1) if total else None,
+        "average_attempts": round(attempts / total, 2) if total else 0,
+    }
+
+
 @app.post("/webhooks/{endpoint_id}/deliveries/{delivery_id}/replay")
 def replay_webhook_delivery(
     endpoint_id: int,

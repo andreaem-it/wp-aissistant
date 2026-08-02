@@ -146,13 +146,19 @@ function Deliveries({ endpointId, availableEvents }) {
   const [payloadOpen, setPayloadOpen] = useState(null);
   const [filters, setFilters] = useState({ status: "", event: "" });
   const [loadingMore, setLoadingMore] = useState(false);
+  const [stats, setStats] = useState(null);
   const PAGE_SIZE = 50;
 
   const load = useCallback(
     () => api.webhookDeliveries(endpointId, filters).then(setRows).catch(() => setRows([])),
     [endpointId, filters],
   );
-  useEffect(() => { if (open) load(); }, [open, load]);
+  useEffect(() => {
+    if (open) {
+      load();
+      api.webhookStats(endpointId).then(setStats).catch(() => setStats(null));
+    }
+  }, [open, load, endpointId]);
   const loadMore = async () => {
     if (!rows.length) return;
     setLoadingMore(true);
@@ -201,6 +207,12 @@ function Deliveries({ endpointId, availableEvents }) {
               {availableEvents.map((event) => <option value={event} key={event}>{event}</option>)}
             </select>
           </div>
+          {stats && <div className="wpai-webhook-stats">
+            <span><b>{stats.success_rate == null ? "—" : `${stats.success_rate}%`}</b><small>Affidabilità 30 gg</small></span>
+            <span><b>{stats.total}</b><small>Consegne</small></span>
+            <span><b>{stats.failed}</b><small>Fallite</small></span>
+            <span><b>{stats.average_attempts}</b><small>Tentativi medi</small></span>
+          </div>}
           <table className="wpai-table" style={{ marginTop: 8 }}>
             <tbody>
               {rows.map((row) => (

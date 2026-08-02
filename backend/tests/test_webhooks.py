@@ -302,6 +302,13 @@ def test_test_endpoint_reports_the_real_outcome(client, tenant, monkeypatch):
     assert client.get(
         f"/webhooks/{created['id']}/deliveries", headers=tenant["op"], params={"before_id": 0},
     ).status_code == 400
+    stats = client.get(f"/webhooks/{created['id']}/stats", headers=tenant["op"]).json()
+    assert stats == {
+        "days": 30, "total": 2, "success": 1, "pending": 0, "failed": 1,
+        "success_rate": 50.0, "average_attempts": 1.0,
+    }
+    other = _other_tenant(client, "Stats Other")
+    assert client.get(f"/webhooks/{created['id']}/stats", headers=other["op"]).status_code == 404
 
 
 def test_failed_delivery_can_be_replayed_without_overwriting_history(client, tenant, monkeypatch):

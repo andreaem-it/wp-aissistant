@@ -176,6 +176,7 @@ export const api = {
   deleteWebhook: (id) => call(`/webhooks/${id}`, { method: "DELETE" }),
   testWebhook: (id) => call(`/webhooks/${id}/test`, { method: "POST" }),
   webhookDeliveries: (id, params = {}) => call(`/webhooks/${id}/deliveries`, { params }),
+  webhookStats: (id, days = 30) => call(`/webhooks/${id}/stats`, { params: { days } }),
   replayWebhookDelivery: (endpointId, deliveryId) =>
     call(`/webhooks/${endpointId}/deliveries/${deliveryId}/replay`, { method: "POST" }),
   stats: () => call("/stats"),
