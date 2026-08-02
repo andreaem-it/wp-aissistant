@@ -1,5 +1,5 @@
-import json
 import hashlib
+import json
 import hmac
 import ipaddress
 import logging
@@ -1695,6 +1695,7 @@ def _apply_sla(session: Session, conv: Conversation, *, start: bool = False) -> 
             start_time=schedule.start_time,
             end_time=schedule.end_time,
             timezone_name=schedule.timezone,
+            closed_dates=json.loads(schedule.closed_dates or "[]"),
         )
 
     if policy and policy.first_response_minutes > 0:
@@ -4081,6 +4082,7 @@ def _support_schedule_payload(row: SupportSchedule | None) -> dict:
         return {
             "enabled": False, "weekdays": [1, 2, 3, 4, 5], "start_time": "09:00",
             "end_time": "18:00", "timezone": "Europe/Rome", "source": "panel",
+            "closed_dates": [],
         }
     return {
         "enabled": row.enabled,
@@ -4088,6 +4090,7 @@ def _support_schedule_payload(row: SupportSchedule | None) -> dict:
         "start_time": row.start_time,
         "end_time": row.end_time,
         "timezone": row.timezone,
+        "closed_dates": json.loads(row.closed_dates or "[]"),
         "source": row.source,
         "updated_at": _iso(row.updated_at),
     }
@@ -4099,6 +4102,7 @@ def _validated_support_schedule(body: dict) -> dict:
         start_time = business_hours.parse_time(body.get("start_time", "")).strftime("%H:%M")
         end_time = business_hours.parse_time(body.get("end_time", "")).strftime("%H:%M")
         timezone_name = business_hours.validate_timezone(body.get("timezone", ""))
+        closed_dates = business_hours.parse_closed_dates(body.get("closed_dates", []))
         if start_time == end_time:
             raise ValueError("L’orario di apertura e chiusura non può coincidere")
     except ValueError as exc:
@@ -4109,6 +4113,7 @@ def _validated_support_schedule(body: dict) -> dict:
         "start_time": start_time,
         "end_time": end_time,
         "timezone": timezone_name,
+        "closed_dates": [item.isoformat() for item in closed_dates],
     }
 
 
@@ -4122,6 +4127,10 @@ def _save_support_schedule(session: Session, client_id: int, body: dict, source:
     row.start_time = clean["start_time"]
     row.end_time = clean["end_time"]
     row.timezone = clean["timezone"]
+    # WordPress owns weekly hours and timezone, while exceptional closures are managed in
+    # the panel. Older plugin payloads must never erase them during an automatic sync.
+    if "closed_dates" in body or row.id is None:
+        row.closed_dates = json.dumps(clean["closed_dates"])
     row.source = source
     row.updated_at = datetime.utcnow()
     session.add(row)

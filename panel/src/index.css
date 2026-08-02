@@ -501,6 +501,14 @@ button.wpai-btn:disabled { opacity: 0.5; cursor: default; }
 .wpai-day-picker button.active { border-color: var(--primary); background: var(--primary-soft); color: var(--primary); }
 .wpai-schedule-fields { display: grid; grid-template-columns: 1fr 1fr 1.5fr; gap: 8px; margin-bottom: 12px; }
 .wpai-schedule-fields label { display: grid; gap: 4px; color: var(--text-muted); font-size: 11.5px; font-weight: 600; }
+.wpai-closures { display: grid; gap: 9px; padding: 12px; margin: 0 0 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-subtle); }
+.wpai-closures > div:first-child { display: grid; gap: 2px; font-size: 12.5px; }
+.wpai-closures small { color: var(--text-muted); font-weight: 400; }
+.wpai-closure-add { display: flex; gap: 8px; align-items: center; }
+.wpai-closure-add input { max-width: 190px; }
+.wpai-closure-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.wpai-closure-list span { display: inline-flex; align-items: center; gap: 5px; padding: 5px 7px 5px 9px; border-radius: 999px; background: var(--primary-soft); color: var(--primary); font-size: 11.5px; font-weight: 650; }
+.wpai-closure-list button { border: 0; background: transparent; color: inherit; padding: 0 2px; cursor: pointer; font-size: 16px; line-height: 1; }
 @media (max-width: 760px) { .wpai-schedule-fields { grid-template-columns: 1fr 1fr; } .wpai-schedule-fields label:last-child { grid-column: 1 / -1; } }
 
 /* ---- Stats ---- */

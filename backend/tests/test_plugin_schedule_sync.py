@@ -53,6 +53,23 @@ def test_verified_plugin_registration_syncs_wordpress_schedule(client, tenant, m
     assert client.put("/plugin/support-schedule", headers=tenant["key"], json=SCHEDULE).status_code == 401
 
 
+def test_wordpress_sync_preserves_panel_managed_closures(client, tenant, monkeypatch):
+    _allow_site(tenant)
+    monkeypatch.setattr(main, "_verify_plugin_site", lambda origin, secret: True)
+    assert client.post("/plugin/register", headers=tenant["key"], json={
+        "site_url": "https://shop.example.it", "proof_url": "https://shop.example.it/wp-json/wpai/v1/site-proof",
+        "secret": SECRET, "support_schedule": SCHEDULE,
+    }).status_code == 200
+    assert client.put("/support-schedule", headers=tenant["op"], json={
+        **SCHEDULE, "closed_dates": ["2026-12-25"],
+    }).status_code == 200
+    synced = client.put(
+        "/plugin/support-schedule", headers={"Authorization": f"Bearer {SECRET}"}, json=SCHEDULE,
+    )
+    assert synced.status_code == 200
+    assert synced.json()["schedule"]["closed_dates"] == ["2026-12-25"]
+
+
 def test_public_widget_key_cannot_register_unverified_or_unapproved_site(client, tenant, monkeypatch):
     monkeypatch.setattr(main, "_verify_plugin_site", lambda origin, secret: False)
     assert client.post("/plugin/register", headers=tenant["key"], json={

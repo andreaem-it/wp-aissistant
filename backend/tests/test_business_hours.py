@@ -49,3 +49,17 @@ def test_wordpress_fixed_offset_timezone_is_supported():
         weekdays="1", start_time="09:00", end_time="18:00", timezone_name="+02:00",
     )
     assert result == datetime(2026, 8, 3, 8, 0)
+
+
+def test_exceptional_closure_skips_a_normally_open_day():
+    # Monday is closed: Friday 17:30 + 120 minutes ends Tuesday at 10:30 local.
+    assert add(
+        datetime(2026, 8, 7, 15, 30), 120, closed_dates=["2026-08-10"],
+    ) == datetime(2026, 8, 11, 8, 30)
+
+
+def test_overnight_shift_does_not_open_on_a_closed_date():
+    assert add(
+        datetime(2026, 8, 3, 21, 0), 60, weekdays="1", start_time="22:00",
+        end_time="02:00", timezone_name="UTC", closed_dates=["2026-08-03"],
+    ) == datetime(2026, 8, 10, 23, 0)

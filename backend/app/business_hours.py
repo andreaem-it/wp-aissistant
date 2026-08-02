@@ -1,5 +1,5 @@
 """DST-safe business-hour calculations for tenant SLA clocks."""
-from datetime import datetime, time, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import re
 
@@ -47,40 +47,51 @@ def parse_weekdays(value) -> tuple[int, ...]:
     return days
 
 
+def parse_closed_dates(value) -> tuple[date, ...]:
+    raw = value if isinstance(value, (list, tuple, set)) else []
+    try:
+        dates = tuple(sorted(set(date.fromisoformat(str(item)) for item in raw)))
+    except (TypeError, ValueError):
+        raise ValueError("Data di chiusura non valida") from None
+    return dates
+
+
 def _utc_naive(value: datetime) -> datetime:
     if value.tzinfo is None:
         return value
     return value.astimezone(timezone.utc).replace(tzinfo=None)
 
 
-def _open_intervals(local_day, weekdays: tuple[int, ...], start: time, end: time, zone: ZoneInfo):
+def _open_intervals(local_day, weekdays: tuple[int, ...], start: time, end: time, zone: ZoneInfo, closed_dates=()):
     """Return UTC-aware intervals that overlap a local date, including overnight shifts."""
     intervals = []
-    if local_day.isoweekday() in weekdays:
+    closure_dates = set(closed_dates)
+    if local_day.isoweekday() in weekdays and local_day not in closure_dates:
         opened = datetime.combine(local_day, start, zone)
         closed_day = local_day if start < end else local_day + timedelta(days=1)
-        closed = datetime.combine(closed_day, end, zone)
-        intervals.append((opened.astimezone(timezone.utc), closed.astimezone(timezone.utc)))
+        closed_at = datetime.combine(closed_day, end, zone)
+        intervals.append((opened.astimezone(timezone.utc), closed_at.astimezone(timezone.utc)))
     previous = local_day - timedelta(days=1)
-    if start >= end and previous.isoweekday() in weekdays:
+    if start >= end and previous.isoweekday() in weekdays and previous not in closure_dates:
         opened = datetime.combine(previous, start, zone)
-        closed = datetime.combine(local_day, end, zone)
-        intervals.append((opened.astimezone(timezone.utc), closed.astimezone(timezone.utc)))
+        closed_at = datetime.combine(local_day, end, zone)
+        intervals.append((opened.astimezone(timezone.utc), closed_at.astimezone(timezone.utc)))
     return intervals
 
 
-def add_business_minutes(started_at: datetime, minutes: float, *, weekdays, start_time, end_time, timezone_name) -> datetime:
+def add_business_minutes(started_at: datetime, minutes: float, *, weekdays, start_time, end_time, timezone_name, closed_dates=()) -> datetime:
     """Add working minutes and return a naive UTC timestamp, matching database timestamps."""
     days = parse_weekdays(weekdays)
     opens, closes = parse_time(start_time), parse_time(end_time)
     if opens == closes:
         raise ValueError("L’orario di apertura e chiusura non può coincidere")
     zone = timezone_info(timezone_name)
+    closures = parse_closed_dates(closed_dates)
     cursor = _utc_naive(started_at).replace(tzinfo=timezone.utc)
     remaining = max(float(minutes), 0.0) * 60
     while remaining > 0:
         local_day = cursor.astimezone(zone).date()
-        intervals = sorted(_open_intervals(local_day, days, opens, closes, zone))
+        intervals = sorted(_open_intervals(local_day, days, opens, closes, zone, closures))
         active = next(((left, right) for left, right in intervals if right > cursor), None)
         if active is None:
             cursor = datetime.combine(local_day + timedelta(days=1), time.min, zone).astimezone(timezone.utc)

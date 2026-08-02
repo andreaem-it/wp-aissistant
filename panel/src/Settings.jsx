@@ -232,6 +232,7 @@ const DAY_LABELS = ["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"];
 function SupportScheduleManager() {
   const browserTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "Europe/Rome";
   const [form, setForm] = useState(null);
+  const [closure, setClosure] = useState("");
   const [state, setState] = useState({ saving: false, message: "" });
 
   useEffect(() => {
@@ -254,6 +255,14 @@ function SupportScheduleManager() {
       setState({ saving: false, message: "Controlla giorni, orari e fuso orario." });
     }
   };
+  const addClosure = () => {
+    if (!closure || form.closed_dates.includes(closure)) return;
+    setForm((value) => ({ ...value, closed_dates: [...value.closed_dates, closure].sort() }));
+    setClosure("");
+  };
+  const removeClosure = (date) => setForm((value) => ({
+    ...value, closed_dates: value.closed_dates.filter((item) => item !== date),
+  }));
   if (!form) return <div className="wpai-card"><div className="wpai-card-title"><Clock3 size={15} /> Orari di supporto</div><p className="dim">Caricamento…</p></div>;
   return <form className="wpai-card" onSubmit={save}>
     <div className="wpai-card-title"><Clock3 size={15} /> Orari di supporto</div>
@@ -272,6 +281,19 @@ function SupportScheduleManager() {
       <label>Da<input type="time" value={form.start_time} onChange={(event) => setForm((value) => ({ ...value, start_time: event.target.value }))} /></label>
       <label>A<input type="time" value={form.end_time} onChange={(event) => setForm((value) => ({ ...value, end_time: event.target.value }))} /></label>
       <label>Fuso orario<input value={form.timezone} onChange={(event) => setForm((value) => ({ ...value, timezone: event.target.value }))} placeholder="Europe/Rome" /></label>
+    </div>
+    <div className="wpai-closures">
+      <div>
+        <b>Festività e chiusure</b>
+        <small>In queste date lo SLA resta completamente in pausa.</small>
+      </div>
+      <div className="wpai-closure-add">
+        <input aria-label="Data di chiusura" type="date" value={closure} onChange={(event) => setClosure(event.target.value)} />
+        <button className="wpai-btn wpai-btn-secondary" type="button" disabled={!closure} onClick={addClosure}>Aggiungi</button>
+      </div>
+      {form.closed_dates.length > 0 && <div className="wpai-closure-list">
+        {form.closed_dates.map((date) => <span key={date}>{new Intl.DateTimeFormat("it-IT", { dateStyle: "medium", timeZone: "UTC" }).format(new Date(`${date}T00:00:00Z`))}<button type="button" aria-label={`Rimuovi chiusura ${date}`} onClick={() => removeClosure(date)}>×</button></span>)}
+      </div>}
     </div>
     <button className="wpai-btn" type="submit" disabled={state.saving || form.weekdays.length === 0}>{state.saving ? "Salvataggio…" : "Salva orari"}</button>
     {state.message && <p style={{ fontSize: 12.5, color: "var(--text-muted)", margin: "9px 0 0" }}>{state.message}</p>}

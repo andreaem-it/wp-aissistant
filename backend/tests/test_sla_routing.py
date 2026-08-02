@@ -82,6 +82,17 @@ def test_support_schedule_rejects_invalid_calendar(client, tenant):
     assert client.put("/support-schedule", headers=tenant["op"], json={**base, "weekdays": []}).status_code == 400
     assert client.put("/support-schedule", headers=tenant["op"], json={**base, "timezone": "invalid"}).status_code == 400
     assert client.put("/support-schedule", headers=tenant["op"], json={**base, "end_time": "09:00"}).status_code == 400
+    assert client.put("/support-schedule", headers=tenant["op"], json={**base, "closed_dates": ["31/12/2026"]}).status_code == 400
+
+
+def test_support_schedule_saves_sorted_unique_closures(client, tenant):
+    response = client.put("/support-schedule", headers=tenant["op"], json={
+        "enabled": True, "weekdays": [1, 2, 3, 4, 5], "start_time": "09:00",
+        "end_time": "18:00", "timezone": "Europe/Rome",
+        "closed_dates": ["2026-12-26", "2026-12-25", "2026-12-25"],
+    })
+    assert response.status_code == 200
+    assert response.json()["closed_dates"] == ["2026-12-25", "2026-12-26"]
 
 
 def test_conversation_without_policy_has_no_sla(client, tenant):
