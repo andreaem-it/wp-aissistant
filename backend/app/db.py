@@ -76,7 +76,7 @@ class Contact(SQLModel, table=True):
     """
     id: Optional[int] = Field(default=None, primary_key=True)
     client_id: int = Field(index=True, foreign_key="client.id")
-    channel: str = Field(default="web", index=True)  # web | email | whatsapp | messenger
+    channel: str = Field(default="web", index=True)  # web | email | whatsapp | messenger | instagram
     external_id: str = Field(index=True)
     email: Optional[str] = Field(default=None, index=True)
     name: str = ""

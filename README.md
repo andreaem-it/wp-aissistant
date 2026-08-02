@@ -37,7 +37,7 @@ Componenti indipendenti, collegati da API autenticate:
 | **Panel** | `panel/` | React 18, Vite | Dashboard operatori (conversazioni, ticket, upload KB, stats) |
 | **Plugin WP** | `wp-plugin/` | PHP (WordPress), JS/CSS vanilla | Widget di chat + sincronizzazione automatica dei contenuti |
 | **Sito marketing** | `website/` | HTML/CSS statico (zero build) | Landing promozionale: feature, prezzi, login/registrazione |
-| **Adapter canali** | `cloudflare/` | Cloudflare Workers | Normalizzazione email e WhatsApp, verifica webhook e isolamento delle credenziali provider |
+| **Adapter canali** | `cloudflare/` | Cloudflare Workers | Normalizzazione email, WhatsApp e canali Meta, verifica webhook e isolamento delle credenziali provider |
 
 ## Come funziona
 
@@ -391,6 +391,9 @@ Per collegare CRM e automazioni ci sono due strade complementari, documentate in
 | `WHATSAPP_OUTBOUND_URL` | *(non impostato)* | Endpoint HTTPS dell'adapter WhatsApp tenant-aware per le risposte operatore |
 | `WHATSAPP_OUTBOUND_TOKEN` | *(non impostato)* | Bearer token condiviso con l'adapter WhatsApp; le credenziali Meta non entrano nel database |
 | `WHATSAPP_OUTBOUND_TIMEOUT` | `10` | Timeout dell'adapter WhatsApp in secondi |
+| `META_MESSAGING_OUTBOUND_URL` | *(non impostato)* | Endpoint HTTPS dell'adapter tenant-aware per Messenger e Instagram Direct |
+| `META_MESSAGING_OUTBOUND_TOKEN` | *(non impostato)* | Bearer token condiviso con l'adapter Meta; le credenziali Graph API restano nell'adapter |
+| `META_MESSAGING_OUTBOUND_TIMEOUT` | `10` | Timeout dell'adapter Messenger/Instagram in secondi |
 | `ATTACHMENT_STORAGE_URL` | *(non impostato)* | URL del Worker Cloudflare autenticato che media l’accesso al bucket R2 privato |
 | `ATTACHMENT_STORAGE_TOKEN` | *(non impostato)* | Bearer token condiviso backend→Worker; non viene mai inviato al browser |
 | `ATTACHMENT_STORAGE_TIMEOUT` | `15` | Timeout upload/download/cancellazione in secondi |
@@ -468,6 +471,7 @@ Auth via header `Authorization: Bearer <token>`. La colonna *Auth* indica quale 
 | `/webhooks/{id}/deliveries` | GET | 👤 | Log delle consegne (stato, tentativi, codice HTTP, errore) |
 | `/channels/email/inbound` | POST | 🔓 | Adapter inbound email (scope `channels:write`), con deduplicazione e threading ([guida](docs/email-channel.md)) |
 | `/channels/whatsapp/inbound` | POST | 🔓 | Adapter inbound WhatsApp (scope `channels:write`), consenso, deduplicazione e threading ([guida](docs/whatsapp-channel.md)) |
+| `/channels/meta/inbound` | POST | 🔓 | Adapter inbound Messenger/Instagram (scope `channels:write`), deduplicazione, contatto e threading ([guida](docs/meta-messaging-channel.md)) |
 | `/conversations/{id}/whatsapp/status` | GET | 🔒 | Stato finestra di 24 ore e consenso WhatsApp |
 | `/conversations/{id}/whatsapp/template` | POST | 🔒 | Invio di un template WhatsApp approvato con consenso registrato |
 | `/conversations/{id}/attachments` | POST | 🔒 | Carica un allegato operatore nel bucket R2 privato e crea il relativo messaggio solo dopo conferma storage |

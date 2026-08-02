@@ -64,6 +64,7 @@ from .db import (
 )
 from . import email as email_service
 from . import whatsapp as whatsapp_service
+from . import meta_messaging as meta_messaging_service
 from . import push as push_service
 from . import attachments as attachment_service
 from fastapi.responses import StreamingResponse
@@ -2302,7 +2303,7 @@ def _clean_inbox_filters(session: Session, client_id: int, raw: dict) -> dict:
         clean["conversation_language"] = conversation_language
     channel = raw.get("channel")
     if channel:
-        if channel not in ("web", "email", "whatsapp", "messenger"):
+        if channel not in ("web", "email", "whatsapp", "messenger", "instagram"):
             raise HTTPException(400, "invalid channel")
         clean["channel"] = channel
     if raw.get("unassigned"):
@@ -2868,6 +2869,110 @@ def whatsapp_inbound(
     return {"ok": True, "created": True, "conversation_id": conv.id}
 
 
+@app.post("/channels/meta/inbound")
+def meta_messaging_inbound(
+    platform: str = Body(...),
+    sender_id: str = Body(...),
+    text: str = Body(...),
+    message_id: str = Body(...),
+    thread_id: str = Body(""),
+    sender_name: str = Body(""),
+    key: ApiKey = Depends(require_channel_write_key),
+    session: Session = Depends(get_session),
+):
+    """Normalized inbound adapter shared by Messenger and Instagram Direct."""
+    clean_platform = (platform or "").strip().lower()
+    external_sender = (sender_id or "").strip()[:255]
+    body = (text or "").strip()[:MAX_CHAT_MESSAGE_CHARS]
+    provider_message_id = (message_id or "").strip()[:500]
+    provider_thread_id = (thread_id or external_sender).strip()[:500]
+    if clean_platform not in {"messenger", "instagram"}:
+        raise HTTPException(400, "platform must be messenger or instagram")
+    if not external_sender or not re.fullmatch(r"[A-Za-z0-9_.:-]{1,255}", external_sender):
+        raise HTTPException(400, "valid sender_id required")
+    if not body:
+        raise HTTPException(400, "text required")
+    if not provider_message_id:
+        raise HTTPException(400, "message_id required")
+
+    duplicate = session.exec(
+        select(Message)
+        .join(Conversation, Conversation.id == Message.conversation_id)
+        .where(
+            Conversation.client_id == key.client_id,
+            Conversation.channel == clean_platform,
+            Message.external_id == provider_message_id,
+        )
+    ).first()
+    if duplicate:
+        return {"ok": True, "created": False, "conversation_id": duplicate.conversation_id}
+
+    contact = _get_or_create_contact(
+        session, key.client_id, clean_platform, external_sender,
+        name=(sender_name or "").strip()[:255],
+    )
+    conv = session.exec(
+        select(Conversation).where(
+            Conversation.client_id == key.client_id,
+            Conversation.channel == clean_platform,
+            Conversation.external_thread_id == provider_thread_id,
+            Conversation.status != "closed",
+        ).order_by(Conversation.id.desc())
+    ).first()
+    now = datetime.utcnow()
+    if conv is None:
+        conv = Conversation(
+            client_id=key.client_id,
+            visitor_id=f"{clean_platform}:{external_sender}",
+            channel=clean_platform,
+            contact_id=contact.id,
+            external_thread_id=provider_thread_id,
+            status="escalated",
+            created_at=now,
+            updated_at=now,
+        )
+        session.add(conv)
+        session.flush()
+    else:
+        conv.contact_id = contact.id
+        conv.status = "escalated"
+        conv.closed_at = None
+        conv.updated_at = now
+        session.add(conv)
+
+    session.add(Message(conversation_id=conv.id, role="user", content=body, external_id=provider_message_id))
+    open_ticket = session.exec(
+        select(Ticket).where(Ticket.conversation_id == conv.id, Ticket.status == "open")
+    ).first()
+    ticket_created = open_ticket is None
+    channel_label = "Messenger" if clean_platform == "messenger" else "Instagram"
+    if open_ticket is None:
+        open_ticket = Ticket(conversation_id=conv.id, reason=f"Messaggio {channel_label}")
+        session.add(open_ticket)
+    assignee = _auto_assign(session, conv)
+    _apply_sla(session, conv, start=True)
+    session.commit()
+    session.refresh(conv)
+    session.refresh(open_ticket)
+    if ticket_created:
+        tenant = session.get(Client, key.client_id)
+        notify_new_ticket(tenant.name if tenant else "Supporto", conv.id, open_ticket.id, open_ticket.reason)
+        push_service.send(
+            session, key.client_id, "assignment" if assignee else "escalation",
+            title=f"Nuovo {channel_label} assegnato" if assignee else f"Nuovo messaggio {channel_label}",
+            body=open_ticket.reason, conversation_id=conv.id,
+            operator_ids=[assignee.id] if assignee else None,
+        )
+        events.emit(session, key.client_id, "conversation.escalated", {
+            "conversation_id": conv.id,
+            "ticket_id": open_ticket.id,
+            "reason": open_ticket.reason,
+            "trigger": clean_platform,
+            "channel": clean_platform,
+        }, conv=conv)
+    return {"ok": True, "created": True, "conversation_id": conv.id}
+
+
 @app.get("/conversations")
 def list_conversations(
     before_id: int | None = None,
@@ -2894,7 +2999,7 @@ def list_conversations(
     now = datetime.utcnow()
     query = select(Conversation).where(Conversation.client_id == operator.client_id)
     if channel:
-        if channel not in ("web", "email", "whatsapp", "messenger"):
+        if channel not in ("web", "email", "whatsapp", "messenger", "instagram"):
             raise HTTPException(400, "invalid channel")
         query = query.where(Conversation.channel == channel)
     if status:
@@ -3107,6 +3212,27 @@ def _notify_visitor_reply(session, client_id, conv):
             to=contact.external_id,
             body=latest_operator.content,
             reply_to_message_id=last_inbound.external_id or "",
+        )
+    if conv.channel in {"messenger", "instagram"} and conv.contact_id:
+        contact = session.get(Contact, conv.contact_id)
+        last_inbound = session.exec(
+            select(Message)
+            .where(Message.conversation_id == conv.id, Message.role == "user")
+            .order_by(Message.created_at.desc())
+            .limit(1)
+        ).first()
+        latest_operator = session.exec(
+            select(Message)
+            .where(Message.conversation_id == conv.id, Message.role == "operator")
+            .order_by(Message.id.desc())
+            .limit(1)
+        ).first()
+        return bool(contact and latest_operator) and meta_messaging_service.send_message(
+            client_id=client_id,
+            platform=conv.channel,
+            recipient_id=contact.external_id,
+            body=latest_operator.content,
+            reply_to_message_id=last_inbound.external_id if last_inbound else "",
         )
     if conv.visitor_email:
         client = session.get(Client, client_id)
