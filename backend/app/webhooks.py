@@ -41,6 +41,7 @@ logger = logging.getLogger("wpai.webhooks")
 # typo that would silently deliver nothing.
 EVENTS = (
     "conversation.created",
+    "conversation.message.received",
     "conversation.escalated",
     "conversation.replied",
     "conversation.closed",

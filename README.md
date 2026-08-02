@@ -354,7 +354,7 @@ Per collegare CRM e automazioni ci sono due strade complementari, documentate in
   `conversations:write`, `knowledge:write`, `stats:read`), mostrate una sola volta e revocabili,
   con rate limit dedicato. Espone elenco/dettaglio conversazioni, risposta, cambio stato, tag,
   statistiche e ingest di documenti. Le note interne non fanno parte del contratto pubblico.
-- **Webhook firmati** — eventi `conversation.created|escalated|replied|closed|rated` e
+- **Webhook firmati** — eventi `conversation.created|message.received|escalated|replied|closed|rated` e
   `sla.breached` recapitati sull'endpoint HTTPS del tenant con `X-WPAI-Signature`
   (HMAC-SHA256 su `timestamp.corpo`), riprovi con backoff esponenziale fino a 5 tentativi e log
   delle consegne consultabile dal panel. Gli URL interni/privati sono rifiutati (protezione

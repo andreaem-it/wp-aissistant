@@ -123,6 +123,7 @@ Un endpoint riceve gli eventi selezionati; senza selezione li riceve tutti.
 | Evento | Quando |
 |---|---|
 | `conversation.created` | Il visitatore apre una conversazione |
+| `conversation.message.received` | Arriva un messaggio su web, email, WhatsApp, Messenger o Instagram; contiene solo ID conversazione/messaggio, canale e ruolo |
 | `conversation.escalated` | La conversazione passa a un operatore (creato il ticket) |
 | `conversation.replied` | Un operatore o l'API risponde |
 | `conversation.closed` | La conversazione viene chiusa |

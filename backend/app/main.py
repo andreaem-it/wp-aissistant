@@ -575,6 +575,16 @@ def _create_conversation(session: Session, client_id: int, visitor_id: str) -> t
     return conv, token
 
 
+def _emit_visitor_message(session: Session, conv: Conversation, message: Message) -> None:
+    """Emit privacy-safe metadata for inbound messages on every visitor-facing channel."""
+    events.emit(session, conv.client_id, "conversation.message.received", {
+        "conversation_id": conv.id,
+        "message_id": message.id,
+        "channel": conv.channel or "web",
+        "role": "user",
+    }, conv=conv)
+
+
 def _require_conversation_token(conv: Conversation, token: str | None) -> None:
     """Fail as not-found so callers cannot use the endpoint to enumerate conversations."""
     if (
@@ -993,7 +1003,8 @@ def _prepare_chat_turn(
             .order_by(Message.id)
         ).all()
     ]
-    session.add(Message(conversation_id=conv.id, role="user", content=message))
+    visitor_message = Message(conversation_id=conv.id, role="user", content=message)
+    session.add(visitor_message)
     # Re-detected every turn: a visitor can switch language mid-conversation, and the browser
     # locale is only a hint — what they actually type wins when it says something.
     conv.language = language.detect(message, hint=locale, default=conv.language or language.DEFAULT)
@@ -1003,6 +1014,8 @@ def _prepare_chat_turn(
         conv.closed_at = None
     session.add(conv)
     session.commit()
+    session.refresh(visitor_message)
+    _emit_visitor_message(session, conv, visitor_message)
     metrics.chat_messages_total.inc()
     return conv, access_token, history
 
@@ -2744,12 +2757,13 @@ def email_inbound(
         conv.updated_at = now
         session.add(conv)
 
-    session.add(Message(
+    inbound_message = Message(
         conversation_id=conv.id,
         role="user",
         content=body,
         external_id=provider_message_id,
-    ))
+    )
+    session.add(inbound_message)
     open_ticket = session.exec(
         select(Ticket).where(Ticket.conversation_id == conv.id, Ticket.status == "open")
     ).first()
@@ -2761,6 +2775,8 @@ def email_inbound(
     _apply_sla(session, conv, start=True)
     session.commit()
     session.refresh(conv)
+    session.refresh(inbound_message)
+    _emit_visitor_message(session, conv, inbound_message)
     session.refresh(open_ticket)
     if ticket_created:
         tenant = session.get(Client, key.client_id)
@@ -2865,7 +2881,10 @@ def whatsapp_inbound(
         conv.updated_at = now
         session.add(conv)
 
-    session.add(Message(conversation_id=conv.id, role="user", content=body, external_id=provider_message_id))
+    inbound_message = Message(
+        conversation_id=conv.id, role="user", content=body, external_id=provider_message_id,
+    )
+    session.add(inbound_message)
     open_ticket = session.exec(
         select(Ticket).where(Ticket.conversation_id == conv.id, Ticket.status == "open")
     ).first()
@@ -2877,6 +2896,8 @@ def whatsapp_inbound(
     _apply_sla(session, conv, start=True)
     session.commit()
     session.refresh(conv)
+    session.refresh(inbound_message)
+    _emit_visitor_message(session, conv, inbound_message)
     session.refresh(open_ticket)
     if ticket_created:
         tenant = session.get(Client, key.client_id)
@@ -2968,7 +2989,10 @@ def meta_messaging_inbound(
         conv.updated_at = now
         session.add(conv)
 
-    session.add(Message(conversation_id=conv.id, role="user", content=body, external_id=provider_message_id))
+    inbound_message = Message(
+        conversation_id=conv.id, role="user", content=body, external_id=provider_message_id,
+    )
+    session.add(inbound_message)
     open_ticket = session.exec(
         select(Ticket).where(Ticket.conversation_id == conv.id, Ticket.status == "open")
     ).first()
@@ -2981,6 +3005,8 @@ def meta_messaging_inbound(
     _apply_sla(session, conv, start=True)
     session.commit()
     session.refresh(conv)
+    session.refresh(inbound_message)
+    _emit_visitor_message(session, conv, inbound_message)
     session.refresh(open_ticket)
     if ticket_created:
         tenant = session.get(Client, key.client_id)

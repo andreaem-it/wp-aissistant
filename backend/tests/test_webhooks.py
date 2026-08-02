@@ -175,7 +175,9 @@ def test_endpoint_without_events_receives_everything(client, tenant, monkeypatch
 
     _dispatch()
     events = [json.loads(c["body"])["event"] for c in transport.calls]
-    assert events == ["conversation.created", "conversation.escalated"]
+    assert events == [
+        "conversation.created", "conversation.message.received", "conversation.escalated",
+    ]
 
 
 def test_inactive_endpoint_receives_nothing(client, tenant, monkeypatch):
@@ -243,6 +245,28 @@ def test_recovering_endpoint_succeeds_on_retry(client, tenant, monkeypatch):
     assert log[0]["status"] == "success"
     assert log[0]["attempts"] == 2
     assert log[0]["delivered_at"] is not None
+
+
+def test_every_web_visitor_message_emits_privacy_safe_metadata(client, tenant, monkeypatch):
+    transport = _transport(monkeypatch, 200)
+    _endpoint(client, tenant, events=["conversation.message.received"])
+    first = client.post(
+        "/chat", headers=tenant["key"],
+        json={"visitor_id": "message-hook", "message": "Avete questo prodotto?"},
+    ).json()
+    client.post(
+        "/chat", headers=tenant["key"],
+        json={
+            "visitor_id": "message-hook", "conversation_id": first["conversation_id"],
+            "conversation_token": first["conversation_token"], "message": "Quanto costa?",
+        },
+    )
+    assert _dispatch() == 2
+    payloads = [json.loads(call["body"]) for call in transport.calls]
+    assert all(payload["event"] == "conversation.message.received" for payload in payloads)
+    assert all(payload["data"]["channel"] == "web" for payload in payloads)
+    assert all(set(payload["data"]) == {"conversation_id", "message_id", "channel", "role"} for payload in payloads)
+    assert all("conversation_token" not in json.dumps(payload) for payload in payloads)
 
 
 def test_test_endpoint_reports_the_real_outcome(client, tenant, monkeypatch):
