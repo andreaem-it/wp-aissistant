@@ -56,6 +56,32 @@ def parse_closed_dates(value) -> tuple[date, ...]:
     return dates
 
 
+def easter_sunday(year: int) -> date:
+    """Gregorian Easter using the anonymous computus algorithm."""
+    a = year % 19
+    b, c = divmod(year, 100)
+    d, e = divmod(b, 4)
+    f = (b + 8) // 25
+    g = (b - f + 1) // 3
+    h = (19 * a + b - d - g + 15) % 30
+    i, k = divmod(c, 4)
+    month_carry = (32 + 2 * e + 2 * i - h - k) % 7
+    correction = (a + 11 * h + 22 * month_carry) // 451
+    month = (h + month_carry - 7 * correction + 114) // 31
+    day = (h + month_carry - 7 * correction + 114) % 31 + 1
+    return date(year, month, day)
+
+
+def italian_public_holidays(year: int) -> tuple[date, ...]:
+    """National non-working days valid across Italy; local patron days stay tenant-managed."""
+    fixed = ((1, 1), (1, 6), (4, 25), (5, 1), (6, 2), (8, 15),
+             (11, 1), (12, 8), (12, 25), (12, 26))
+    easter = easter_sunday(year)
+    return tuple(date(year, month, day) for month, day in fixed) + (
+        easter, easter + timedelta(days=1),
+    )
+
+
 def _utc_naive(value: datetime) -> datetime:
     if value.tzinfo is None:
         return value
@@ -79,7 +105,8 @@ def _open_intervals(local_day, weekdays: tuple[int, ...], start: time, end: time
     return intervals
 
 
-def add_business_minutes(started_at: datetime, minutes: float, *, weekdays, start_time, end_time, timezone_name, closed_dates=()) -> datetime:
+def add_business_minutes(started_at: datetime, minutes: float, *, weekdays, start_time,
+                         end_time, timezone_name, closed_dates=(), include_italian_holidays=False) -> datetime:
     """Add working minutes and return a naive UTC timestamp, matching database timestamps."""
     days = parse_weekdays(weekdays)
     opens, closes = parse_time(start_time), parse_time(end_time)
@@ -91,7 +118,10 @@ def add_business_minutes(started_at: datetime, minutes: float, *, weekdays, star
     remaining = max(float(minutes), 0.0) * 60
     while remaining > 0:
         local_day = cursor.astimezone(zone).date()
-        intervals = sorted(_open_intervals(local_day, days, opens, closes, zone, closures))
+        calendar_closures = closures
+        if include_italian_holidays:
+            calendar_closures += italian_public_holidays(local_day.year)
+        intervals = sorted(_open_intervals(local_day, days, opens, closes, zone, calendar_closures))
         active = next(((left, right) for left, right in intervals if right > cursor), None)
         if active is None:
             cursor = datetime.combine(local_day + timedelta(days=1), time.min, zone).astimezone(timezone.utc)

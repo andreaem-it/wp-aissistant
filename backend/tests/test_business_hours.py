@@ -2,7 +2,10 @@ from datetime import datetime
 
 import pytest
 
-from app.business_hours import add_business_minutes, parse_weekdays, validate_timezone
+from app.business_hours import (
+    add_business_minutes, easter_sunday, italian_public_holidays, parse_weekdays,
+    validate_timezone,
+)
 
 
 def add(start, minutes, **overrides):
@@ -63,3 +66,17 @@ def test_overnight_shift_does_not_open_on_a_closed_date():
         datetime(2026, 8, 3, 21, 0), 60, weekdays="1", start_time="22:00",
         end_time="02:00", timezone_name="UTC", closed_dates=["2026-08-03"],
     ) == datetime(2026, 8, 10, 23, 0)
+
+
+def test_italian_holidays_include_easter_and_fixed_dates():
+    assert easter_sunday(2026) == datetime(2026, 4, 5).date()
+    holidays = italian_public_holidays(2026)
+    assert datetime(2026, 4, 6).date() in holidays
+    assert datetime(2026, 12, 25).date() in holidays
+
+
+def test_automatic_italian_holidays_pause_sla():
+    # Christmas Friday is skipped, as is the weekend: Thursday 17:30 + 120m => Monday 10:30.
+    assert add(
+        datetime(2026, 12, 24, 16, 30), 120, include_italian_holidays=True,
+    ) == datetime(2026, 12, 28, 9, 30)

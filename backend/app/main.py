@@ -1696,6 +1696,7 @@ def _apply_sla(session: Session, conv: Conversation, *, start: bool = False) -> 
             end_time=schedule.end_time,
             timezone_name=schedule.timezone,
             closed_dates=json.loads(schedule.closed_dates or "[]"),
+            include_italian_holidays=schedule.include_italian_holidays,
         )
 
     if policy and policy.first_response_minutes > 0:
@@ -4083,6 +4084,7 @@ def _support_schedule_payload(row: SupportSchedule | None) -> dict:
             "enabled": False, "weekdays": [1, 2, 3, 4, 5], "start_time": "09:00",
             "end_time": "18:00", "timezone": "Europe/Rome", "source": "panel",
             "closed_dates": [],
+            "include_italian_holidays": False,
         }
     return {
         "enabled": row.enabled,
@@ -4091,6 +4093,7 @@ def _support_schedule_payload(row: SupportSchedule | None) -> dict:
         "end_time": row.end_time,
         "timezone": row.timezone,
         "closed_dates": json.loads(row.closed_dates or "[]"),
+        "include_italian_holidays": row.include_italian_holidays,
         "source": row.source,
         "updated_at": _iso(row.updated_at),
     }
@@ -4114,6 +4117,7 @@ def _validated_support_schedule(body: dict) -> dict:
         "end_time": end_time,
         "timezone": timezone_name,
         "closed_dates": [item.isoformat() for item in closed_dates],
+        "include_italian_holidays": bool(body.get("include_italian_holidays", False)),
     }
 
 
@@ -4131,6 +4135,8 @@ def _save_support_schedule(session: Session, client_id: int, body: dict, source:
     # the panel. Older plugin payloads must never erase them during an automatic sync.
     if "closed_dates" in body or row.id is None:
         row.closed_dates = json.dumps(clean["closed_dates"])
+    if "include_italian_holidays" in body or row.id is None:
+        row.include_italian_holidays = clean["include_italian_holidays"]
     row.source = source
     row.updated_at = datetime.utcnow()
     session.add(row)

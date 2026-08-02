@@ -291,6 +291,10 @@ function SupportScheduleManager() {
         <input aria-label="Data di chiusura" type="date" value={closure} onChange={(event) => setClosure(event.target.value)} />
         <button className="wpai-btn wpai-btn-secondary" type="button" disabled={!closure} onClick={addClosure}>Aggiungi</button>
       </div>
+      <label className="wpai-holiday-toggle">
+        <input type="checkbox" checked={form.include_italian_holidays} onChange={(event) => setForm((value) => ({ ...value, include_italian_holidays: event.target.checked }))} />
+        <span><b>Festività nazionali italiane</b><small>Capodanno, Epifania, Pasqua e Pasquetta, 25 aprile, 1 maggio, 2 giugno, Ferragosto, Ognissanti, Immacolata, Natale e Santo Stefano.</small></span>
+      </label>
       {form.closed_dates.length > 0 && <div className="wpai-closure-list">
         {form.closed_dates.map((date) => <span key={date}>{new Intl.DateTimeFormat("it-IT", { dateStyle: "medium", timeZone: "UTC" }).format(new Date(`${date}T00:00:00Z`))}<button type="button" aria-label={`Rimuovi chiusura ${date}`} onClick={() => removeClosure(date)}>×</button></span>)}
       </div>}

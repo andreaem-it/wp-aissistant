@@ -309,6 +309,7 @@ class SupportSchedule(SQLModel, table=True):
     end_time: str = "18:00"
     timezone: str = "Europe/Rome"
     closed_dates: str = "[]"  # JSON array of YYYY-MM-DD dates in the schedule timezone
+    include_italian_holidays: bool = False
     source: str = "panel"  # panel | wordpress
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)

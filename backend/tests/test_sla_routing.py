@@ -90,9 +90,11 @@ def test_support_schedule_saves_sorted_unique_closures(client, tenant):
         "enabled": True, "weekdays": [1, 2, 3, 4, 5], "start_time": "09:00",
         "end_time": "18:00", "timezone": "Europe/Rome",
         "closed_dates": ["2026-12-26", "2026-12-25", "2026-12-25"],
+        "include_italian_holidays": True,
     })
     assert response.status_code == 200
     assert response.json()["closed_dates"] == ["2026-12-25", "2026-12-26"]
+    assert response.json()["include_italian_holidays"] is True
 
 
 def test_conversation_without_policy_has_no_sla(client, tenant):
