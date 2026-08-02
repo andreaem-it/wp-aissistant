@@ -41,3 +41,11 @@ def test_dst_transition_counts_real_working_minutes():
 def test_validation_rejects_empty_days_and_unknown_zone():
     with pytest.raises(ValueError): parse_weekdays([])
     with pytest.raises(ValueError): validate_timezone("Mars/Olympus")
+
+
+def test_wordpress_fixed_offset_timezone_is_supported():
+    result = add(
+        datetime(2026, 8, 3, 7, 0), 60,
+        weekdays="1", start_time="09:00", end_time="18:00", timezone_name="+02:00",
+    )
+    assert result == datetime(2026, 8, 3, 8, 0)

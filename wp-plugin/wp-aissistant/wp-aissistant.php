@@ -2,13 +2,13 @@
 /**
  * Plugin Name: WP AIssistant
  * Description: Floating AI chat widget backed by a RAG backend, with automatic site content sync.
- * Version: 1.1.7
+ * Version: 1.1.8
  */
 
 if (!defined('ABSPATH')) exit;
 
 define('WPAI_OPTION', 'wpai_settings');
-define('WPAI_VERSION', '1.1.7'); // keep in sync with the "Version:" header above
+define('WPAI_VERSION', '1.1.8'); // keep in sync with the "Version:" header above
 
 // The backend is a single hosted service (not something each site owner runs), so its URL
 // isn't a setting — it's hardcoded here. Override only for local/staging testing by defining
@@ -84,6 +84,86 @@ add_action('admin_menu', function () {
 
 add_action('admin_init', function () {
     register_setting('wpai', WPAI_OPTION, ['sanitize_callback' => 'wpai_sanitize_settings']);
+});
+
+// A server-only installation secret proves that a settings sync originates from this actual
+// WordPress site. It is deliberately separate from the public widget API key.
+function wpai_install_secret() {
+    $secret = get_option('wpai_install_secret', '');
+    if (!$secret) {
+        $secret = wp_generate_password(64, false, false);
+        add_option('wpai_install_secret', $secret, '', false);
+    }
+    return $secret;
+}
+
+function wpai_support_schedule_payload($settings = null) {
+    $settings = is_array($settings) ? $settings : get_option(WPAI_OPTION, []);
+    return [
+        'enabled' => ($settings['support_hours_enabled'] ?? '0') === '1',
+        'weekdays' => array_map('intval', (array) ($settings['support_days'] ?? [1, 2, 3, 4, 5])),
+        'start_time' => $settings['support_start'] ?? '09:00',
+        'end_time' => $settings['support_end'] ?? '18:00',
+        'timezone' => wp_timezone_string(),
+    ];
+}
+
+function wpai_sync_support_schedule($settings = null) {
+    $settings = is_array($settings) ? $settings : get_option(WPAI_OPTION, []);
+    $key = $settings['api_key'] ?? '';
+    if (!$key) return false;
+    $secret = wpai_install_secret();
+    $registration = get_option('wpai_plugin_registration', []);
+    $registered = is_array($registration) && hash_equals($registration['key_hash'] ?? '', hash('sha256', $key));
+    $path = $registered ? '/plugin/support-schedule' : '/plugin/register';
+    $payload = $registered ? wpai_support_schedule_payload($settings) : [
+        'site_url' => home_url(),
+        'proof_url' => rest_url('wpai/v1/site-proof'),
+        'secret' => $secret,
+        'plugin_version' => WPAI_VERSION,
+        'support_schedule' => wpai_support_schedule_payload($settings),
+    ];
+    $res = wp_remote_request(WPAI_BACKEND_URL . $path, [
+        'method' => $registered ? 'PUT' : 'POST',
+        'timeout' => 12,
+        'headers' => [
+            'Content-Type' => 'application/json',
+            'Authorization' => 'Bearer ' . ($registered ? $secret : $key),
+        ],
+        'body' => wp_json_encode($payload),
+    ]);
+    $code = is_wp_error($res) ? 0 : wp_remote_retrieve_response_code($res);
+    if ($registered && in_array($code, [401, 404], true)) {
+        delete_option('wpai_plugin_registration');
+        return wpai_sync_support_schedule($settings);
+    }
+    if ($code >= 200 && $code < 300) {
+        update_option('wpai_plugin_registration', ['key_hash' => hash('sha256', $key), 'synced_at' => time()], false);
+        update_option('wpai_schedule_sync_status', ['ok' => true, 'time' => time()], false);
+        return true;
+    }
+    update_option('wpai_schedule_sync_status', ['ok' => false, 'time' => time(), 'code' => $code], false);
+    return false;
+}
+
+add_action('update_option_' . WPAI_OPTION, function ($old_value, $value) {
+    wpai_sync_support_schedule($value);
+}, 10, 2);
+add_action('update_option_timezone_string', function () { wpai_sync_support_schedule(); });
+add_action('update_option_gmt_offset', function () { wpai_sync_support_schedule(); });
+
+add_action('rest_api_init', function () {
+    register_rest_route('wpai/v1', '/site-proof', [
+        'methods' => 'GET',
+        'permission_callback' => '__return_true',
+        'callback' => function (WP_REST_Request $request) {
+            $challenge = sanitize_text_field($request->get_param('challenge'));
+            if (strlen($challenge) < 20 || strlen($challenge) > 200 || !preg_match('/^[A-Za-z0-9_-]+$/', $challenge)) {
+                return new WP_Error('invalid_challenge', 'invalid challenge', ['status' => 400]);
+            }
+            return ['proof' => hash_hmac('sha256', $challenge, wpai_install_secret())];
+        },
+    ]);
 });
 
 // Fetch the current plan + monthly usage from the backend (best-effort; returns null on error).
@@ -204,6 +284,12 @@ function wpai_settings_page() {
                         <label class="wpai-field" for="support_end"><span>Alle</span><input type="time" id="support_end" name="<?php echo esc_attr(WPAI_OPTION); ?>[support_end]" value="<?php echo esc_attr($opts['support_end'] ?? '18:00'); ?>" /></label>
                     </div>
                     <p class="wpai-timezone-note"><i class="fa-solid fa-earth-europe"></i> Fuso orario: <strong><?php echo esc_html(wp_timezone_string()); ?></strong>, configurato nelle impostazioni generali di WordPress.</p>
+                    <?php $schedule_sync = get_option('wpai_schedule_sync_status', []); ?>
+                    <?php if (!empty($schedule_sync['ok'])) : ?>
+                        <p class="wpai-timezone-note"><i class="fa-solid fa-cloud-arrow-up"></i> Orari sincronizzati con il pannello.</p>
+                    <?php elseif (!empty($schedule_sync)) : ?>
+                        <p class="wpai-alert">Sincronizzazione orari non riuscita. Verifica API Key e dominio autorizzato nel pannello.</p>
+                    <?php endif; ?>
                 </div>
             </section>
 

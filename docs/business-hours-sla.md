@@ -10,7 +10,12 @@ Il calcolo avviene nel backend, non nel browser, ed è tenant-scoped. Usa fusi I
 ora solare e turni che attraversano la mezzanotte. La modifica del calendario ricalcola anche le
 conversazioni aperte con uno SLA già attivo.
 
-Il plugin WordPress conosce già il fuso configurato in **Impostazioni generali**. La fondazione
-backend conserva il campo `source` per distinguere configurazioni manuali e WordPress; il passo
-successivo è una registrazione autenticata del sito che permetta al plugin di sincronizzare il
-calendario senza rendere mutabile la configurazione tramite la chiave pubblica del widget.
+Il plugin WordPress sincronizza automaticamente giorni, fascia e valore restituito da
+`wp_timezone_string()` quando vengono salvate le impostazioni del widget o cambia il fuso del sito.
+Il backend accetta sia nomi IANA sia offset WordPress come `+02:00`.
+
+La chiave del widget è pubblica e non autorizza la modifica diretta del calendario. Alla prima
+sincronizzazione il backend verifica che il sito appartenga alle origini consentite, invia una
+challenge casuale alla rotta REST `wpai/v1/site-proof` e controlla la prova HMAC. Solo allora
+registra l’hash della credenziale privata generata dall’installazione. Le sincronizzazioni
+successive usano quella credenziale server-side; il segreto non viene localizzato nel JavaScript.

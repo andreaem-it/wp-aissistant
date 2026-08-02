@@ -313,6 +313,20 @@ class SupportSchedule(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
 
+class PluginInstallation(SQLModel, table=True):
+    """Verified WordPress installation allowed to sync server-owned tenant settings."""
+    __table_args__ = (UniqueConstraint("client_id", "site_origin"),)
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    client_id: int = Field(index=True, foreign_key="client.id")
+    site_origin: str = Field(index=True)
+    secret_hash: str = Field(index=True, unique=True)
+    plugin_version: str = ""
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    last_sync_at: Optional[datetime] = None
+
+
 class KnowledgeGapReview(SQLModel, table=True):
     """An operator's decision about a detected knowledge gap.
 

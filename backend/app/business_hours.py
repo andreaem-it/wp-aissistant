@@ -1,15 +1,31 @@
 """DST-safe business-hour calculations for tenant SLA clocks."""
 from datetime import datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+import re
 
 
 def validate_timezone(value: str) -> str:
     value = str(value or "").strip()
+    match = re.fullmatch(r"([+-])(\d{2}):(\d{2})", value)
+    if match:
+        hours, minutes = int(match.group(2)), int(match.group(3))
+        if hours <= 14 and minutes <= 59:
+            return value
+        raise ValueError("Fuso orario non valido")
     try:
         ZoneInfo(value)
     except (ZoneInfoNotFoundError, ValueError):
         raise ValueError("Fuso orario non valido") from None
     return value
+
+
+def timezone_info(value: str):
+    value = validate_timezone(value)
+    match = re.fullmatch(r"([+-])(\d{2}):(\d{2})", value)
+    if not match:
+        return ZoneInfo(value)
+    delta = timedelta(hours=int(match.group(2)), minutes=int(match.group(3)))
+    return timezone(delta if match.group(1) == "+" else -delta)
 
 
 def parse_time(value: str) -> time:
@@ -59,7 +75,7 @@ def add_business_minutes(started_at: datetime, minutes: float, *, weekdays, star
     opens, closes = parse_time(start_time), parse_time(end_time)
     if opens == closes:
         raise ValueError("L’orario di apertura e chiusura non può coincidere")
-    zone = ZoneInfo(validate_timezone(timezone_name))
+    zone = timezone_info(timezone_name)
     cursor = _utc_naive(started_at).replace(tzinfo=timezone.utc)
     remaining = max(float(minutes), 0.0) * 60
     while remaining > 0:

@@ -1,5 +1,6 @@
 import json
 import hashlib
+import hmac
 import ipaddress
 import logging
 import os
@@ -49,6 +50,7 @@ from .db import (
     Operator,
     OperatorSession,
     Plan,
+    PluginInstallation,
     ProactiveRule,
     Product,
     PushSubscription,
@@ -4091,6 +4093,51 @@ def _support_schedule_payload(row: SupportSchedule | None) -> dict:
     }
 
 
+def _validated_support_schedule(body: dict) -> dict:
+    try:
+        weekdays = business_hours.parse_weekdays(body.get("weekdays", []))
+        start_time = business_hours.parse_time(body.get("start_time", "")).strftime("%H:%M")
+        end_time = business_hours.parse_time(body.get("end_time", "")).strftime("%H:%M")
+        timezone_name = business_hours.validate_timezone(body.get("timezone", ""))
+        if start_time == end_time:
+            raise ValueError("L’orario di apertura e chiusura non può coincidere")
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {
+        "enabled": bool(body.get("enabled", False)),
+        "weekdays": weekdays,
+        "start_time": start_time,
+        "end_time": end_time,
+        "timezone": timezone_name,
+    }
+
+
+def _save_support_schedule(session: Session, client_id: int, body: dict, source: str) -> SupportSchedule:
+    clean = _validated_support_schedule(body)
+    row = session.exec(select(SupportSchedule).where(SupportSchedule.client_id == client_id)).first()
+    if row is None:
+        row = SupportSchedule(client_id=client_id)
+    row.enabled = clean["enabled"]
+    row.weekdays = ",".join(str(day) for day in clean["weekdays"])
+    row.start_time = clean["start_time"]
+    row.end_time = clean["end_time"]
+    row.timezone = clean["timezone"]
+    row.source = source
+    row.updated_at = datetime.utcnow()
+    session.add(row)
+    session.commit()
+    for conversation in session.exec(select(Conversation).where(
+        Conversation.client_id == client_id,
+        Conversation.sla_started_at.is_not(None),
+        Conversation.closed_at.is_(None),
+    )).all():
+        _apply_sla(session, conversation)
+        session.add(conversation)
+    session.commit()
+    session.refresh(row)
+    return row
+
+
 @app.get("/support-schedule")
 def get_support_schedule(
     operator: Operator = Depends(require_operator), session: Session = Depends(get_session),
@@ -4107,39 +4154,126 @@ def set_support_schedule(
     operator: Operator = Depends(require_operator),
     session: Session = Depends(get_session),
 ):
-    try:
-        weekdays = business_hours.parse_weekdays(body.get("weekdays", []))
-        start_time = business_hours.parse_time(body.get("start_time", "")).strftime("%H:%M")
-        end_time = business_hours.parse_time(body.get("end_time", "")).strftime("%H:%M")
-        timezone_name = business_hours.validate_timezone(body.get("timezone", ""))
-        if start_time == end_time:
-            raise ValueError("L’orario di apertura e chiusura non può coincidere")
-    except ValueError as exc:
-        raise HTTPException(400, str(exc)) from exc
-    row = session.exec(select(SupportSchedule).where(
-        SupportSchedule.client_id == operator.client_id,
-    )).first() or SupportSchedule(client_id=operator.client_id)
-    row.enabled = bool(body.get("enabled", False))
-    row.weekdays = ",".join(str(day) for day in weekdays)
-    row.start_time = start_time
-    row.end_time = end_time
-    row.timezone = timezone_name
-    row.source = "panel"
-    row.updated_at = datetime.utcnow()
-    session.add(row)
-    session.commit()
-    for conversation in session.exec(select(Conversation).where(
-        Conversation.client_id == operator.client_id,
-        Conversation.sla_started_at.is_not(None),
-        Conversation.closed_at.is_(None),
-    )).all():
-        _apply_sla(session, conversation)
-        session.add(conversation)
-    session.commit()
+    row = _save_support_schedule(session, operator.client_id, body, "panel")
     _audit(session, "operator", operator.email, "support_schedule.update",
            target=f"client:{operator.client_id}", client_id=operator.client_id,
            detail={"enabled": row.enabled, "timezone": row.timezone})
     return _support_schedule_payload(row)
+
+
+def _plugin_secret_hash(secret: str) -> str:
+    return hashlib.sha256(secret.encode()).hexdigest()
+
+
+def _trusted_plugin_proof_url(allowed_origins: str, value: str) -> str:
+    """Accept a WordPress REST proof URL only on one of the tenant's allowlisted origins."""
+    from urllib.parse import urlparse
+
+    try:
+        clean = webhooks.validate_url(str(value or "").strip())
+    except ValueError:
+        return ""
+    parsed = urlparse(clean)
+    if parsed.username or parsed.password:
+        return ""
+    if _normalize_origins(clean) not in set(_split_origins(allowed_origins)):
+        return ""
+    route = (parsed.path.rstrip("/") + "?" + parsed.query).lower()
+    if "wpai/v1/site-proof" not in route:
+        return ""
+    return clean
+
+
+def _verify_plugin_site(proof_url: str, secret: str) -> bool:
+    """Challenge the allowlisted WordPress site before accepting a server-only sync secret."""
+    from urllib.parse import urlencode
+
+    challenge = secrets.token_urlsafe(32)
+    proof_url += ("&" if "?" in proof_url else "?") + urlencode({"challenge": challenge})
+    try:
+        webhooks.validate_url(proof_url)
+        if not webhooks._resolves_to_public_address(proof_url):
+            return False
+        with urllib.request.urlopen(proof_url, timeout=8) as response:
+            result = json.loads(response.read(4096).decode("utf-8"))
+        expected = hmac.new(secret.encode(), challenge.encode(), hashlib.sha256).hexdigest()
+        return secrets.compare_digest(str(result.get("proof", "")), expected)
+    except (ValueError, urllib.error.URLError, urllib.error.HTTPError, TimeoutError):
+        return False
+
+
+def _require_plugin_installation(
+    authorization: str = Header(None), session: Session = Depends(get_session),
+) -> PluginInstallation:
+    secret = _bearer_token(authorization)
+    if len(secret) < 32 or len(secret) > 256:
+        raise HTTPException(401, "invalid plugin credential")
+    row = session.exec(select(PluginInstallation).where(
+        PluginInstallation.secret_hash == _plugin_secret_hash(secret),
+    )).first()
+    if row is None:
+        raise HTTPException(401, "invalid plugin credential")
+    return row
+
+
+@app.post("/plugin/register")
+def register_plugin_installation(
+    request: Request,
+    body: dict = Body(...),
+    client: Client = Depends(rate_limit_ingest),
+    session: Session = Depends(get_session),
+):
+    secret = str(body.get("secret", ""))
+    if len(secret) < 32 or len(secret) > 256:
+        raise HTTPException(400, "Credenziale plugin non valida")
+    origin = _trusted_callback_origin(client.allowed_origins, body.get("site_url"), request)
+    proof_url = _trusted_plugin_proof_url(client.allowed_origins, body.get("proof_url", ""))
+    if not origin or not proof_url:
+        raise HTTPException(403, "Sito WordPress non presente nelle origini autorizzate")
+    if not _verify_plugin_site(proof_url, secret):
+        raise HTTPException(422, "Verifica del sito WordPress non riuscita")
+    digest = _plugin_secret_hash(secret)
+    conflict = session.exec(select(PluginInstallation).where(
+        PluginInstallation.secret_hash == digest,
+        PluginInstallation.client_id != client.id,
+    )).first()
+    if conflict:
+        raise HTTPException(409, "Credenziale plugin già associata")
+    row = session.exec(select(PluginInstallation).where(
+        PluginInstallation.client_id == client.id,
+        PluginInstallation.site_origin == origin,
+    )).first() or PluginInstallation(client_id=client.id, site_origin=origin, secret_hash=digest)
+    row.secret_hash = digest
+    row.plugin_version = str(body.get("plugin_version", ""))[:32]
+    row.updated_at = datetime.utcnow()
+    session.add(row)
+    session.commit()
+    session.refresh(row)
+    if isinstance(body.get("support_schedule"), dict):
+        _save_support_schedule(session, client.id, body["support_schedule"], "wordpress")
+        row.last_sync_at = datetime.utcnow()
+        session.add(row)
+        session.commit()
+    _audit(session, "system", f"wordpress:{origin}", "plugin.register",
+           target=f"plugin_installation:{row.id}", client_id=client.id,
+           detail={"site_origin": origin, "plugin_version": row.plugin_version})
+    return {"ok": True, "site_origin": origin, "schedule": _support_schedule_payload(
+        session.exec(select(SupportSchedule).where(SupportSchedule.client_id == client.id)).first()
+    )}
+
+
+@app.put("/plugin/support-schedule")
+def sync_plugin_support_schedule(
+    body: dict = Body(...),
+    installation: PluginInstallation = Depends(_require_plugin_installation),
+    session: Session = Depends(get_session),
+):
+    row = _save_support_schedule(session, installation.client_id, body, "wordpress")
+    installation.last_sync_at = datetime.utcnow()
+    installation.updated_at = datetime.utcnow()
+    session.add(installation)
+    session.commit()
+    return {"ok": True, "schedule": _support_schedule_payload(row)}
 
 
 def _sla_policy_payload(policy: SlaPolicy) -> dict:

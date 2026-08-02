@@ -2,6 +2,12 @@
 
 Tutte le modifiche rilevanti del plugin WP AIssistant.
 
+## [1.1.8] - 2026-08-02
+
+- Sincronizzazione automatica di giorni, fascia oraria e fuso WordPress con il calendario SLA.
+- Registrazione dell’installazione mediante challenge HMAC sul dominio autorizzato.
+- Credenziale di sincronizzazione privata e distinta dalla API Key pubblica del widget.
+
 ## [1.1.3] - 2026-07-30
 
 - L'offerta di ticket è ora legata esclusivamente al turno che ha richiesto l'escalation.
