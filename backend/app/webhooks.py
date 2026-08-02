@@ -36,6 +36,7 @@ from .db import WebhookDelivery, WebhookEndpoint, engine
 from .logging_config import log
 
 logger = logging.getLogger("wpai.webhooks")
+SCHEMA_VERSION = "1.0"
 
 # The events a tenant can subscribe to. Closed set: an unknown event in a subscription is a
 # typo that would silently deliver nothing.
@@ -148,7 +149,12 @@ def emit(session: Session, client_id: int, event: str, data: dict) -> int:
                     client_id=client_id,
                     endpoint_id=endpoint.id,
                     event=event,
-                    payload=json.dumps({"event": event, "created_at": now.isoformat() + "Z", "data": data}),
+                    payload=json.dumps({
+                        "schema_version": SCHEMA_VERSION,
+                        "event": event,
+                        "created_at": now.isoformat() + "Z",
+                        "data": data,
+                    }),
                     max_attempts=MAX_ATTEMPTS,
                     next_attempt_at=now,
                 )

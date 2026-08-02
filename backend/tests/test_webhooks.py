@@ -134,6 +134,7 @@ def test_event_is_delivered_signed(client, tenant, monkeypatch):
     assert call["headers"]["X-WPAI-Event"] == "conversation.escalated"
 
     body = json.loads(call["body"])
+    assert body["schema_version"] == "1.0"
     assert body["event"] == "conversation.escalated"
     assert body["data"]["reason"]
     # il payload non deve portare fuori nulla di interno
@@ -281,6 +282,8 @@ def test_test_endpoint_reports_the_real_outcome(client, tenant, monkeypatch):
     assert ok["ok"] is True
     log = _deliveries(client, tenant, created["id"])
     assert [d["status"] for d in log] == ["success", "failed"]  # più recente per prima
+    assert log[0]["payload"]["schema_version"] == "1.0"
+    assert log[0]["payload"]["test"] is True
 
 
 def test_failed_delivery_can_be_replayed_without_overwriting_history(client, tenant, monkeypatch):

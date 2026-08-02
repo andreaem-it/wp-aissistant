@@ -135,11 +135,17 @@ Corpo della richiesta (`POST`, `application/json`):
 
 ```json
 {
+  "schema_version": "1.0",
   "event": "conversation.escalated",
   "created_at": "2026-08-01T09:15:31Z",
   "data": { "conversation_id": 128, "ticket_id": 44, "reason": "rimborso", "trigger": "keyword" }
 }
 ```
+
+`schema_version` identifica il contratto del payload. Le aggiunte compatibili mantengono la
+stessa major; un’eventuale modifica incompatibile userà una nuova major e verrà annunciata
+prima della dismissione della precedente. Il JSON effettivamente inviato è consultabile nel
+log consegne del pannello, inclusi i tentativi falliti.
 
 Header inviati: `X-WPAI-Event`, `X-WPAI-Delivery` (id della consegna, utile per l'idempotenza)
 e `X-WPAI-Signature`.

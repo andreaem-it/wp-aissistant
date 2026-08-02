@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useState } from "react";
 import { KeyRound, Plus, Trash2, Webhook, Send, RefreshCw } from "lucide-react";
 import { api } from "./api.js";
 import { formatMoment } from "./activity.js";
@@ -143,6 +143,7 @@ function Deliveries({ endpointId }) {
   const [open, setOpen] = useState(false);
   const [replaying, setReplaying] = useState(null);
   const [error, setError] = useState("");
+  const [payloadOpen, setPayloadOpen] = useState(null);
 
   const load = useCallback(
     () => api.webhookDeliveries(endpointId).then(setRows).catch(() => setRows([])),
@@ -176,7 +177,8 @@ function Deliveries({ endpointId }) {
           <table className="wpai-table" style={{ marginTop: 8 }}>
             <tbody>
               {rows.map((row) => (
-                <tr key={row.id}>
+                <Fragment key={row.id}>
+                <tr>
                   <td style={{ fontSize: 12 }}>{row.event}</td>
                   <td>
                     <span className={`wpai-badge ${DELIVERY_CLASS[row.status] || "ok"}`}>
@@ -190,6 +192,9 @@ function Deliveries({ endpointId }) {
                     {formatMoment(row.delivered_at || row.created_at)}
                   </td>
                   <td style={{ textAlign: "right" }}>
+                    <button className="wpai-btn ghost" onClick={() => setPayloadOpen((id) => id === row.id ? null : row.id)}>
+                      {payloadOpen === row.id ? "Nascondi JSON" : "Vedi JSON"}
+                    </button>
                     {row.status === "failed" && (
                       <button className="wpai-btn ghost" disabled={replaying === row.id} onClick={() => replay(row.id)}>
                         <RefreshCw size={13} /> {replaying === row.id ? "Riprovo…" : "Riprova"}
@@ -197,6 +202,11 @@ function Deliveries({ endpointId }) {
                     )}
                   </td>
                 </tr>
+                {payloadOpen === row.id && <tr className="wpai-payload-row"><td colSpan="4">
+                  <div className="wpai-payload-head"><span>Payload inviato</span><code>schema {row.payload?.schema_version || "legacy"}</code></div>
+                  <pre>{JSON.stringify(row.payload, null, 2)}</pre>
+                </td></tr>}
+                </Fragment>
               ))}
               {rows.length === 0 && <tr><td colSpan="4" style={{ color: "var(--text-muted)" }}>Nessuna consegna.</td></tr>}
             </tbody>

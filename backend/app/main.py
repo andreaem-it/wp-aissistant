@@ -6070,6 +6070,7 @@ def test_webhook(
         endpoint_id=endpoint.id,
         event="conversation.created",
         payload=json.dumps({
+            "schema_version": webhooks.SCHEMA_VERSION,
             "event": "conversation.created",
             "created_at": _iso(now),
             "test": True,
@@ -6117,6 +6118,7 @@ def list_webhook_deliveries(
             "created_at": _iso(row.created_at),
             "delivered_at": _iso(row.delivered_at),
             "next_attempt_at": _iso(row.next_attempt_at) if row.status == "pending" else None,
+            "payload": json.loads(row.payload),
         }
         for row in rows
     ]
