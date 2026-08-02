@@ -480,6 +480,22 @@ button.wpai-btn:disabled { opacity: 0.5; cursor: default; }
 
 .wpai-ticket-head b { color: var(--text); font-family: var(--font-mono); font-weight: 700; }
 .wpai-ticket-reason { color: var(--text); font-weight: 500; }
+.wpai-helpdesk-settings { margin-bottom: 18px; }
+.wpai-section-heading { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 16px; }
+.wpai-section-heading .icon { width: 36px; height: 36px; display: grid; place-items: center; border-radius: 10px; color: var(--primary); background: var(--primary-soft); flex: 0 0 auto; }
+.wpai-section-heading h2 { font-size: 16px; margin: 0 0 3px; }
+.wpai-section-heading p, .wpai-helpdesk-provider p, .wpai-helpdesk-note { margin: 0; color: var(--text-muted); font-size: 12.5px; }
+.wpai-helpdesk-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.wpai-helpdesk-provider { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 14px; background: var(--surface-sunken); }
+.wpai-helpdesk-provider > div:first-child { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; }
+.wpai-helpdesk-form { display: flex; gap: 7px; margin-top: 11px; }
+.wpai-helpdesk-form input { min-width: 0; flex: 1; }
+.wpai-helpdesk-note { margin-top: 10px; }
+.wpai-ticket-handoff { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 0; border-top: 1px solid var(--border); }
+.wpai-ticket-handoff > span { display: inline-flex; align-items: center; gap: 6px; color: var(--text-muted); font-size: 12.5px; font-weight: 600; }
+.wpai-ticket-handoff > div { display: flex; flex-wrap: wrap; gap: 6px; }
+.wpai-btn-small { min-height: 30px; padding: 5px 9px; font-size: 12px; display: inline-flex; align-items: center; gap: 5px; }
+@media (max-width: 760px) { .wpai-helpdesk-grid { grid-template-columns: 1fr; } .wpai-ticket-handoff { align-items: flex-start; flex-direction: column; } }
 
 /* ---- Stats ---- */
 

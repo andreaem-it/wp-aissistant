@@ -372,6 +372,35 @@ class CrmSync(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
 
+class HelpdeskConnection(SQLModel, table=True):
+    """Tenant helpdesk mapping. Provider credentials remain in the trusted adapter."""
+    __table_args__ = (UniqueConstraint("client_id", "provider"),)
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    client_id: int = Field(index=True, foreign_key="client.id")
+    provider: str = Field(index=True)
+    external_account_id: str = ""
+    enabled: bool = True
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class HelpdeskExport(SQLModel, table=True):
+    """Latest external delivery outcome; one row per connection/ticket makes retries safe."""
+    __table_args__ = (UniqueConstraint("connection_id", "ticket_id"),)
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    client_id: int = Field(index=True, foreign_key="client.id")
+    connection_id: int = Field(index=True, foreign_key="helpdeskconnection.id")
+    ticket_id: int = Field(index=True, foreign_key="ticket.id")
+    status: str = "pending"  # pending | delivered | failed
+    external_id: str = ""
+    external_url: str = ""
+    error: str = ""
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 class ProactiveRule(SQLModel, table=True):
     """A contextual message the widget offers before the visitor asks anything.
 

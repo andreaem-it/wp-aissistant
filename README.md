@@ -398,6 +398,9 @@ Per collegare CRM e automazioni ci sono due strade complementari, documentate in
 | `CRM_ADAPTER_URL` | *(non impostato)* | Endpoint HTTPS dell'adapter tenant-aware per sincronizzare lead con Brevo/Zoho/Pipedrive ([guida](docs/crm-integrations.md)) |
 | `CRM_ADAPTER_TOKEN` | *(non impostato)* | Bearer token backend→adapter CRM; le credenziali OAuth dei provider restano nell'adapter |
 | `CRM_ADAPTER_TIMEOUT` | `10` | Timeout dell'adapter CRM in secondi |
+| `HELPDESK_ADAPTER_URL` | *(non impostato)* | Endpoint HTTPS dell’adapter tenant-aware per l’handoff Zendesk/Freshdesk ([guida](docs/helpdesk-integrations.md)) |
+| `HELPDESK_ADAPTER_TOKEN` | *(non impostato)* | Bearer token backend→adapter helpdesk; le credenziali provider restano nell’adapter |
+| `HELPDESK_ADAPTER_TIMEOUT` | `10` | Timeout dell’adapter helpdesk in secondi |
 | `ATTACHMENT_STORAGE_URL` | *(non impostato)* | URL del Worker Cloudflare autenticato che media l’accesso al bucket R2 privato |
 | `ATTACHMENT_STORAGE_TOKEN` | *(non impostato)* | Bearer token condiviso backend→Worker; non viene mai inviato al browser |
 | `ATTACHMENT_STORAGE_TIMEOUT` | `15` | Timeout upload/download/cancellazione in secondi |
@@ -461,7 +464,10 @@ Auth via header `Authorization: Bearer <token>`. La colonna *Auth* indica quale 
 | `/leads/export` | GET | 👤 | Export CSV dei lead (una colonna per campo, formule neutralizzate) |
 | `/crm/connections` | GET | 👤 | Collegamenti CRM del tenant e provider supportati |
 | `/crm/connections/{provider}` | PUT/DELETE | 👤 | Collega, aggiorna o scollega Brevo/Zoho/Pipedrive |
-| `/leads/{id}/crm-sync` | POST | 👤 | Invia esplicitamente un lead al CRM collegato e registra l'esito |
+| `/leads/{id}/crm-sync` | POST | 👤 | Invia esplicitamente un lead al CRM collegato e registra l’esito |
+| `/helpdesk/connections` | GET | 👤 | Collegamenti helpdesk Zendesk/Freshdesk del tenant |
+| `/helpdesk/connections/{provider}` | PUT/DELETE | 👤 | Configura o rimuove una destinazione helpdesk |
+| `/tickets/{id}/helpdesk-export` | POST | 👤 | Trasferisce contatto e transcript al provider configurato con retry idempotente |
 | `/widget/proactive` | GET | 🔑 | Regole proattive attive per il widget (solo trigger e messaggio) |
 | `/widget/proactive/{id}/event` | POST | 🔑 | Conta una visualizzazione o una chat aperta dal messaggio |
 | `/proactive-rules` | GET/POST | 👤 | Messaggi proattivi del tenant, con i contatori di conversione |

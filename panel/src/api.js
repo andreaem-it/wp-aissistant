@@ -87,6 +87,11 @@ export const api = {
   deleteAttachment: (id) => call(`/attachments/${id}`, { method: "DELETE" }),
   tickets: (status = "open") => call("/tickets", { params: { status } }),
   replyTicket: (id, reply) => call(`/tickets/${id}/reply`, { method: "POST", params: { reply } }),
+  helpdeskConnections: () => call("/helpdesk/connections"),
+  setHelpdeskConnection: (provider, body) => call(`/helpdesk/connections/${provider}`, { method: "PUT", body }),
+  deleteHelpdeskConnection: (provider) => call(`/helpdesk/connections/${provider}`, { method: "DELETE" }),
+  exportTicketToHelpdesk: (id, provider) =>
+    call(`/tickets/${id}/helpdesk-export`, { method: "POST", body: { provider } }),
   replyConversation: (id, reply) => call(`/conversations/${id}/reply`, { method: "POST", body: { reply } }),
   whatsappStatus: (id) => call(`/conversations/${id}/whatsapp/status`),
   sendWhatsappTemplate: (id, body) => call(`/conversations/${id}/whatsapp/template`, { method: "POST", body }),

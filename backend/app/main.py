@@ -35,6 +35,8 @@ from .db import (
     ConversationTag,
     CrmConnection,
     CrmSync,
+    HelpdeskConnection,
+    HelpdeskExport,
     Department,
     DepartmentMember,
     InfoField,
@@ -70,6 +72,7 @@ from . import meta_messaging as meta_messaging_service
 from . import push as push_service
 from . import attachments as attachment_service
 from . import crm as crm_service
+from . import helpdesk as helpdesk_service
 from fastapi.responses import StreamingResponse
 
 import urllib.error
@@ -3162,7 +3165,178 @@ def list_tickets(
     tickets = session.exec(
         query.order_by(Ticket.id.desc()).limit(_bounded_limit(limit))
     ).all()
-    return [{"ticket": t, "conversation": c} for t, c in tickets]
+    ticket_ids = [t.id for t, _ in tickets]
+    exports = session.exec(
+        select(HelpdeskExport, HelpdeskConnection)
+        .join(HelpdeskConnection, HelpdeskExport.connection_id == HelpdeskConnection.id)
+        .where(
+            HelpdeskExport.client_id == operator.client_id,
+            HelpdeskExport.ticket_id.in_(ticket_ids),
+        )
+    ).all() if ticket_ids else []
+    exports_by_ticket: dict[int, dict] = {}
+    for export, connection in exports:
+        exports_by_ticket.setdefault(export.ticket_id, {})[connection.provider] = _helpdesk_export_payload(export)
+    return [
+        {"ticket": t, "conversation": c, "helpdesk_exports": exports_by_ticket.get(t.id, {})}
+        for t, c in tickets
+    ]
+
+
+HELPDESK_PROVIDERS = ("zendesk", "freshdesk")
+
+
+def _helpdesk_connection_payload(row: HelpdeskConnection) -> dict:
+    return {
+        "id": row.id,
+        "provider": row.provider,
+        "external_account_id": row.external_account_id,
+        "enabled": row.enabled,
+        "updated_at": _iso(row.updated_at),
+    }
+
+
+def _helpdesk_export_payload(row: HelpdeskExport) -> dict:
+    return {
+        "status": row.status,
+        "external_id": row.external_id,
+        "external_url": row.external_url,
+        "error": row.error,
+    }
+
+
+@app.get("/helpdesk/connections")
+def list_helpdesk_connections(
+    operator: Operator = Depends(require_operator), session: Session = Depends(get_session),
+):
+    rows = session.exec(
+        select(HelpdeskConnection).where(HelpdeskConnection.client_id == operator.client_id)
+        .order_by(HelpdeskConnection.provider)
+    ).all()
+    return {"providers": list(HELPDESK_PROVIDERS), "connections": [_helpdesk_connection_payload(row) for row in rows]}
+
+
+@app.put("/helpdesk/connections/{provider}")
+def set_helpdesk_connection(
+    provider: str,
+    body: dict = Body(...),
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
+    provider = provider.strip().lower()
+    if provider not in HELPDESK_PROVIDERS:
+        raise HTTPException(400, "Provider helpdesk non supportato")
+    account_id = str(body.get("external_account_id", "")).strip()
+    if not account_id or len(account_id) > 255 or not re.fullmatch(r"[A-Za-z0-9_.:@/-]+", account_id):
+        raise HTTPException(400, "Identificativo account non valido")
+    row = session.exec(select(HelpdeskConnection).where(
+        HelpdeskConnection.client_id == operator.client_id,
+        HelpdeskConnection.provider == provider,
+    )).first() or HelpdeskConnection(client_id=operator.client_id, provider=provider)
+    row.external_account_id = account_id
+    row.enabled = bool(body.get("enabled", True))
+    row.updated_at = datetime.utcnow()
+    session.add(row)
+    session.commit()
+    session.refresh(row)
+    _audit(session, "operator", operator.email, "helpdesk.connection.update",
+           target=f"helpdesk:{provider}", client_id=operator.client_id,
+           detail={"enabled": row.enabled})
+    return _helpdesk_connection_payload(row)
+
+
+@app.delete("/helpdesk/connections/{provider}")
+def delete_helpdesk_connection(
+    provider: str,
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
+    row = session.exec(select(HelpdeskConnection).where(
+        HelpdeskConnection.client_id == operator.client_id,
+        HelpdeskConnection.provider == provider.strip().lower(),
+    )).first()
+    if row is None:
+        raise HTTPException(404, "Connessione helpdesk non trovata")
+    for export in session.exec(select(HelpdeskExport).where(HelpdeskExport.connection_id == row.id)).all():
+        session.delete(export)
+    session.delete(row)
+    session.commit()
+    _audit(session, "operator", operator.email, "helpdesk.connection.delete",
+           target=f"helpdesk:{provider}", client_id=operator.client_id)
+    return {"ok": True}
+
+
+@app.post("/tickets/{ticket_id}/helpdesk-export")
+def export_ticket_to_helpdesk(
+    ticket_id: int,
+    body: dict = Body(...),
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
+    provider = str(body.get("provider", "")).strip().lower()
+    ticket = session.get(Ticket, ticket_id)
+    conversation = session.get(Conversation, ticket.conversation_id) if ticket else None
+    if not ticket or not conversation or conversation.client_id != operator.client_id:
+        raise HTTPException(404, "Ticket non trovato")
+    connection = session.exec(select(HelpdeskConnection).where(
+        HelpdeskConnection.client_id == operator.client_id,
+        HelpdeskConnection.provider == provider,
+        HelpdeskConnection.enabled == True,  # noqa: E712
+    )).first()
+    if connection is None:
+        raise HTTPException(400, "Connessione helpdesk non attiva")
+    export = session.exec(select(HelpdeskExport).where(
+        HelpdeskExport.connection_id == connection.id,
+        HelpdeskExport.ticket_id == ticket.id,
+    )).first() or HelpdeskExport(
+        client_id=operator.client_id, connection_id=connection.id, ticket_id=ticket.id,
+    )
+    export.status, export.external_id, export.external_url, export.error = "pending", "", "", ""
+    export.updated_at = datetime.utcnow()
+    session.add(export)
+    session.commit()
+    messages = session.exec(
+        select(Message).where(Message.conversation_id == conversation.id).order_by(Message.id)
+    ).all()
+    contact = session.get(Contact, conversation.contact_id) if conversation.contact_id else None
+    delivered, external_id, external_url, error = helpdesk_service.export_ticket(
+        client_id=operator.client_id,
+        provider=provider,
+        external_account_id=connection.external_account_id,
+        ticket={
+            "id": ticket.id,
+            "reason": ticket.reason,
+            "status": ticket.status,
+            "created_at": _iso(ticket.created_at),
+            "conversation": {
+                "id": conversation.id,
+                "channel": conversation.channel,
+                "subject": conversation.channel_subject,
+                "priority": conversation.priority,
+                "visitor_url": conversation.visitor_url or "",
+            },
+            "contact": {
+                "name": contact.name if contact else "",
+                "email": (contact.email if contact else None) or conversation.visitor_email or "",
+                "external_id": contact.external_id if contact else "",
+            },
+            "messages": [
+                {"role": message.role, "content": message.content, "created_at": _iso(message.created_at)}
+                for message in messages
+            ],
+        },
+    )
+    export.status = "delivered" if delivered else "failed"
+    export.external_id = external_id
+    export.external_url = external_url
+    export.error = error[:255]
+    export.updated_at = datetime.utcnow()
+    session.add(export)
+    session.commit()
+    _audit(session, "operator", operator.email, "ticket.helpdesk_export",
+           target=f"ticket:{ticket.id}", client_id=operator.client_id,
+           detail={"provider": provider, "status": export.status})
+    return _helpdesk_export_payload(export)
 
 
 @app.post("/tickets/{ticket_id}/reply")
