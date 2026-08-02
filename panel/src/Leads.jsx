@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { UserPlus, Plus, Trash2, Download, ClipboardList } from "lucide-react";
+import { UserPlus, Plus, Trash2, Download, ClipboardList, PlugZap, Send } from "lucide-react";
 import { api, getToken } from "./api.js";
 import { formatMoment } from "./activity.js";
 
@@ -18,6 +18,69 @@ const EMPTY_FORM = {
   consent_text: "Acconsento al trattamento dei dati per essere ricontattato.",
   fields: [{ ...EMPTY_FIELD, label: "Email", type: "email", required: true, points: 40 }],
 };
+
+const CRM_LABELS = { hubspot: "HubSpot", pipedrive: "Pipedrive" };
+
+function CrmManager({ connections, onChanged }) {
+  const [provider, setProvider] = useState("hubspot");
+  const [accountId, setAccountId] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [feedback, setFeedback] = useState("");
+
+  useEffect(() => {
+    const current = connections.find((row) => row.provider === provider);
+    setAccountId(current?.external_account_id || "");
+  }, [connections, provider]);
+
+  const save = async (e) => {
+    e.preventDefault();
+    if (!accountId.trim()) return;
+    setSaving(true);
+    try {
+      await api.setCrmConnection(provider, { external_account_id: accountId.trim(), enabled: true });
+      setFeedback(`${CRM_LABELS[provider]} collegato.`);
+      onChanged();
+    } catch {
+      setFeedback("Collegamento non riuscito. Controlla l’identificativo dell’account.");
+    } finally { setSaving(false); }
+  };
+
+  const remove = async () => {
+    const current = connections.find((row) => row.provider === provider);
+    if (!current || !window.confirm(`Scollegare ${CRM_LABELS[provider]}?`)) return;
+    await api.deleteCrmConnection(provider);
+    setFeedback(`${CRM_LABELS[provider]} scollegato.`);
+    onChanged();
+  };
+
+  const connected = connections.some((row) => row.provider === provider && row.enabled);
+  return (
+    <div className="wpai-card">
+      <div className="wpai-card-title"><PlugZap size={15} /> Collegamenti CRM</div>
+      <p style={{ fontSize: 12.5, color: "var(--text-muted)", margin: "6px 0 12px" }}>
+        Invia i lead a HubSpot o Pipedrive. Le credenziali restano nell’integrazione sicura:
+        qui salvi soltanto l’identificativo dell’account collegato.
+      </p>
+      <form onSubmit={save} style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+        <select value={provider} onChange={(e) => { setProvider(e.target.value); setFeedback(""); }} aria-label="CRM">
+          {Object.entries(CRM_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+        </select>
+        <input
+          value={accountId}
+          onChange={(e) => setAccountId(e.target.value)}
+          placeholder="ID portale o organizzazione"
+          aria-label="Identificativo account CRM"
+          style={{ minWidth: 240, flex: 1 }}
+        />
+        <button className="wpai-btn" type="submit" disabled={saving || !accountId.trim()}>
+          <PlugZap size={14} /> {saving ? "Collegamento…" : connected ? "Aggiorna" : "Collega"}
+        </button>
+        {connected && <button className="wpai-btn ghost" type="button" onClick={remove}>Scollega</button>}
+      </form>
+      {feedback && <p role="status" style={{ fontSize: 12.5, margin: "10px 0 0", color: "var(--text-muted)" }}>{feedback}</p>}
+    </div>
+  );
+}
 
 function FormsManager({ onChanged }) {
   const [forms, setForms] = useState([]);
@@ -207,11 +270,12 @@ function FormsManager({ onChanged }) {
   );
 }
 
-function LeadsList({ reloadKey }) {
+function LeadsList({ reloadKey, connections }) {
   const [leads, setLeads] = useState([]);
   const [filters, setFilters] = useState({ min_score: "", days: "" });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState("");
 
   const load = useCallback(() => {
     const params = {};
@@ -249,6 +313,20 @@ function LeadsList({ reloadKey }) {
   };
 
   const columns = [...new Set(leads.flatMap((lead) => Object.keys(lead.data)))];
+  const activeConnections = connections.filter((row) => row.enabled);
+
+  const syncLead = async (leadId, provider) => {
+    const key = `${leadId}:${provider}`;
+    setSyncing(key);
+    try {
+      const result = await api.syncLeadToCrm(leadId, provider);
+      if (!result.ok) setError(result.error || "Invio al CRM non riuscito.");
+      else setError("");
+      await load();
+    } catch {
+      setError("Invio al CRM non riuscito.");
+    } finally { setSyncing(""); }
+  };
 
   return (
     <div className="wpai-card">
@@ -295,6 +373,7 @@ function LeadsList({ reloadKey }) {
                 {columns.map((column) => <th key={column}>{column}</th>)}
                 <th>Consenso</th>
                 <th>Data</th>
+                <th>CRM</th>
               </tr>
             </thead>
             <tbody>
@@ -305,6 +384,29 @@ function LeadsList({ reloadKey }) {
                   <td title={lead.consent_text}>{lead.consent ? "sì" : "no"}</td>
                   <td style={{ whiteSpace: "nowrap", color: "var(--text-muted)" }}>
                     {formatMoment(lead.created_at)}
+                  </td>
+                  <td style={{ whiteSpace: "nowrap" }}>
+                    {activeConnections.length === 0 ? (
+                      <span style={{ color: "var(--text-muted)" }}>Non collegato</span>
+                    ) : activeConnections.map((connection) => {
+                      const status = lead.crm_syncs?.[connection.provider]?.status;
+                      return (
+                        <button
+                          key={connection.provider}
+                          className="wpai-btn ghost"
+                          style={{ marginRight: 6 }}
+                          onClick={() => syncLead(lead.id, connection.provider)}
+                          disabled={syncing === `${lead.id}:${connection.provider}`}
+                          title={lead.crm_syncs?.[connection.provider]?.error || "Invia il lead al CRM"}
+                        >
+                          <Send size={13} /> {syncing === `${lead.id}:${connection.provider}`
+                            ? "Invio…"
+                            : status === "delivered" ? `${CRM_LABELS[connection.provider]} ✓`
+                              : status === "failed" ? `${CRM_LABELS[connection.provider]} · Riprova`
+                                : CRM_LABELS[connection.provider]}
+                        </button>
+                      );
+                    })}
                   </td>
                 </tr>
               ))}
@@ -318,6 +420,9 @@ function LeadsList({ reloadKey }) {
 
 export default function Leads() {
   const [reloadKey, setReloadKey] = useState(0);
+  const [connections, setConnections] = useState([]);
+  const loadConnections = useCallback(() => api.crmConnections().then((data) => setConnections(data.connections)).catch(() => setConnections([])), []);
+  useEffect(() => { loadConnections(); }, [loadConnections]);
   return (
     <div>
       <h1 className="wpai-page-title">Lead</h1>
@@ -327,7 +432,8 @@ export default function Leads() {
         che il visitatore ha effettivamente accettato.
       </p>
       <div style={{ display: "grid", gap: 16 }}>
-        <LeadsList reloadKey={reloadKey} />
+        <CrmManager connections={connections} onChanged={loadConnections} />
+        <LeadsList reloadKey={reloadKey} connections={connections} />
         <FormsManager onChanged={() => setReloadKey((k) => k + 1)} />
       </div>
     </div>

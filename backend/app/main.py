@@ -33,6 +33,8 @@ from .db import (
     Conversation,
     ConversationRating,
     ConversationTag,
+    CrmConnection,
+    CrmSync,
     Department,
     DepartmentMember,
     InfoField,
@@ -67,6 +69,7 @@ from . import whatsapp as whatsapp_service
 from . import meta_messaging as meta_messaging_service
 from . import push as push_service
 from . import attachments as attachment_service
+from . import crm as crm_service
 from fastapi.responses import StreamingResponse
 
 import urllib.error
@@ -3548,6 +3551,8 @@ def _erase_conversation(session: Session, conv: Conversation) -> None:
     # a lead carries what the visitor typed about themselves: erasing the conversation must
     # erase it too, otherwise the "right to be forgotten" would leave the best data behind
     for lead in session.exec(select(Lead).where(Lead.conversation_id == conv.id)).all():
+        for crm_sync in session.exec(select(CrmSync).where(CrmSync.lead_id == lead.id)).all():
+            session.delete(crm_sync)
         session.delete(lead)
     session.flush()
     for note in session.exec(select(InternalNote).where(InternalNote.conversation_id == conv.id)).all():
@@ -4524,6 +4529,136 @@ def _lead_query(client_id: int, min_score: int | None, days: int | None):
     return query
 
 
+CRM_PROVIDERS = ("hubspot", "pipedrive")
+
+
+def _crm_connection_payload(row: CrmConnection) -> dict:
+    return {
+        "id": row.id,
+        "provider": row.provider,
+        "external_account_id": row.external_account_id,
+        "enabled": row.enabled,
+        "updated_at": _iso(row.updated_at),
+    }
+
+
+@app.get("/crm/connections")
+def list_crm_connections(
+    operator: Operator = Depends(require_operator), session: Session = Depends(get_session),
+):
+    rows = session.exec(
+        select(CrmConnection).where(CrmConnection.client_id == operator.client_id)
+        .order_by(CrmConnection.provider)
+    ).all()
+    return {"providers": list(CRM_PROVIDERS), "connections": [_crm_connection_payload(row) for row in rows]}
+
+
+@app.put("/crm/connections/{provider}")
+def set_crm_connection(
+    provider: str,
+    body: dict = Body(...),
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
+    provider = provider.strip().lower()
+    if provider not in CRM_PROVIDERS:
+        raise HTTPException(400, "Provider CRM non supportato")
+    account_id = str(body.get("external_account_id", "")).strip()
+    if not account_id or len(account_id) > 255 or not re.fullmatch(r"[A-Za-z0-9_.:@/-]+", account_id):
+        raise HTTPException(400, "Identificativo account non valido")
+    row = session.exec(select(CrmConnection).where(
+        CrmConnection.client_id == operator.client_id, CrmConnection.provider == provider,
+    )).first()
+    if row is None:
+        row = CrmConnection(client_id=operator.client_id, provider=provider)
+    row.external_account_id = account_id
+    row.enabled = bool(body.get("enabled", True))
+    row.updated_at = datetime.utcnow()
+    session.add(row)
+    session.commit()
+    session.refresh(row)
+    _audit(session, "operator", operator.email, "crm.connection.update",
+           target=f"crm:{provider}", client_id=operator.client_id,
+           detail={"enabled": row.enabled})
+    return _crm_connection_payload(row)
+
+
+@app.delete("/crm/connections/{provider}")
+def delete_crm_connection(
+    provider: str,
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
+    row = session.exec(select(CrmConnection).where(
+        CrmConnection.client_id == operator.client_id,
+        CrmConnection.provider == provider.strip().lower(),
+    )).first()
+    if row is None:
+        raise HTTPException(404, "Connessione CRM non trovata")
+    for sync in session.exec(select(CrmSync).where(CrmSync.connection_id == row.id)).all():
+        session.delete(sync)
+    session.delete(row)
+    session.commit()
+    _audit(session, "operator", operator.email, "crm.connection.delete",
+           target=f"crm:{provider}", client_id=operator.client_id)
+    return {"ok": True}
+
+
+@app.post("/leads/{lead_id}/crm-sync")
+def sync_lead_to_crm(
+    lead_id: int,
+    body: dict = Body(...),
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
+    provider = str(body.get("provider", "")).strip().lower()
+    lead = session.exec(select(Lead).where(
+        Lead.id == lead_id, Lead.client_id == operator.client_id,
+    )).first()
+    if lead is None:
+        raise HTTPException(404, "Lead non trovato")
+    connection = session.exec(select(CrmConnection).where(
+        CrmConnection.client_id == operator.client_id,
+        CrmConnection.provider == provider,
+        CrmConnection.enabled == True,  # noqa: E712
+    )).first()
+    if connection is None:
+        raise HTTPException(400, "Connessione CRM non attiva")
+    sync = session.exec(select(CrmSync).where(
+        CrmSync.connection_id == connection.id, CrmSync.lead_id == lead.id,
+    )).first()
+    if sync is None:
+        sync = CrmSync(client_id=operator.client_id, connection_id=connection.id, lead_id=lead.id)
+    sync.status, sync.error, sync.external_id = "pending", "", ""
+    sync.updated_at = datetime.utcnow()
+    session.add(sync)
+    session.commit()
+    delivered, external_id, error = crm_service.sync_lead(
+        client_id=operator.client_id,
+        provider=provider,
+        external_account_id=connection.external_account_id,
+        lead={
+            "id": lead.id,
+            "conversation_id": lead.conversation_id,
+            "data": json.loads(lead.data or "{}"),
+            "score": lead.score,
+            "consent": lead.consent,
+            "consent_text": lead.consent_text,
+            "created_at": _iso(lead.created_at),
+        },
+    )
+    sync.status = "delivered" if delivered else "failed"
+    sync.external_id = external_id
+    sync.error = error[:255]
+    sync.updated_at = datetime.utcnow()
+    session.add(sync)
+    session.commit()
+    _audit(session, "operator", operator.email, "lead.crm_sync",
+           target=f"lead:{lead.id}", client_id=operator.client_id,
+           detail={"provider": provider, "delivered": delivered})
+    return {"ok": delivered, "status": sync.status, "external_id": external_id, "error": error}
+
+
 @app.get("/leads")
 def list_leads(
     min_score: int | None = None,
@@ -4537,6 +4672,18 @@ def list_leads(
         .order_by(Lead.id.desc())
         .limit(_bounded_limit(limit))
     ).all()
+    syncs = session.exec(select(CrmSync).where(
+        CrmSync.client_id == operator.client_id,
+        CrmSync.lead_id.in_([row.id for row in rows]),
+    )).all() if rows else []
+    connections = {row.id: row.provider for row in session.exec(select(CrmConnection).where(
+        CrmConnection.client_id == operator.client_id,
+    )).all()}
+    sync_by_lead: dict[int, dict] = {}
+    for sync in syncs:
+        sync_by_lead.setdefault(sync.lead_id, {})[connections.get(sync.connection_id, "crm")] = {
+            "status": sync.status, "external_id": sync.external_id, "error": sync.error,
+        }
     return [
         {
             "id": row.id,
@@ -4547,6 +4694,7 @@ def list_leads(
             "consent_text": row.consent_text,
             "data": json.loads(row.data or "{}"),
             "created_at": _iso(row.created_at),
+            "crm_syncs": sync_by_lead.get(row.id, {}),
         }
         for row in rows
     ]

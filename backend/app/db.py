@@ -344,6 +344,34 @@ class Lead(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
 
 
+class CrmConnection(SQLModel, table=True):
+    """Tenant CRM mapping. Provider credentials live in the external adapter, never here."""
+    __table_args__ = (UniqueConstraint("client_id", "provider"),)
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    client_id: int = Field(index=True, foreign_key="client.id")
+    provider: str = Field(index=True)
+    external_account_id: str = ""
+    enabled: bool = True
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class CrmSync(SQLModel, table=True):
+    """Latest delivery outcome for a lead and CRM connection; one row makes retries idempotent."""
+    __table_args__ = (UniqueConstraint("connection_id", "lead_id"),)
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    client_id: int = Field(index=True, foreign_key="client.id")
+    connection_id: int = Field(index=True, foreign_key="crmconnection.id")
+    lead_id: int = Field(index=True, foreign_key="lead.id")
+    status: str = "pending"  # pending | delivered | failed
+    external_id: str = ""
+    error: str = ""
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 class ProactiveRule(SQLModel, table=True):
     """A contextual message the widget offers before the visitor asks anything.
 
