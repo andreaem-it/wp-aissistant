@@ -30,3 +30,22 @@ privato della conversazione non compare mai nella URL: viene inviato nel body o 
 La chiave passata a `apiKey` è quella pubblica del widget e non deve avere scope operatore o
 canale. In produzione `apiBase` deve usare HTTPS. Chi integra l'SDK deve renderizzare ogni testo
 come contenuto, non come HTML, e applicare la propria Content Security Policy.
+
+## Web Component pronto all'uso
+
+```js
+import { registerWpAissistantChat } from "@wp-aissistant/browser/widget";
+registerWpAissistantChat();
+```
+
+```html
+<wpai-chat
+  api-base="https://backend.wpaissistant.it"
+  api-key="CHIAVE_PUBBLICA_WIDGET"
+  title="Come possiamo aiutarti?"
+  privacy-url="https://example.it/privacy"
+></wpai-chat>
+```
+
+Il componente usa Shadow DOM, `textContent` per i messaggi, regione `aria-live`, focus gestito e
+attributi configurabili. Emette gli eventi DOM `wpai-event` e `wpai-error` per integrazioni custom.

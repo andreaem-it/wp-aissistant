@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createClient, WpAissistantError } from "../src/index.js";
+import { registerWpAissistantChat } from "../src/widget.js";
 
 function storage() { const data = new Map(); return { getItem: (k) => data.get(k) ?? null, setItem: (k, v) => data.set(k, String(v)), removeItem: (k) => data.delete(k) }; }
 function response(payload, status = 200) { return new Response(JSON.stringify(payload), { status, headers: { "Content-Type": "application/json" } }); }
@@ -50,4 +51,11 @@ test("streams SSE events split across network chunks and remembers the session",
   for await (const event of client.stream("Ciao")) events.push(event);
   assert.deepEqual(events.map((event) => event.type), ["start", "token", "done"]);
   assert.equal(client.session.conversationId, 8); assert.equal(client.session.conversationToken, "token");
+});
+
+test("registers the headless web component once", () => {
+  const definitions = new Map();
+  const registry = { get: (name) => definitions.get(name), define: (name, value) => definitions.set(name, value) };
+  registerWpAissistantChat(registry); registerWpAissistantChat(registry);
+  assert.equal(definitions.size, 1); assert.equal(typeof definitions.get("wpai-chat"), "function");
 });

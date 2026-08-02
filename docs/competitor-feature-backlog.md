@@ -79,7 +79,7 @@ Queste funzionalità esistono già e non vanno reinserite come nuove feature:
 | Integrazioni CRM | **Fondazione rilasciata:** configurazione Brevo/Zoho/Pipedrive per tenant senza segreti nel database, invio esplicito dei lead, retry idempotente, stato visibile nel panel e Worker Cloudflare con deduplicazione per email. Restano OAuth self-service, mapping campi e sincronizzazione automatica asincrona; TeamSystem va aggiunto appena verificata la disponibilità delle API partner. | Alta |
 | Integrazioni help desk | Import/export e handoff con Zendesk, Freshdesk o Intercom per clienti già strutturati. | Alta |
 | Notifiche push/PWA operatore | **Rilasciata:** panel installabile, sottoscrizioni multi-dispositivo per operatore, preferenze e push su escalation, assegnazioni, menzioni e violazioni SLA; click diretto sulla conversazione e rimozione automatica endpoint scaduti. | Media |
-| SDK/widget headless | **Fondazione rilasciata:** client browser framework-agnostic con sessione persistente, chat sincrona e streaming SSE, polling, feedback, contatto, ticket, CSAT e lead form; token conversazione mai nella URL e HTTPS obbligatorio. Restano pacchetto npm pubblico e componenti UI. | Alta |
+| SDK/widget headless | **Fondazione rilasciata:** client browser framework-agnostic con sessione persistente, chat sincrona e streaming SSE, polling, feedback, contatto, ticket, CSAT e lead form; Web Component accessibile e isolato in Shadow DOM; token conversazione mai nella URL e HTTPS obbligatorio. Resta la pubblicazione del pacchetto npm. | Alta |
 | Marketplace e connettori | Solo dopo API/webhook stabili e modello di permessi definito. | Alta |
 
 ### P3 — Voice AI
