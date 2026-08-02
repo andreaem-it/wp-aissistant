@@ -2,6 +2,11 @@
 
 Tutte le modifiche rilevanti del plugin WP AIssistant.
 
+## [1.1.9] - 2026-08-02
+
+- Aggiunti A/B test per i messaggi proattivi, con assegnazione stabile per visitatore.
+- Visualizzazioni, chat aperte e conversione sono misurate separatamente per variante.
+
 ## [1.1.8] - 2026-08-02
 
 - Sincronizzazione automatica di giorni, fascia oraria e fuso WordPress con il calendario SLA.
