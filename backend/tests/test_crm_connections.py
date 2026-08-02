@@ -16,17 +16,17 @@ def _lead(client, tenant):
 
 def test_crm_connection_configuration_is_tenant_scoped(client, tenant):
     created = client.put(
-        "/crm/connections/hubspot", headers=tenant["op"],
+        "/crm/connections/brevo", headers=tenant["op"],
         json={"external_account_id": "portal-123", "enabled": True},
     )
     assert created.status_code == 200
     assert created.json()["external_account_id"] == "portal-123"
     listed = client.get("/crm/connections", headers=tenant["op"]).json()
-    assert listed["providers"] == ["hubspot", "pipedrive"]
-    assert [row["provider"] for row in listed["connections"]] == ["hubspot"]
+    assert listed["providers"] == ["brevo", "zoho", "pipedrive"]
+    assert [row["provider"] for row in listed["connections"]] == ["brevo"]
     other = _other_tenant(client, "CRM Other")
     assert client.get("/crm/connections", headers=other["op"]).json()["connections"] == []
-    assert client.delete("/crm/connections/hubspot", headers=other["op"]).status_code == 404
+    assert client.delete("/crm/connections/brevo", headers=other["op"]).status_code == 404
 
 
 def test_crm_connection_rejects_unknown_provider_invalid_account_and_widget_key(client, tenant):
@@ -34,7 +34,7 @@ def test_crm_connection_rejects_unknown_provider_invalid_account_and_widget_key(
         "/crm/connections/salesforce", headers=tenant["op"], json={"external_account_id": "123"},
     ).status_code == 400
     assert client.put(
-        "/crm/connections/hubspot", headers=tenant["op"], json={"external_account_id": "bad account<script>"},
+        "/crm/connections/brevo", headers=tenant["op"], json={"external_account_id": "bad account<script>"},
     ).status_code == 400
     assert client.get("/crm/connections", headers=tenant["key"]).status_code == 401
 
@@ -67,15 +67,15 @@ def test_lead_sync_is_explicit_idempotent_and_exposes_status(client, tenant, mon
 def test_lead_sync_cannot_cross_tenants_and_records_safe_failure(client, tenant, monkeypatch):
     lead_id = _lead(client, tenant)
     client.put(
-        "/crm/connections/hubspot", headers=tenant["op"], json={"external_account_id": "portal:1"},
+        "/crm/connections/zoho", headers=tenant["op"], json={"external_account_id": "org:1"},
     )
     other = _other_tenant(client, "CRM Isolated")
     assert client.post(
-        f"/leads/{lead_id}/crm-sync", headers=other["op"], json={"provider": "hubspot"},
+        f"/leads/{lead_id}/crm-sync", headers=other["op"], json={"provider": "zoho"},
     ).status_code == 404
     monkeypatch.setattr(crm, "sync_lead", lambda **kwargs: (False, "", "CRM temporaneamente non raggiungibile"))
     response = client.post(
-        f"/leads/{lead_id}/crm-sync", headers=tenant["op"], json={"provider": "hubspot"},
+        f"/leads/{lead_id}/crm-sync", headers=tenant["op"], json={"provider": "zoho"},
     )
     assert response.json()["status"] == "failed"
     assert "raggiungibile" in response.json()["error"]
@@ -97,11 +97,11 @@ def test_crm_adapter_payload_and_missing_configuration(monkeypatch):
 
     monkeypatch.setattr(crm.urllib.request, "urlopen", fake_urlopen)
     result = crm.sync_lead(
-        client_id=7, provider="hubspot", external_account_id="portal-1",
+        client_id=7, provider="brevo", external_account_id="account-1",
         lead={"id": 9, "data": {"email": "a@example.it"}},
     )
     assert result == (True, "contact-42", "")
     assert captured["payload"]["client_id"] == 7
     assert "shared-secret" not in json.dumps(captured["payload"])
     monkeypatch.setattr(crm, "CRM_ADAPTER_URL", "")
-    assert crm.sync_lead(client_id=7, provider="hubspot", external_account_id="p", lead={})[0] is False
+    assert crm.sync_lead(client_id=7, provider="brevo", external_account_id="p", lead={})[0] is False

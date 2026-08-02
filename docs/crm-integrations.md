@@ -1,6 +1,6 @@
 # Integrazioni CRM
 
-La prima fondazione CRM collega un tenant a **HubSpot** o **Pipedrive** e permette a un
+La prima fondazione CRM collega un tenant a **Brevo**, **Zoho CRM** o **Pipedrive** e permette a un
 operatore di inviare esplicitamente un lead dal panel. Lo stato dell'ultimo tentativo resta
 visibile sul lead e un nuovo invio aggiorna lo stesso record, senza duplicare la coda locale.
 
@@ -13,8 +13,8 @@ con `CRM_ADAPTER_URL` e autenticato tramite `CRM_ADAPTER_TOKEN`.
 Il Worker pronto al deploy è in `cloudflare/crm-adapter`. Riceve un `POST /sync` JSON con
 `client_id`, `provider`, `external_account_id` e `lead`, e risponde con
 `{"ok": true, "external_id": "..."}`. Verifica la tripletta tenant/provider/account prima di
-leggere il token del provider. HubSpot usa l'upsert contatto per email; Pipedrive cerca prima
-la persona per email e poi la crea o aggiorna, così un retry non genera doppioni.
+leggere il token del provider. Brevo e Zoho usano l'upsert per email; Pipedrive cerca prima la
+persona per email e poi la crea o aggiorna, così un retry non genera doppioni.
 
 ## Configurazione Worker
 
@@ -22,7 +22,7 @@ Impostare come secret Cloudflare:
 
 - `ADAPTER_TOKEN`: bearer condiviso soltanto con il backend;
 - `CRM_TENANTS_JSON`: configurazione privata degli account, ad esempio
-  `{"12":{"hubspot":{"account_id":"123","access_token":"..."},"pipedrive":{"account_id":"acme","access_token":"..."}}}`.
+  `{"12":{"brevo":{"account_id":"123","access_token":"..."},"zoho":{"account_id":"acme","access_token":"...","api_domain":"https://www.zohoapis.eu"}}}`.
 
 Nel backend impostare `CRM_ADAPTER_URL=https://<worker>/sync` e `CRM_ADAPTER_TOKEN` con lo
 stesso valore di `ADAPTER_TOKEN`. I token dei provider non devono essere copiati nel backend.

@@ -1,4 +1,4 @@
-import { contactFields, hubspotUpsert, pipedrivePerson, tenantProvider } from "./protocol.js";
+import { brevoUpsert, contactFields, pipedrivePerson, tenantProvider, zohoUpsert } from "./protocol.js";
 
 const encoder = new TextEncoder();
 
@@ -10,10 +10,10 @@ export function sameString(left, right) {
   return mismatch === 0;
 }
 
-async function providerJson(url, token, options = {}) {
+async function providerJson(url, authHeaders, options = {}) {
   const response = await fetch(url, {
     ...options,
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", ...(options.headers || {}) },
+    headers: { ...authHeaders, "Content-Type": "application/json", ...(options.headers || {}) },
   });
   const text = await response.text();
   let data = {};
@@ -25,12 +25,20 @@ async function providerJson(url, token, options = {}) {
   return data;
 }
 
-async function syncHubSpot(config, fields, env) {
-  const version = env.HUBSPOT_API_VERSION || "2026-03";
-  const result = await providerJson(`https://api.hubapi.com/crm/objects/${version}/contacts/batch/upsert`, config.access_token, {
-    method: "POST", body: JSON.stringify(hubspotUpsert(fields)),
+async function syncBrevo(config, fields) {
+  const result = await providerJson("https://api.brevo.com/v3/contacts", { "api-key": config.access_token }, {
+    method: "POST", body: JSON.stringify(brevoUpsert(fields)),
   });
-  return String(result.results?.[0]?.id || "");
+  return String(result.id || fields.email);
+}
+
+async function syncZoho(config, fields) {
+  const domain = String(config.api_domain || "https://www.zohoapis.eu").replace(/\/$/, "");
+  if (!/^https:\/\/www\.zohoapis\.(eu|com|in|com\.au|jp|ca|sa)$/.test(domain)) throw new Error("Invalid Zoho API domain");
+  const result = await providerJson(`${domain}/crm/v8/Contacts/upsert`, {
+    Authorization: `Zoho-oauthtoken ${config.access_token}`,
+  }, { method: "POST", body: JSON.stringify(zohoUpsert(fields)) });
+  return String(result.data?.[0]?.details?.id || "");
 }
 
 async function syncPipedrive(config, fields) {
@@ -38,10 +46,12 @@ async function syncPipedrive(config, fields) {
   if (!/^https:\/\/[A-Za-z0-9.-]+$/.test(base)) throw new Error("Invalid Pipedrive API URL");
   const search = await providerJson(
     `${base}/api/v2/persons/search?term=${encodeURIComponent(fields.email)}&fields=email&exact_match=true&limit=1`,
-    config.access_token,
+    { Authorization: `Bearer ${config.access_token}` },
   );
   const existingId = search.data?.items?.[0]?.item?.id || search.data?.items?.[0]?.id;
-  const result = await providerJson(`${base}/api/v2/persons${existingId ? `/${existingId}` : ""}`, config.access_token, {
+  const result = await providerJson(`${base}/api/v2/persons${existingId ? `/${existingId}` : ""}`, {
+    Authorization: `Bearer ${config.access_token}`,
+  }, {
     method: existingId ? "PATCH" : "POST", body: JSON.stringify(pipedrivePerson(fields)),
   });
   return String(result.data?.id || existingId || "");
@@ -53,7 +63,7 @@ async function sync(request, env) {
   }
   let payload;
   try { payload = await request.json(); } catch { return new Response("Invalid JSON", { status: 400 }); }
-  if (!["hubspot", "pipedrive"].includes(payload.provider)) return new Response("Unsupported provider", { status: 400 });
+  if (!["brevo", "zoho", "pipedrive"].includes(payload.provider)) return new Response("Unsupported provider", { status: 400 });
   const config = tenantProvider(
     env.CRM_TENANTS_JSON, payload.client_id, payload.provider, payload.external_account_id,
   );
@@ -61,9 +71,9 @@ async function sync(request, env) {
   let fields;
   try { fields = contactFields(payload.lead); } catch (error) { return new Response(error.message, { status: 422 }); }
   try {
-    const externalId = payload.provider === "hubspot"
-      ? await syncHubSpot(config, fields, env)
-      : await syncPipedrive(config, fields);
+    const externalId = payload.provider === "brevo"
+      ? await syncBrevo(config, fields)
+      : payload.provider === "zoho" ? await syncZoho(config, fields) : await syncPipedrive(config, fields);
     if (!externalId) throw new Error("Provider response omitted contact id");
     return Response.json({ ok: true, external_id: externalId });
   } catch (error) {

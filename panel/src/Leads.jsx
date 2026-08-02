@@ -19,10 +19,10 @@ const EMPTY_FORM = {
   fields: [{ ...EMPTY_FIELD, label: "Email", type: "email", required: true, points: 40 }],
 };
 
-const CRM_LABELS = { hubspot: "HubSpot", pipedrive: "Pipedrive" };
+const CRM_LABELS = { brevo: "Brevo", zoho: "Zoho CRM", pipedrive: "Pipedrive" };
 
 function CrmManager({ connections, onChanged }) {
-  const [provider, setProvider] = useState("hubspot");
+  const [provider, setProvider] = useState("brevo");
   const [accountId, setAccountId] = useState("");
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState("");
@@ -58,7 +58,7 @@ function CrmManager({ connections, onChanged }) {
     <div className="wpai-card">
       <div className="wpai-card-title"><PlugZap size={15} /> Collegamenti CRM</div>
       <p style={{ fontSize: 12.5, color: "var(--text-muted)", margin: "6px 0 12px" }}>
-        Invia i lead a HubSpot o Pipedrive. Le credenziali restano nell’integrazione sicura:
+        Invia i lead a Brevo, Zoho CRM o Pipedrive. Le credenziali restano nell’integrazione sicura:
         qui salvi soltanto l’identificativo dell’account collegato.
       </p>
       <form onSubmit={save} style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>

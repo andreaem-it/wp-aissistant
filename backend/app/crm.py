@@ -1,7 +1,7 @@
 """Provider-neutral CRM adapter client.
 
 The app sends tenant-scoped lead data to one trusted adapter. OAuth/API credentials and the
-provider-specific HubSpot/Pipedrive calls belong to that adapter and never enter this database.
+provider-specific Brevo/Zoho/Pipedrive calls belong to that adapter and never enter this database.
 """
 import json
 import os

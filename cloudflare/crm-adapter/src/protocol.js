@@ -33,13 +33,26 @@ export function contactFields(lead) {
   };
 }
 
-export function hubspotUpsert(fields) {
+export function brevoUpsert(fields) {
   return {
-    inputs: [{
-      idProperty: "email",
-      id: fields.email,
-      properties: Object.fromEntries(Object.entries(fields).filter(([, value]) => value)),
+    email: fields.email,
+    attributes: Object.fromEntries(Object.entries({
+      FIRSTNAME: fields.firstname, LASTNAME: fields.lastname, SMS: fields.phone, COMPANY: fields.company,
+    }).filter(([, value]) => value)),
+    updateEnabled: true,
+  };
+}
+
+export function zohoUpsert(fields) {
+  return {
+    data: [{
+      Email: fields.email,
+      Last_Name: fields.lastname || fields.firstname || fields.email,
+      ...(fields.firstname ? { First_Name: fields.firstname } : {}),
+      ...(fields.phone ? { Phone: fields.phone } : {}),
+      ...(fields.company ? { Description: `Azienda: ${fields.company}` } : {}),
     }],
+    duplicate_check_fields: ["Email"],
   };
 }
 

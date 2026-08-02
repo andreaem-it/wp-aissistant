@@ -4529,7 +4529,7 @@ def _lead_query(client_id: int, min_score: int | None, days: int | None):
     return query
 
 
-CRM_PROVIDERS = ("hubspot", "pipedrive")
+CRM_PROVIDERS = ("brevo", "zoho", "pipedrive")
 
 
 def _crm_connection_payload(row: CrmConnection) -> dict:

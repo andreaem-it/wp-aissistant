@@ -394,7 +394,7 @@ Per collegare CRM e automazioni ci sono due strade complementari, documentate in
 | `META_MESSAGING_OUTBOUND_URL` | *(non impostato)* | Endpoint HTTPS dell'adapter tenant-aware per Messenger e Instagram Direct |
 | `META_MESSAGING_OUTBOUND_TOKEN` | *(non impostato)* | Bearer token condiviso con l'adapter Meta; le credenziali Graph API restano nell'adapter |
 | `META_MESSAGING_OUTBOUND_TIMEOUT` | `10` | Timeout dell'adapter Messenger/Instagram in secondi |
-| `CRM_ADAPTER_URL` | *(non impostato)* | Endpoint HTTPS dell'adapter tenant-aware per sincronizzare lead con HubSpot/Pipedrive ([guida](docs/crm-integrations.md)) |
+| `CRM_ADAPTER_URL` | *(non impostato)* | Endpoint HTTPS dell'adapter tenant-aware per sincronizzare lead con Brevo/Zoho/Pipedrive ([guida](docs/crm-integrations.md)) |
 | `CRM_ADAPTER_TOKEN` | *(non impostato)* | Bearer token backend→adapter CRM; le credenziali OAuth dei provider restano nell'adapter |
 | `CRM_ADAPTER_TIMEOUT` | `10` | Timeout dell'adapter CRM in secondi |
 | `ATTACHMENT_STORAGE_URL` | *(non impostato)* | URL del Worker Cloudflare autenticato che media l’accesso al bucket R2 privato |
@@ -459,7 +459,7 @@ Auth via header `Authorization: Bearer <token>`. La colonna *Auth* indica quale 
 | `/leads` | GET | 👤 | Lead raccolti, filtrabili per punteggio minimo e periodo |
 | `/leads/export` | GET | 👤 | Export CSV dei lead (una colonna per campo, formule neutralizzate) |
 | `/crm/connections` | GET | 👤 | Collegamenti CRM del tenant e provider supportati |
-| `/crm/connections/{provider}` | PUT/DELETE | 👤 | Collega, aggiorna o scollega HubSpot/Pipedrive |
+| `/crm/connections/{provider}` | PUT/DELETE | 👤 | Collega, aggiorna o scollega Brevo/Zoho/Pipedrive |
 | `/leads/{id}/crm-sync` | POST | 👤 | Invia esplicitamente un lead al CRM collegato e registra l'esito |
 | `/widget/proactive` | GET | 🔑 | Regole proattive attive per il widget (solo trigger e messaggio) |
 | `/widget/proactive/{id}/event` | POST | 🔑 | Conta una visualizzazione o una chat aperta dal messaggio |
