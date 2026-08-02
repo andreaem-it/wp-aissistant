@@ -398,34 +398,35 @@ em { font-style: italic; color: var(--ink-2); }
 body { background: var(--bg); }
 .container { width: min(1240px, 92vw); }
 .nav {
-  position: absolute; width: 100%; color: #f8faf7;
-  background: transparent; border-bottom-color: rgba(255,255,255,.1); backdrop-filter: none;
+  position: absolute; width: 100%; color: var(--ink);
+  background: rgba(244,246,241,.72); border-bottom-color: rgba(17,23,18,.08); backdrop-filter: blur(16px);
 }
-.nav-links > a:not(.btn), .nav .btn-ghost { color: #c9d0ca; }
-.nav-links > a:not(.btn):hover, .nav .btn-ghost:hover { color: #fff; }
+.nav-links > a:not(.btn), .nav .btn-ghost { color: #59625b; }
+.nav-links > a:not(.btn):hover, .nav .btn-ghost:hover { color: var(--ink); }
 .brand-mark { color: #101713; background: #b6ff64; box-shadow: 0 8px 24px rgba(182,255,100,.22); }
 .nav .btn-primary { color: #101713; background: #b6ff64; box-shadow: none; }
 
 .hero {
-  min-height: 820px; padding: 160px 0 104px; color: #f8faf7; background: #101713;
+  min-height: 820px; padding: 160px 0 104px; color: var(--ink); background: #f4f6f1;
 }
 .hero::before {
   background:
-    radial-gradient(800px 600px at 85% 18%, rgba(108,92,231,.38), transparent 62%),
-    radial-gradient(540px 440px at 8% 90%, rgba(182,255,100,.11), transparent 68%),
-    linear-gradient(120deg, #101713 0%, #101713 54%, #17201a 100%);
+    radial-gradient(760px 560px at 88% 18%, rgba(108,92,231,.18), transparent 62%),
+    radial-gradient(620px 480px at 8% 88%, rgba(182,255,100,.25), transparent 68%),
+    linear-gradient(120deg, #f8faf6 0%, #f4f6f1 56%, #ecefe8 100%);
 }
-.hero::after { opacity: .22; background-size: 38px 38px; background-image: linear-gradient(rgba(255,255,255,.09) 1px, transparent 1px), linear-gradient(90deg,rgba(255,255,255,.09) 1px,transparent 1px); }
+.hero::after { opacity: .34; background-size: 38px 38px; background-image: linear-gradient(rgba(17,23,18,.07) 1px, transparent 1px), linear-gradient(90deg,rgba(17,23,18,.07) 1px,transparent 1px); }
 .orb { display: none; }
 .hero-grid { grid-template-columns: .94fr 1.06fr; gap: 76px; }
-.pill { color: #d5ffab; background: rgba(182,255,100,.08); border-color: rgba(182,255,100,.2); box-shadow: none; }
+.pill { color: #334126; background: rgba(182,255,100,.28); border-color: rgba(89,110,55,.18); box-shadow: none; }
 .pill .dot { background: #b6ff64; box-shadow: 0 0 0 4px rgba(182,255,100,.14); }
 .hero h1 { max-width: 680px; font-size: clamp(3.2rem, 6.2vw, 5.35rem); line-height: .96; letter-spacing: -.065em; }
 .grad { color: #b6ff64; background: none; -webkit-text-fill-color: initial; }
-.lead { color: #aeb7b0; font-size: 1.12rem; max-width: 620px; }
+.hero h1 .grad { color: #6654df; }
+.lead { color: #59645c; font-size: 1.12rem; max-width: 620px; }
 .hero .btn-primary { color: #101713; background: #b6ff64; box-shadow: 0 18px 48px rgba(182,255,100,.16); }
-.hero .btn-outline { color: #f8faf7; background: rgba(255,255,255,.04); border-color: rgba(255,255,255,.18); box-shadow: none; }
-.hero-meta li { color: #98a39b; }
+.hero .btn-outline { color: var(--ink); background: rgba(255,255,255,.6); border-color: rgba(17,23,18,.14); box-shadow: none; }
+.hero-meta li { color: #606b63; }
 .hero-meta i { color: #b6ff64; }
 .mock-chat { border-color: rgba(255,255,255,.14); border-radius: 30px; background: #171f19; box-shadow: 0 48px 120px rgba(0,0,0,.48); transform: rotate(1.5deg); }
 .mock-head { background: #1b251e; border-bottom: 1px solid rgba(255,255,255,.1); }
@@ -440,9 +441,9 @@ body { background: var(--bg); }
 .mb-2 { color: #fff; background: #6c5ce7; }
 .mb-2 i { color: #fff; }
 
-.trust { margin-top: -1px; padding: 36px 0; color: #fff; background: #101713; border-color: rgba(255,255,255,.1); }
-.trust-label, .trust-stats span { color: #98a39b; }
-.trust-stats strong.grad { color: #b6ff64; }
+.trust { margin-top: -1px; padding: 36px 0; color: var(--ink); background: #e9ede5; border-color: rgba(17,23,18,.1); }
+.trust-label, .trust-stats span { color: #667068; }
+.trust-stats strong.grad { color: #5947dc; }
 .section { padding: 120px 0; }
 .eyebrow { color: #6856e8; }
 .section-head h2 { font-size: clamp(2.3rem, 4.5vw, 3.65rem); letter-spacing: -.05em; }
