@@ -11,6 +11,7 @@
   const PROACTIVE_KEY = "wpai_proactive_seen";
   const PROACTIVE_SESSION_KEY = "wpai_proactive_session_";
   const PROACTIVE_OPTOUT_KEY = "wpai_proactive_optout";
+  const PROACTIVE_VARIANT_KEY = "wpai_proactive_variants";
 
   // Lingua del widget: impostazione del sito WordPress, poi browser, poi italiano. Il backend
   // riceve comunque il locale come suggerimento e rileva la lingua da ciò che il visitatore
@@ -479,12 +480,27 @@
     return true;
   }
 
-  async function proactiveEvent(ruleId, kind) {
+  function proactiveVariant(rule) {
+    if (!rule.message_b) return "a";
+    try {
+      const assignments = JSON.parse(localStorage.getItem(PROACTIVE_VARIANT_KEY) || "{}");
+      const key = String(rule.id);
+      if (assignments[key] !== "a" && assignments[key] !== "b") {
+        assignments[key] = Math.random() < 0.5 ? "a" : "b";
+        localStorage.setItem(PROACTIVE_VARIANT_KEY, JSON.stringify(assignments));
+      }
+      return assignments[key];
+    } catch (e) {
+      return "a";
+    }
+  }
+
+  async function proactiveEvent(ruleId, kind, variant) {
     try {
       await fetch(`${WPAI.backendUrl}/widget/proactive/${ruleId}/event`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${WPAI.apiKey}` },
-        body: JSON.stringify({ kind }),
+        body: JSON.stringify({ kind, variant }),
       });
     } catch (e) {
       // la misurazione non deve mai disturbare la navigazione
@@ -499,7 +515,9 @@
     bubble.setAttribute("role", "status");
 
     const text = document.createElement("p");
-    text.textContent = rule.message;
+    const variant = proactiveVariant(rule);
+    const selectedMessage = variant === "b" ? rule.message_b : rule.message;
+    text.textContent = selectedMessage;
     const actions = document.createElement("div");
     actions.className = "wpai-proactive-actions";
 
@@ -509,9 +527,9 @@
     reply.textContent = t("proactive.reply");
     reply.addEventListener("click", () => {
       bubble.remove();
-      addMessage(messages, "assistant", rule.message);
+      addMessage(messages, "assistant", selectedMessage);
       openChat();
-      proactiveEvent(rule.id, "engagement");
+      proactiveEvent(rule.id, "engagement", variant);
     });
 
     const dismiss = document.createElement("button");
@@ -545,7 +563,7 @@
     root.appendChild(bubble);
 
     rememberProactive(rule.id);
-    proactiveEvent(rule.id, "impression");
+    proactiveEvent(rule.id, "impression", variant);
   }
 
   function startProactive(root, isOpen, openChat, messages, hasConversation) {

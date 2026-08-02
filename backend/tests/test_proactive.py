@@ -61,7 +61,7 @@ def test_widget_gets_only_active_rules_and_nothing_internal(client, tenant):
     assert inactive["id"] not in [r["id"] for r in payload["rules"]]
     # il payload pubblico porta solo ciò che serve al browser per decidere
     assert set(payload["rules"][0]) == {
-        "id", "trigger_type", "url_pattern", "delay_seconds", "message", "frequency"
+        "id", "trigger_type", "url_pattern", "delay_seconds", "message", "message_b", "frequency"
     }
 
 
@@ -85,6 +85,29 @@ def test_counters_track_impressions_and_engagements(client, tenant):
     assert client.post(
         f"/widget/proactive/{created['id']}/event", headers=tenant["key"], json={"kind": "boh"}
     ).status_code == 400
+
+
+def test_ab_variant_is_public_and_counted_separately(client, tenant):
+    created = _rule(client, tenant, message_b="Hai bisogno di aiuto con il carrello?").json()
+    public = client.get("/widget/proactive", headers=tenant["key"]).json()["rules"][0]
+    assert public["message_b"] == "Hai bisogno di aiuto con il carrello?"
+
+    endpoint = f"/widget/proactive/{created['id']}/event"
+    assert client.post(endpoint, headers=tenant["key"], json={"kind": "impression", "variant": "b"}).status_code == 200
+    assert client.post(endpoint, headers=tenant["key"], json={"kind": "engagement", "variant": "b"}).status_code == 200
+    rule = client.get("/proactive-rules", headers=tenant["op"]).json()["rules"][0]
+    assert (rule["impressions_b"], rule["engagements_b"], rule["engagement_rate_b"]) == (1, 1, 1.0)
+    assert (rule["impressions"], rule["engagements"]) == (0, 0)
+
+
+def test_variant_b_requires_a_configured_message(client, tenant):
+    created = _rule(client, tenant).json()
+    response = client.post(
+        f"/widget/proactive/{created['id']}/event",
+        headers=tenant["key"],
+        json={"kind": "impression", "variant": "b"},
+    )
+    assert response.status_code == 400
 
 
 def test_rules_are_tenant_scoped(client, tenant):

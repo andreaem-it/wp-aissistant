@@ -18,6 +18,7 @@ const FREQUENCY_LABELS = {
 const EMPTY = {
   name: "",
   message: "",
+  message_b: "",
   trigger_type: "time_on_page",
   url_pattern: "",
   delay_seconds: 20,
@@ -95,6 +96,9 @@ export default function Proactive() {
                   {rule.name} {!rule.active && <span className="wpai-badge warn">disattivato</span>}
                 </div>
                 <div style={{ fontSize: 12.5, margin: "3px 0" }}>«{rule.message}»</div>
+                {rule.message_b && (
+                  <div style={{ fontSize: 12.5, margin: "3px 0" }}>B · «{rule.message_b}»</div>
+                )}
                 <div style={{ fontSize: 11.5, color: "var(--text-muted)" }}>
                   {TRIGGER_LABELS[rule.trigger_type] || rule.trigger_type}
                   {rule.trigger_type === "time_on_page" && ` (${rule.delay_seconds}s)`}
@@ -104,6 +108,7 @@ export default function Proactive() {
                 <div style={{ fontSize: 11.5, color: "var(--text-faint)", marginTop: 2 }}>
                   {rule.impressions} visualizzazioni · {rule.engagements} chat aperte ·{" "}
                   {pct(rule.engagement_rate)} di conversione
+                  {rule.message_b && ` · B: ${rule.impressions_b} visualizzazioni, ${rule.engagements_b} chat, ${pct(rule.engagement_rate_b)}`}
                 </div>
               </div>
               <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
@@ -135,6 +140,13 @@ export default function Proactive() {
           onChange={(e) => setForm((f) => ({ ...f, message: e.target.value }))}
           placeholder="Messaggio mostrato al visitatore, es. Posso aiutarti a completare l'ordine?"
           aria-label="Messaggio"
+        />
+        <textarea
+          rows={2}
+          value={form.message_b}
+          onChange={(e) => setForm((f) => ({ ...f, message_b: e.target.value }))}
+          placeholder="Variante B facoltativa per un test A/B"
+          aria-label="Variante B"
         />
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <select

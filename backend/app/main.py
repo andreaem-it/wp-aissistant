@@ -5223,6 +5223,7 @@ def _proactive_payload(rule: ProactiveRule, *, public: bool = False) -> dict:
         "url_pattern": rule.url_pattern,
         "delay_seconds": rule.delay_seconds,
         "message": rule.message,
+        "message_b": rule.message_b,
         "frequency": rule.frequency,
     }
     if public:
@@ -5236,6 +5237,9 @@ def _proactive_payload(rule: ProactiveRule, *, public: bool = False) -> dict:
         "engagements": rule.engagements,
         # share of impressions that opened a chat (null until there's data to divide by)
         "engagement_rate": round(rule.engagements / rule.impressions, 3) if rule.impressions else None,
+        "impressions_b": rule.impressions_b,
+        "engagements_b": rule.engagements_b,
+        "engagement_rate_b": round(rule.engagements_b / rule.impressions_b, 3) if rule.impressions_b else None,
     }
 
 
@@ -5258,6 +5262,7 @@ def widget_proactive_rules(
 def widget_proactive_event(
     rule_id: int,
     kind: str = Body(..., embed=True),  # impression | engagement
+    variant: str = Body("a", embed=True),
     client: Client = Depends(rate_limit_chat),
     session: Session = Depends(get_session),
 ):
@@ -5265,13 +5270,15 @@ def widget_proactive_event(
     steer a business decision, but they still shouldn't be trivially inflatable."""
     if kind not in ("impression", "engagement"):
         raise HTTPException(400, "kind must be 'impression' or 'engagement'")
+    if variant not in ("a", "b"):
+        raise HTTPException(400, "variant must be 'a' or 'b'")
     rule = session.get(ProactiveRule, rule_id)
     if not rule or rule.client_id != client.id:
         raise HTTPException(404, "rule not found")
-    if kind == "impression":
-        rule.impressions += 1
-    else:
-        rule.engagements += 1
+    if variant == "b" and not rule.message_b:
+        raise HTTPException(400, "variant b is not configured")
+    field = f"{kind}s" + ("_b" if variant == "b" else "")
+    setattr(rule, field, getattr(rule, field) + 1)
     session.add(rule)
     session.commit()
     return {"ok": True}
@@ -5294,6 +5301,7 @@ def list_proactive_rules(operator: Operator = Depends(require_operator), session
 def create_proactive_rule(
     name: str = Body(...),
     message: str = Body(...),
+    message_b: str = Body(""),
     trigger_type: str = Body("time_on_page"),
     url_pattern: str = Body(""),
     delay_seconds: int = Body(15),
@@ -5315,6 +5323,7 @@ def create_proactive_rule(
         client_id=operator.client_id,
         name=clean_name,
         message=clean_message,
+        message_b=message_b.strip()[:MAX_PROACTIVE_MESSAGE_CHARS],
         trigger_type=trigger_type,
         url_pattern=url_pattern.strip()[:300],
         delay_seconds=min(max(int(delay_seconds), 0), 3600),
@@ -5338,6 +5347,7 @@ def update_proactive_rule(
     rule_id: int,
     name: str | None = Body(None),
     message: str | None = Body(None),
+    message_b: str | None = Body(None),
     trigger_type: str | None = Body(None),
     url_pattern: str | None = Body(None),
     delay_seconds: int | None = Body(None),
@@ -5360,6 +5370,8 @@ def update_proactive_rule(
         if not clean:
             raise HTTPException(400, "message required")
         rule.message = clean
+    if message_b is not None:
+        rule.message_b = message_b.strip()[:MAX_PROACTIVE_MESSAGE_CHARS]
     if trigger_type is not None:
         if trigger_type not in PROACTIVE_TRIGGERS:
             raise HTTPException(400, "trigger non valido")

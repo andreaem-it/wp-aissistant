@@ -446,11 +446,14 @@ class ProactiveRule(SQLModel, table=True):
     url_pattern: str = ""  # substring of the page URL; empty = any page
     delay_seconds: int = 15
     message: str = ""
+    message_b: str = ""  # optional alternative; empty keeps the rule single-variant
     frequency: str = "once_per_day"  # once_per_session | once_per_day | always
     active: bool = True
     position: int = 0
     impressions: int = 0
     engagements: int = 0
+    impressions_b: int = 0
+    engagements_b: int = 0
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
