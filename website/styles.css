@@ -237,6 +237,13 @@ em { font-style: italic; color: var(--ink-2); }
 .dash-metrics span, .dash-metrics em { color: var(--muted); font-size: .7rem; font-style: normal; }
 .dash-metrics strong { font-size: 1.45rem; }
 .dash-metrics .positive { color: #159b66; }
+.dash-filter-row { display: grid; grid-template-columns: 1fr 1.15fr 1fr auto; gap: 8px; margin-top: 22px; }
+.dash-filter-row span, .dash-filter-row b {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  padding: 9px 10px; border: 1px solid var(--line); border-radius: 9px; background: #fff;
+  color: var(--muted); font-size: .64rem; font-weight: 700;
+}
+.dash-filter-row b { color: var(--brand-ink); background: #eeebff; border-color: #dcd5ff; }
 .dash-table { margin-top: 18px; overflow: hidden; border: 1px solid var(--line); border-radius: 13px; background: #fff; }
 .dash-row { display: grid; grid-template-columns: 1.15fr 1.35fr .7fr; align-items: center; gap: 10px; min-width: 460px; padding: 12px 14px; border-top: 1px solid var(--line); font-size: .72rem; }
 .dash-row:first-child { border-top: 0; }
@@ -247,6 +254,14 @@ em { font-style: italic; color: var(--ink-2); }
 .status.ai { color: #5946cf; background: #eeebff; }
 .status.human { color: #167da0; background: #e3f7fc; }
 .status.done { color: #16815c; background: #e6f8f0; }
+.status.danger { color: #b42318; background: #feeceb; }
+.status.warn { color: #9a5b08; background: #fff4d8; }
+.dash-thread-preview {
+  display: flex; align-items: center; gap: 10px; margin-top: 12px; padding: 11px 13px;
+  border: 1px solid var(--line); border-radius: 12px; background: #fff; color: var(--brand);
+}
+.dash-thread-preview span { min-width: 0; display: flex; flex: 1; flex-direction: column; color: var(--ink); font-size: .7rem; }
+.dash-thread-preview small { color: var(--muted); font-size: .6rem; }
 
 /* ---------- Steps ---------- */
 .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; position: relative; }
@@ -349,6 +364,7 @@ em { font-style: italic; color: var(--ink-2); }
   .dashboard-mock { grid-template-columns: 52px 1fr; }
   .dash-content { padding: 18px; overflow: hidden; }
   .dash-metrics { grid-template-columns: 1fr 1fr 1fr; }
+  .dash-filter-row { grid-template-columns: 1fr 1fr; }
 }
 @media (max-width: 520px) {
   .feature-grid { grid-template-columns: 1fr; }
