@@ -138,6 +138,26 @@ jobs:
         working-directory: cloudflare/attachment-storage
         run: npx wrangler deploy --dry-run
 
+  crm-worker:
+    name: CRM adapter Worker
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: cloudflare/crm-adapter/package-lock.json
+      - name: Install dependencies
+        working-directory: cloudflare/crm-adapter
+        run: npm ci
+      - name: Unit tests
+        working-directory: cloudflare/crm-adapter
+        run: npm test
+      - name: Build Worker
+        working-directory: cloudflare/crm-adapter
+        run: npx wrangler deploy --dry-run
+
   docker-build:
     name: Backend image build
     runs-on: ubuntu-latest
