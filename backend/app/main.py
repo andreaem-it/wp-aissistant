@@ -4583,6 +4583,32 @@ def set_crm_connection(
     return _crm_connection_payload(row)
 
 
+@app.post("/crm/connect/brevo")
+def connect_brevo(
+    body: dict = Body(...),
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
+    api_key = str(body.get("api_key", "")).strip()
+    if len(api_key) < 20 or len(api_key) > 512:
+        raise HTTPException(400, "Chiave Brevo non valida")
+    connected, account_id, error = crm_service.configure_brevo(client_id=operator.client_id, api_key=api_key)
+    if not connected:
+        raise HTTPException(422, error or "Collegamento Brevo non riuscito")
+    row = session.exec(select(CrmConnection).where(
+        CrmConnection.client_id == operator.client_id, CrmConnection.provider == "brevo",
+    )).first() or CrmConnection(client_id=operator.client_id, provider="brevo")
+    row.external_account_id = account_id
+    row.enabled = True
+    row.updated_at = datetime.utcnow()
+    session.add(row)
+    session.commit()
+    session.refresh(row)
+    _audit(session, "operator", operator.email, "crm.connection.update", target="crm:brevo",
+           client_id=operator.client_id, detail={"enabled": True})
+    return _crm_connection_payload(row)
+
+
 @app.delete("/crm/connections/{provider}")
 def delete_crm_connection(
     provider: str,
@@ -4595,6 +4621,8 @@ def delete_crm_connection(
     )).first()
     if row is None:
         raise HTTPException(404, "Connessione CRM non trovata")
+    if not crm_service.disconnect(client_id=operator.client_id, provider=row.provider):
+        raise HTTPException(503, "Impossibile revocare in sicurezza la credenziale CRM")
     for sync in session.exec(select(CrmSync).where(CrmSync.connection_id == row.id)).all():
         session.delete(sync)
     session.delete(row)

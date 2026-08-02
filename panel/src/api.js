@@ -144,6 +144,7 @@ export const api = {
   deleteLeadForm: (id) => call(`/lead-forms/${id}`, { method: "DELETE" }),
   leads: (params = {}) => call("/leads", { params }),
   crmConnections: () => call("/crm/connections"),
+  connectBrevo: (api_key) => call("/crm/connect/brevo", { method: "POST", body: { api_key } }),
   setCrmConnection: (provider, body) => call(`/crm/connections/${provider}`, { method: "PUT", body }),
   deleteCrmConnection: (provider) => call(`/crm/connections/${provider}`, { method: "DELETE" }),
   syncLeadToCrm: (id, provider) => call(`/leads/${id}/crm-sync`, { method: "POST", body: { provider } }),

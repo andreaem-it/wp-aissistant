@@ -4,5 +4,8 @@
   "main": "src/index.js",
   "compatibility_date": "2026-08-01",
   "workers_dev": true,
-  "observability": { "enabled": true }
+  "observability": { "enabled": true },
+  "kv_namespaces": [
+    { "binding": "CRM_TOKENS", "id": "23851bbb4a744c5293f201fd9f61e4e6" }
+  ]
 }

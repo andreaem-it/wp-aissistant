@@ -10,6 +10,12 @@ Il backend salva soltanto `provider` e `external_account_id`. Token OAuth e API 
 nel database di WP AIssistant: appartengono a un adapter tenant-aware controllato, configurato
 con `CRM_ADAPTER_URL` e autenticato tramite `CRM_ADAPTER_TOKEN`.
 
+Per Brevo il panel accetta la chiave in un campo password e la inoltra una sola volta al Worker:
+il Worker la verifica tramite `/v3/account` e, solo se valida, la conserva nel namespace KV
+`CRM_TOKENS`. Il backend salva esclusivamente l'email identificativa restituita da Brevo. L'OAuth
+pubblico Brevo non è ancora utilizzabile per un SaaS multi-cliente perché la documentazione del
+provider limita attualmente le app OAuth alle autorizzazioni interne alla stessa organizzazione.
+
 Il Worker pronto al deploy è in `cloudflare/crm-adapter`. Riceve un `POST /sync` JSON con
 `client_id`, `provider`, `external_account_id` e `lead`, e risponde con
 `{"ok": true, "external_id": "..."}`. Verifica la tripletta tenant/provider/account prima di

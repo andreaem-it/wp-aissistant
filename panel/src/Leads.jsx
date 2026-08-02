@@ -22,61 +22,60 @@ const EMPTY_FORM = {
 const CRM_LABELS = { brevo: "Brevo", zoho: "Zoho CRM", pipedrive: "Pipedrive" };
 
 function CrmManager({ connections, onChanged }) {
-  const [provider, setProvider] = useState("brevo");
-  const [accountId, setAccountId] = useState("");
+  const [apiKey, setApiKey] = useState("");
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState("");
-
-  useEffect(() => {
-    const current = connections.find((row) => row.provider === provider);
-    setAccountId(current?.external_account_id || "");
-  }, [connections, provider]);
+  const brevo = connections.find((row) => row.provider === "brevo" && row.enabled);
 
   const save = async (e) => {
     e.preventDefault();
-    if (!accountId.trim()) return;
+    if (!apiKey.trim()) return;
     setSaving(true);
     try {
-      await api.setCrmConnection(provider, { external_account_id: accountId.trim(), enabled: true });
-      setFeedback(`${CRM_LABELS[provider]} collegato.`);
+      await api.connectBrevo(apiKey.trim());
+      setApiKey("");
+      setFeedback("Brevo collegato e verificato.");
       onChanged();
     } catch {
-      setFeedback("Collegamento non riuscito. Controlla l’identificativo dell’account.");
+      setFeedback("Collegamento non riuscito. Controlla la chiave API Brevo.");
     } finally { setSaving(false); }
   };
 
-  const remove = async () => {
-    const current = connections.find((row) => row.provider === provider);
-    if (!current || !window.confirm(`Scollegare ${CRM_LABELS[provider]}?`)) return;
-    await api.deleteCrmConnection(provider);
-    setFeedback(`${CRM_LABELS[provider]} scollegato.`);
+  const removeBrevo = async () => {
+    if (!brevo || !window.confirm("Scollegare Brevo?")) return;
+    await api.deleteCrmConnection("brevo");
+    setFeedback("Brevo scollegato.");
     onChanged();
   };
 
-  const connected = connections.some((row) => row.provider === provider && row.enabled);
   return (
     <div className="wpai-card">
       <div className="wpai-card-title"><PlugZap size={15} /> Collegamenti CRM</div>
       <p style={{ fontSize: 12.5, color: "var(--text-muted)", margin: "6px 0 12px" }}>
-        Invia i lead a Brevo, Zoho CRM o Pipedrive. Le credenziali restano nell’integrazione sicura:
-        qui salvi soltanto l’identificativo dell’account collegato.
+        Collega il CRM senza salvare credenziali nel database di WP AIssistant. La chiave viene
+        verificata e custodita nell’adapter Cloudflare.
       </p>
       <form onSubmit={save} style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
-        <select value={provider} onChange={(e) => { setProvider(e.target.value); setFeedback(""); }} aria-label="CRM">
-          {Object.entries(CRM_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-        </select>
+        <strong style={{ fontSize: 13 }}>Brevo</strong>
         <input
-          value={accountId}
-          onChange={(e) => setAccountId(e.target.value)}
-          placeholder="ID portale o organizzazione"
-          aria-label="Identificativo account CRM"
+          type="password"
+          value={apiKey}
+          onChange={(e) => setApiKey(e.target.value)}
+          placeholder={brevo ? "Nuova chiave API per aggiornare" : "Incolla la chiave API Brevo"}
+          aria-label="Chiave API Brevo"
+          autoComplete="off"
           style={{ minWidth: 240, flex: 1 }}
         />
-        <button className="wpai-btn" type="submit" disabled={saving || !accountId.trim()}>
-          <PlugZap size={14} /> {saving ? "Collegamento…" : connected ? "Aggiorna" : "Collega"}
+        <button className="wpai-btn" type="submit" disabled={saving || !apiKey.trim()}>
+          <PlugZap size={14} /> {saving ? "Verifica…" : brevo ? "Aggiorna chiave" : "Verifica e collega"}
         </button>
-        {connected && <button className="wpai-btn ghost" type="button" onClick={remove}>Scollega</button>}
+        {brevo && <button className="wpai-btn ghost" type="button" onClick={removeBrevo}>Scollega</button>}
       </form>
+      <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
+        <span className={`wpai-badge ${brevo ? "ok" : ""}`}>Brevo · {brevo ? "collegato" : "da collegare"}</span>
+        <span className="wpai-badge">Zoho CRM · OAuth in arrivo</span>
+        <span className="wpai-badge">Pipedrive · in arrivo</span>
+      </div>
       {feedback && <p role="status" style={{ fontSize: 12.5, margin: "10px 0 0", color: "var(--text-muted)" }}>{feedback}</p>}
     </div>
   );

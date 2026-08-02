@@ -25,6 +25,47 @@ async function providerJson(url, authHeaders, options = {}) {
   return data;
 }
 
+async function configuredProvider(env, clientId, provider, accountId) {
+  const stored = await env.CRM_TOKENS?.get(`${clientId}:${provider}`, "json");
+  if (stored && String(stored.account_id) === String(accountId) && stored.access_token) return stored;
+  return tenantProvider(env.CRM_TENANTS_JSON, clientId, provider, accountId);
+}
+
+async function configure(request, env) {
+  if (!sameString(request.headers.get("authorization"), `Bearer ${env.ADAPTER_TOKEN}`)) {
+    return new Response("Unauthorized", { status: 401 });
+  }
+  let payload;
+  try { payload = await request.json(); } catch { return new Response("Invalid JSON", { status: 400 }); }
+  if (payload.provider !== "brevo" || !Number.isInteger(payload.client_id) || !payload.api_key) {
+    return new Response("Invalid configuration", { status: 400 });
+  }
+  try {
+    const account = await providerJson("https://api.brevo.com/v3/account", { "api-key": payload.api_key });
+    const accountId = String(account.email || account.companyName || account.id || "").slice(0, 255);
+    if (!accountId) throw new Error("Brevo account identifier missing");
+    await env.CRM_TOKENS.put(`${payload.client_id}:brevo`, JSON.stringify({
+      account_id: accountId, access_token: String(payload.api_key), connected_at: new Date().toISOString(),
+    }));
+    return Response.json({ ok: true, external_account_id: accountId });
+  } catch {
+    return Response.json({ ok: false, error: "Chiave Brevo non valida" }, { status: 422 });
+  }
+}
+
+async function disconnect(request, env) {
+  if (!sameString(request.headers.get("authorization"), `Bearer ${env.ADAPTER_TOKEN}`)) {
+    return new Response("Unauthorized", { status: 401 });
+  }
+  let payload;
+  try { payload = await request.json(); } catch { return new Response("Invalid JSON", { status: 400 }); }
+  if (!Number.isInteger(payload.client_id) || !["brevo", "zoho", "pipedrive"].includes(payload.provider)) {
+    return new Response("Invalid configuration", { status: 400 });
+  }
+  await env.CRM_TOKENS?.delete(`${payload.client_id}:${payload.provider}`);
+  return Response.json({ ok: true });
+}
+
 async function syncBrevo(config, fields) {
   const result = await providerJson("https://api.brevo.com/v3/contacts", { "api-key": config.access_token }, {
     method: "POST", body: JSON.stringify(brevoUpsert(fields)),
@@ -64,8 +105,8 @@ async function sync(request, env) {
   let payload;
   try { payload = await request.json(); } catch { return new Response("Invalid JSON", { status: 400 }); }
   if (!["brevo", "zoho", "pipedrive"].includes(payload.provider)) return new Response("Unsupported provider", { status: 400 });
-  const config = tenantProvider(
-    env.CRM_TENANTS_JSON, payload.client_id, payload.provider, payload.external_account_id,
+  const config = await configuredProvider(
+    env, payload.client_id, payload.provider, payload.external_account_id,
   );
   if (!config) return new Response("Tenant CRM account not configured", { status: 404 });
   let fields;
@@ -86,6 +127,8 @@ export default {
   async fetch(request, env) {
     const path = new URL(request.url).pathname;
     if (path === "/sync" && request.method === "POST") return sync(request, env);
+    if (path === "/configure" && request.method === "POST") return configure(request, env);
+    if (path === "/configure" && request.method === "DELETE") return disconnect(request, env);
     if (path === "/health" && request.method === "GET") return Response.json({ ok: true });
     return new Response("Not found", { status: 404 });
   },

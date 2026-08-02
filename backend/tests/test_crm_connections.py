@@ -14,7 +14,8 @@ def _lead(client, tenant):
     return response.json()["id"]
 
 
-def test_crm_connection_configuration_is_tenant_scoped(client, tenant):
+def test_crm_connection_configuration_is_tenant_scoped(client, tenant, monkeypatch):
+    monkeypatch.setattr(crm, "disconnect", lambda **kwargs: True)
     created = client.put(
         "/crm/connections/brevo", headers=tenant["op"],
         json={"external_account_id": "portal-123", "enabled": True},
@@ -37,6 +38,24 @@ def test_crm_connection_rejects_unknown_provider_invalid_account_and_widget_key(
         "/crm/connections/brevo", headers=tenant["op"], json={"external_account_id": "bad account<script>"},
     ).status_code == 400
     assert client.get("/crm/connections", headers=tenant["key"]).status_code == 401
+
+
+def test_brevo_guided_connection_verifies_secret_without_storing_it(client, tenant, monkeypatch):
+    captured = {}
+    monkeypatch.setattr(crm, "configure_brevo", lambda **kwargs: captured.update(kwargs) or (True, "owner@example.it", ""))
+    response = client.post(
+        "/crm/connect/brevo", headers=tenant["op"], json={"api_key": "xkeysib-valid-secret-value"},
+    )
+    assert response.status_code == 200
+    assert response.json()["external_account_id"] == "owner@example.it"
+    assert captured == {"client_id": tenant["cid"], "api_key": "xkeysib-valid-secret-value"}
+    with Session(db.engine) as session:
+        row = session.exec(select(db.CrmConnection).where(db.CrmConnection.client_id == tenant["cid"])).one()
+        assert row.external_account_id == "owner@example.it"
+        assert "xkeysib" not in str(row)
+    assert client.post(
+        "/crm/connect/brevo", headers=tenant["key"], json={"api_key": "xkeysib-valid-secret-value"},
+    ).status_code == 401
 
 
 def test_lead_sync_is_explicit_idempotent_and_exposes_status(client, tenant, monkeypatch):

@@ -74,3 +74,22 @@ test("upserts Zoho contacts in the European data center", async (t) => {
   assert.equal(captured.url, "https://www.zohoapis.eu/crm/v8/Contacts/upsert");
   assert.equal(captured.options.headers.Authorization, "Zoho-oauthtoken zoho-secret");
 });
+
+test("verifies a Brevo key before storing it in tenant KV", async (t) => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({ email: "owner@example.it" }), { status: 200 });
+  t.after(() => { globalThis.fetch = originalFetch; });
+  const saved = {};
+  const configuredEnv = {
+    ...env,
+    CRM_TOKENS: { put: async (key, value) => { saved[key] = JSON.parse(value); } },
+  };
+  const response = await worker.fetch(new Request("https://worker/configure", {
+    method: "POST",
+    headers: { Authorization: "Bearer backend-secret", "Content-Type": "application/json" },
+    body: JSON.stringify({ client_id: 7, provider: "brevo", api_key: "provider-secret" }),
+  }), configuredEnv);
+  assert.deepEqual(await response.json(), { ok: true, external_account_id: "owner@example.it" });
+  assert.equal(saved["7:brevo"].account_id, "owner@example.it");
+  assert.equal(saved["7:brevo"].access_token, "provider-secret");
+});
