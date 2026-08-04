@@ -61,11 +61,11 @@ Queste funzionalità esistono già e non vanno reinserite come nuove feature:
 | Note interne, menzioni e collision detection | **Rilasciata:** note interne tenant-scoped mai esposte al visitatore, menzioni `@nome` con stato di lettura, presenza sulla conversazione con avviso di risposta in corso e registro azioni per conversazione. | Prossimo passo: notifica push/email sulle menzioni. | Media |
 | Tag e classificazione automatica | **Rilasciata:** tag manuali tenant-scoped con associazione multipla e filtri, classificazione AI (intento/argomento/urgenza) in coda dopo l'escalation o su richiesta, vocabolario chiuso e fallback che lascia la conversazione non classificata. Report per tag e intento in `/stats`. | Prossimo passo: regole automatiche basate sui tag. | Media |
 | CSAT post-conversazione | **Rilasciata:** voto 1–5 con commento facoltativo chiesto dal widget alla chiusura, distinto dal feedback sul singolo messaggio; report per AI/operatore/reparto/periodo con distribuzione e ultimi commenti. | Prossimo passo: invito al CSAT anche via email dopo un ticket. | Bassa |
-| Workflow no-code | **Rilasciata:** regole per tenant con 7 trigger, condizioni su vocabolario chiuso e 9 azioni (priorità, reparto, assegnazione anche a turno, tag, chiusura, escalation, email, webhook), anteprima a secco, log delle esecuzioni e guardia anti-cascata. | Prossimo passo: azioni ritardate (es. «dopo 24h senza risposta»). | Alta |
+| Workflow no-code | **Rilasciata:** regole per tenant con 7 trigger, condizioni su vocabolario chiuso e 10 azioni. L'azione «Attendi» salva la continuazione nel database, la esegue via worker con retry e può annullarla quando arriva una risposta; stato ed errori sono visibili nello storico. Restano anteprima a secco, log e guardia anti-cascata. | Prossimo passo: completato il blocco previsto; rivalutare dai dati reali. | Alta |
 | Messaggi proattivi contestuali | **Rilasciata:** quattro trigger, frequenza configurabile, opt-out, A/B test stabile, metriche separate, vincitore al 95%, promozione con un clic, interruzione sicura e storico immutabile con audit operatore. | Prossimo passo: completato il blocco previsto; rivalutare dai dati reali. | Media |
 | Lead capture e qualificazione | **Rilasciata:** form dinamici per tenant (4 tipi di campo), consenso registrato con il lead, punteggio come somma dei punti dei campi compilati, elenco filtrabile, export CSV protetto da CSV injection ed evento webhook `lead.captured`. **Fondazione CRM pronta per il mercato italiano:** collegamenti tenant-scoped Brevo/Zoho/Pipedrive, invio manuale idempotente, stato nel panel e Worker Cloudflare provider-aware. | Prossimo passo: consenso OAuth self-service e mapping personalizzato dei campi. | Media |
 | Multilingua automatica | **Rilasciata:** rilevamento deterministico a ogni messaggio (6 lingue) con il locale del browser come solo suggerimento, risposta nella lingua del visitatore anche su knowledge base in altra lingua, risposte deterministiche tradotte a template, catalogo testi del widget separato e testato, filtro lingua nell'inbox e ripartizione nelle statistiche. | Prossimo passo: traduzione assistita dei contenuti KB per le lingue più richieste. | Media |
-| Analytics avanzate e suggerimenti KB | **Rilasciata:** deflection per conversazione, tempi di prima risposta e risoluzione (media e mediana), trend giornaliero, rilevamento dei gap con clustering semantico locale privacy-first, raggruppamento per tema e flusso «insegna la risposta» applicato a tutte le parafrasi. | Prossimo passo: suggerire automaticamente una bozza di articolo KB dai cluster più frequenti. | Alta |
+| Analytics avanzate e suggerimenti KB | **Rilasciata:** deflection per conversazione, tempi di prima risposta e risoluzione, trend, gap con clustering semantico locale e flusso «insegna». I cluster generano ora bozze persistenti privacy-first senza inviare conversazioni a provider esterni; l'operatore deve completare i segnaposto, può pubblicare con un clic e confronta occorrenze precedenti e nuove lacune dopo la pubblicazione. | Prossimo passo: rivalutare qualità e impatto su dati reali. | Alta |
 | API pubblica e webhooks gestibili | **Rilasciata:** API `/v1` versionata, chiavi scoped e revocabili con rate limit dedicato, webhook firmati HMAC con retry a backoff, payload con schema `1.0`, eventi omnicanale privacy-safe, log filtrabile/paginato con JSON, replay manuale, metriche a 30 giorni, alert automatico sugli endpoint degradati e guardia SSRF. Documentazione in [`public-api.md`](public-api.md). | Prossimo passo: completato il blocco previsto; rivalutare dai dati reali. | Media |
 
 ### P2 — Espansione di canale e piattaforma
@@ -119,6 +119,19 @@ Non iniziare lo sviluppo esteso prima del go/no-go sulla latenza del PoC.
 3. ✅ Messaggi proattivi e lead qualification.
 4. ✅ Analytics avanzate e rilevamento automatico dei gap della knowledge base.
 5. ✅ Multilingua.
+
+### Ciclo 3.1 — Ottimizzazione dai dati *(completato)*
+
+1. ✅ Clustering semantico locale dei gap KB.
+2. ✅ A/B test, vincitore statistico e storico dei messaggi proattivi.
+3. ✅ Azioni differite persistenti nei workflow.
+4. ✅ Bozze di articoli KB privacy-first con revisione, pubblicazione e misura dell'impatto.
+
+### Prossimo ciclo consigliato
+
+1. OAuth self-service e mapping personalizzato dei campi CRM.
+2. Allegati inbound e visualizzazione inline sicura, quando saranno attivati i canali live.
+3. WhatsApp Business live, quando saranno disponibili numero e credenziali Meta.
 
 ### Ciclo 4 — Omnicanale
 

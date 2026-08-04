@@ -116,6 +116,21 @@ def cluster_gap_groups(groups: dict[str, dict]) -> list[dict]:
     return sorted(clusters, key=lambda g: (-g["occurrences"], g["last_seen"] or ""))
 
 
+def article_draft(cluster: dict) -> dict:
+    """Build a privacy-first local scaffold; facts remain explicitly human supplied."""
+    question = (cluster.get("question") or "Domanda frequente").strip().rstrip("?!. ")
+    variants = [q.strip() for q in cluster.get("questions", []) if q.strip()][:20]
+    related = "\n".join(f"- {item}" for item in variants)
+    return {
+        "title": question[:150],
+        "content": (
+            "## Risposta breve\n\n[DA COMPLETARE: inserisci qui la risposta verificata.]\n\n"
+            "## Dettagli utili\n\n[DA COMPLETARE: condizioni, limiti, tempi ed eventuali eccezioni.]\n\n"
+            f"## Domande dei clienti coperte\n\n{related}"
+        )[:12000],
+    }
+
+
 def _period(days: int) -> datetime:
     return datetime.utcnow() - timedelta(days=max(1, min(days, 365)))
 
@@ -358,6 +373,31 @@ def knowledge_gaps(
         "total": len(ranked),
         "by_topic": [{"topic": topic, "conversations": int(n)} for topic, n in topics],
     }
+
+
+def gap_occurrences_since(
+    session: Session, client_id: int, questions: list[str], since: datetime | None,
+) -> int:
+    """Count unresolved recurrences after an article was published."""
+    if since is None:
+        return 0
+    hashes = {question_hash(item) for item in questions}
+    logs = session.exec(select(AiResponseLog).where(
+        AiResponseLog.client_id == client_id, AiResponseLog.created_at > since,
+    ).order_by(AiResponseLog.id.desc()).limit(2000)).all()
+    negative_ids = {row for row in session.exec(
+        select(Message.id).join(Conversation, Message.conversation_id == Conversation.id).where(
+            Conversation.client_id == client_id, Message.feedback == -1, Message.created_at > since,
+        )
+    ).all()}
+    count = 0
+    for row in logs:
+        thumbs_down = row.message_id is not None and row.message_id in negative_ids
+        distance = _best_distance(row.retrieved)
+        no_context = distance is None or distance > GAP_MAX_DISTANCE
+        if (thumbs_down or (row.outcome in GAP_OUTCOMES and no_context)) and question_hash(_question_for(session, row)) in hashes:
+            count += 1
+    return count
 
 
 def review_gap(

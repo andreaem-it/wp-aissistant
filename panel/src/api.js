@@ -188,6 +188,11 @@ export const api = {
   knowledgeGaps: (days = 30) => call("/analytics/knowledge-gaps", { params: { days } }),
   reviewKnowledgeGap: (question, status, questions = []) =>
     call("/analytics/knowledge-gaps/review", { method: "POST", body: { question, status, questions } }),
+  knowledgeDrafts: () => call("/analytics/knowledge-drafts"),
+  createKnowledgeDraft: (question, questions = []) =>
+    call("/analytics/knowledge-gaps/draft", { method: "POST", body: { question, questions } }),
+  publishKnowledgeDraft: (id, title, content) =>
+    call(`/analytics/knowledge-drafts/${id}/publish`, { method: "POST", body: { title, content } }),
   knowledgeBase: () => call("/knowledge-base"),
   uploadDocument: (file) => {
     const form = new FormData();

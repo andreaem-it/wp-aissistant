@@ -346,6 +346,25 @@ class KnowledgeGapReview(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
+class KnowledgeDraft(SQLModel, table=True):
+    """Operator-reviewed article proposed locally from a cluster of knowledge gaps."""
+    __table_args__ = (UniqueConstraint("client_id", "question_hash"),)
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    client_id: int = Field(index=True, foreign_key="client.id")
+    question_hash: str = Field(index=True)
+    questions: str = "[]"
+    title: str = ""
+    content: str = ""
+    status: str = Field(default="draft", index=True)
+    baseline_occurrences: int = 0
+    created_by: str = ""
+    ingest_job_id: Optional[int] = Field(default=None, foreign_key="ingestjob.id")
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    published_at: Optional[datetime] = None
+
+
 class LeadForm(SQLModel, table=True):
     """A short form the widget can show to qualify a visitor. `fields` is a JSON list of
     {key,label,type,required,points}: the points are what makes the score explainable — it is

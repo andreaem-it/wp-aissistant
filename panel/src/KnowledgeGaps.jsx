@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { SearchX, GraduationCap, EyeOff } from "lucide-react";
+import { SearchX, GraduationCap, EyeOff, FilePenLine } from "lucide-react";
 import { api } from "./api.js";
 import { formatMoment } from "./activity.js";
 
@@ -10,12 +10,13 @@ export default function KnowledgeGaps({ days = 30 }) {
   const [teaching, setTeaching] = useState(null); // {question, answer}
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
+  const [drafts, setDrafts] = useState([]);
+  const [editingDraft, setEditingDraft] = useState(null);
 
   const load = useCallback(
     () =>
-      api
-        .knowledgeGaps(days)
-        .then((data) => { setPayload(data); setError(""); })
+      Promise.all([api.knowledgeGaps(days), api.knowledgeDrafts()])
+        .then(([data, draftRows]) => { setPayload(data); setDrafts(draftRows); setError(""); })
         .catch(() => setError("Impossibile caricare le domande senza risposta.")),
     [days],
   );
@@ -29,6 +30,38 @@ export default function KnowledgeGaps({ days = 30 }) {
       await load();
     } catch {
       setError("Operazione non riuscita.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const proposeDraft = async (gap) => {
+    setBusy(true);
+    setNotice("");
+    try {
+      const draft = await api.createKnowledgeDraft(gap.question, gap.questions);
+      setDrafts((rows) => [draft, ...rows.filter((row) => row.id !== draft.id)]);
+      setEditingDraft({ ...draft });
+    } catch {
+      setError("Creazione della bozza non riuscita.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const publishDraft = async (e) => {
+    e.preventDefault();
+    if (!editingDraft?.title.trim() || !editingDraft?.content.trim()) return;
+    setBusy(true);
+    try {
+      await api.publishKnowledgeDraft(editingDraft.id, editingDraft.title.trim(), editingDraft.content.trim());
+      setEditingDraft(null);
+      setNotice("Articolo pubblicato: l'indicizzazione è stata accodata.");
+      await load();
+    } catch (err) {
+      setError(err.status === 400
+        ? "Completa tutti i campi [DA COMPLETARE] prima di pubblicare."
+        : "Pubblicazione non riuscita: la bozza resta disponibile.");
     } finally {
       setBusy(false);
     }
@@ -88,6 +121,12 @@ export default function KnowledgeGaps({ days = 30 }) {
                 </div>
               </div>
               <div style={{ display: "flex", gap: 6 }}>
+                <button className="wpai-btn ghost" disabled={busy} onClick={() => {
+                  const existing = drafts.find((row) => row.question_hash === gap.question_hash && row.status === "draft");
+                  if (existing) setEditingDraft({ ...existing }); else proposeDraft(gap);
+                }}>
+                  <FilePenLine size={13} /> Bozza articolo
+                </button>
                 <button
                   className="wpai-btn ghost"
                   disabled={busy}
@@ -121,9 +160,39 @@ export default function KnowledgeGaps({ days = 30 }) {
                 </div>
               </form>
             )}
+            {editingDraft?.question_hash === gap.question_hash && (
+              <form onSubmit={publishDraft} style={{ display: "grid", gap: 7, marginTop: 8, padding: 10, borderRadius: 8, background: "var(--surface-subtle)" }}>
+                <strong style={{ fontSize: 12.5 }}>Bozza locale da revisionare</strong>
+                <p style={{ fontSize: 11.5, color: "var(--text-muted)", margin: 0 }}>
+                  Nessun testo è stato inviato a provider AI. Sostituisci i segnaposto con informazioni verificate.
+                </p>
+                <input aria-label="Titolo articolo" value={editingDraft.title} onChange={(e) => setEditingDraft((d) => ({ ...d, title: e.target.value }))} />
+                <textarea rows={9} aria-label="Contenuto articolo" value={editingDraft.content} onChange={(e) => setEditingDraft((d) => ({ ...d, content: e.target.value }))} />
+                <div style={{ display: "flex", gap: 6 }}>
+                  <button className="wpai-btn" type="submit" disabled={busy}>Pubblica nella knowledge base</button>
+                  <button className="wpai-btn ghost" type="button" onClick={() => setEditingDraft(null)}>Chiudi</button>
+                </div>
+              </form>
+            )}
           </div>
         ))}
       </div>
+
+      {drafts.some((draft) => draft.status === "published") && (
+        <div style={{ marginTop: 14 }}>
+          <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 6 }}>Impatto degli articoli pubblicati</div>
+          <div style={{ display: "grid", gap: 6 }}>
+            {drafts.filter((draft) => draft.status === "published").map((draft) => (
+              <div key={draft.id} style={{ fontSize: 12, display: "flex", justifyContent: "space-between", gap: 8 }}>
+                <span>{draft.title}</span>
+                <span style={{ color: draft.occurrences_after_publish ? "var(--orange)" : "var(--green)" }}>
+                  {draft.baseline_occurrences} prima · {draft.occurrences_after_publish} nuove lacune
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {payload.by_topic.length > 0 && (
         <div style={{ marginTop: 14 }}>

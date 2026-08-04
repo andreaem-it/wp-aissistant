@@ -251,6 +251,55 @@ def test_review_is_idempotent_and_validated(client, tenant):
     assert client.post(
         "/analytics/knowledge-gaps/review", headers=tenant["op"], json={"question": "Y", "status": "boh"}
     ).status_code == 400
+
+
+def test_gap_can_create_editable_local_article_draft(client, tenant):
+    chat = _chat(client, tenant, "draft", message="Fate consegne in Svizzera?")
+    _log_turn(tenant["cid"], chat["conversation_id"], "escalated_model", distance=0.9)
+
+    created = client.post("/analytics/knowledge-gaps/draft", headers=tenant["op"], json={
+        "question": "Fate consegne in Svizzera?", "questions": ["Fate consegne in Svizzera?"],
+    })
+    assert created.status_code == 200
+    draft = created.json()
+    assert draft["status"] == "draft"
+    assert draft["baseline_occurrences"] == 1
+    assert "[DA COMPLETARE" in draft["content"]
+    assert client.get("/analytics/knowledge-drafts", headers=tenant["op"]).json()[0]["id"] == draft["id"]
+
+
+def test_draft_requires_review_then_publishes_and_closes_cluster(client, tenant):
+    chat = _chat(client, tenant, "publish-draft", message="Accettate pagamenti rateali?")
+    _log_turn(tenant["cid"], chat["conversation_id"], "escalated_model", distance=0.9)
+    draft = client.post("/analytics/knowledge-gaps/draft", headers=tenant["op"], json={
+        "question": "Accettate pagamenti rateali?",
+    }).json()
+
+    incomplete = client.post(f"/analytics/knowledge-drafts/{draft['id']}/publish", headers=tenant["op"], json={
+        "title": draft["title"], "content": draft["content"],
+    })
+    assert incomplete.status_code == 400
+    published = client.post(f"/analytics/knowledge-drafts/{draft['id']}/publish", headers=tenant["op"], json={
+        "title": "Pagamenti rateali", "content": "Il pagamento rateale è disponibile alle condizioni verificate.",
+    })
+    assert published.status_code == 200
+    assert published.json()["status"] == "published"
+    assert published.json()["job_status"] == "queued"
+    assert published.json()["occurrences_after_publish"] == 0
+    assert client.get("/analytics/knowledge-gaps", headers=tenant["op"]).json()["gaps"] == []
+
+
+def test_knowledge_drafts_are_tenant_scoped(client, tenant):
+    chat = _chat(client, tenant, "draft-scope", message="Quanto dura la garanzia?")
+    _log_turn(tenant["cid"], chat["conversation_id"], "escalated_model", distance=0.9)
+    draft = client.post("/analytics/knowledge-gaps/draft", headers=tenant["op"], json={
+        "question": "Quanto dura la garanzia?",
+    }).json()
+    other = _other_tenant(client, "Draft Other")
+    assert client.get("/analytics/knowledge-drafts", headers=other["op"]).json() == []
+    assert client.post(f"/analytics/knowledge-drafts/{draft['id']}/publish", headers=other["op"], json={
+        "title": "No", "content": "Non deve essere pubblicato.",
+    }).status_code == 404
     assert client.post(
         "/analytics/knowledge-gaps/review", headers=tenant["op"], json={"question": "  ", "status": "taught"}
     ).status_code == 400
