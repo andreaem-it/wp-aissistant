@@ -44,6 +44,7 @@ from .db import (
     InfoField,
     IngestJob,
     InternalNote,
+    KnowledgeDraft,
     Lead,
     LeadForm,
     Message,
@@ -4706,6 +4707,103 @@ def review_knowledge_gap(
         client_id=operator.client_id, detail={"status": status, "questions": len(reviews)},
     )
     return {"ok": True, "question_hash": review.question_hash, "status": review.status}
+
+
+def _knowledge_draft_payload(row: KnowledgeDraft, session: Session) -> dict:
+    questions = json.loads(row.questions or "[]")
+    return {
+        "id": row.id, "question_hash": row.question_hash,
+        "questions": questions, "title": row.title,
+        "content": row.content, "status": row.status,
+        "baseline_occurrences": row.baseline_occurrences,
+        "occurrences_after_publish": analytics.gap_occurrences_since(
+            session, row.client_id, questions, row.published_at
+        ),
+        "ingest_job_id": row.ingest_job_id, "created_at": _iso(row.created_at),
+        "updated_at": _iso(row.updated_at), "published_at": _iso(row.published_at),
+    }
+
+
+@app.get("/analytics/knowledge-drafts")
+def list_knowledge_drafts(
+    operator: Operator = Depends(require_operator), session: Session = Depends(get_session),
+):
+    rows = session.exec(
+        select(KnowledgeDraft).where(KnowledgeDraft.client_id == operator.client_id)
+        .order_by(KnowledgeDraft.id.desc()).limit(100)
+    ).all()
+    return [_knowledge_draft_payload(row, session) for row in rows]
+
+
+@app.post("/analytics/knowledge-gaps/draft")
+def create_knowledge_draft(
+    question: str = Body(...),
+    questions: list[str] = Body([]),
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
+    variants = list(dict.fromkeys(q.strip()[:300] for q in [question, *questions] if q.strip()))[:20]
+    if not variants:
+        raise HTTPException(400, "question required")
+    current = analytics.knowledge_gaps(session, operator.client_id, days=365, limit=100)["gaps"]
+    requested = {analytics.question_hash(item) for item in variants}
+    cluster = next((gap for gap in current if requested & set(gap["question_hashes"])), None)
+    if cluster is None:
+        raise HTTPException(404, "knowledge gap not found")
+    proposed = analytics.article_draft(cluster)
+    row = session.exec(select(KnowledgeDraft).where(
+        KnowledgeDraft.client_id == operator.client_id,
+        KnowledgeDraft.question_hash == cluster["question_hash"],
+    )).first()
+    if row is None:
+        row = KnowledgeDraft(
+            client_id=operator.client_id, question_hash=cluster["question_hash"],
+            created_by=operator.email,
+        )
+    row.questions = json.dumps(cluster["questions"], ensure_ascii=False)
+    row.title, row.content, row.status = proposed["title"], proposed["content"], "draft"
+    row.baseline_occurrences, row.updated_at = cluster["occurrences"], datetime.utcnow()
+    row.ingest_job_id, row.published_at = None, None
+    session.add(row)
+    session.commit()
+    session.refresh(row)
+    _audit(session, "operator", operator.email, "knowledge_draft.generate",
+           target=f"knowledge-draft:{row.id}", client_id=operator.client_id,
+           detail={"questions": len(cluster["questions"]), "occurrences": cluster["occurrences"]})
+    return _knowledge_draft_payload(row, session)
+
+
+@app.post("/analytics/knowledge-drafts/{draft_id}/publish")
+def publish_knowledge_draft(
+    draft_id: int,
+    title: str = Body(...),
+    content: str = Body(...),
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
+    row = session.get(KnowledgeDraft, draft_id)
+    if not row or row.client_id != operator.client_id:
+        raise HTTPException(404, "knowledge draft not found")
+    clean_title, clean_content = title.strip()[:150], content.strip()
+    if not clean_title or not clean_content:
+        raise HTTPException(400, "title and content required")
+    if "[DA COMPLETARE" in clean_content.upper():
+        raise HTTPException(400, "complete the draft before publishing")
+    if len(clean_content) > MAX_INGEST_TEXT_CHARS:
+        raise HTTPException(413, "content too large")
+    job = _enqueue(session, operator.client_id, "document", {
+        "source_ref": f"kb-bozza: {clean_title}", "text": f"{clean_title}\n\n{clean_content}",
+    })
+    row.title, row.content, row.status = clean_title, clean_content, "published"
+    row.ingest_job_id, row.published_at, row.updated_at = job.id, datetime.utcnow(), datetime.utcnow()
+    for variant in json.loads(row.questions or "[]"):
+        analytics.review_gap(session, operator.client_id, variant, "taught", operator.email)
+    session.add(row)
+    session.commit()
+    _audit(session, "operator", operator.email, "knowledge_draft.publish",
+           target=f"knowledge-draft:{row.id}", client_id=operator.client_id,
+           detail={"job_id": job.id})
+    return {**_knowledge_draft_payload(row, session), "job_status": job.status}
 
 
 # ---- Lead capture ------------------------------------------------------------------------

@@ -11,6 +11,8 @@ esce dal suo perimetro (rimborsi, reclami, modifiche account, domande fuori cont
 > per i lavori necessari prima del rilascio in produzione.
 > La roadmap di prodotto aggiornata è in
 > [`docs/competitor-feature-backlog.md`](docs/competitor-feature-backlog.md).
+> Il lavoro parallelo tra agenti usa i lock versionati descritti in
+> [`docs/work-locks/README.md`](docs/work-locks/README.md).
 
 ## Architettura
 

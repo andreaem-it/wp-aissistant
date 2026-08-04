@@ -88,6 +88,9 @@ gli stampi SLA (`sla_*`, `first_response_*`, `resolution_*`) e la classificazion
 
 Vengono dal committente e vanno rispettate in ogni blocco successivo:
 
+0. **Coordinamento multi-agente:** prima di lavorare, seguire `work-locks/README.md`, acquisire
+   un lock e pubblicarlo su `main`. Un lock altrui non si oltrepassa.
+
 1. **Compatibilità**: conversazioni e client esistenti non devono rompersi mai.
 2. **Ogni tabella/colonna nuova ha una migrazione Alembic reversibile**, verificata con
    `upgrade head` **e** `downgrade base` prima del commit.
