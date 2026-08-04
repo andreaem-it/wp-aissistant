@@ -34,6 +34,17 @@ export function inboundText(message) {
   return "";
 }
 
+/**
+ * Testo da mandare al backend tenuto conto dei media effettivamente allegati.
+ * Con il file allegato basta la didascalia; se il download non è riuscito resta l'etichetta,
+ * altrimenti l'operatore non saprebbe nemmeno che il cliente ha inviato qualcosa.
+ */
+export function inboundBody(message, { delivered = 0 } = {}) {
+  if (!MEDIA_LABELS[message?.type]) return inboundText(message);
+  if (!delivered) return inboundText(message);
+  return String(message[message.type]?.caption || "").trim();
+}
+
 export function graphPayload(payload) {
   if (payload.type === "text") {
     return {

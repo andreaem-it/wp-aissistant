@@ -45,9 +45,16 @@ solo i content type in whitelist (niente SVG), payload rifiutato per intero se m
 storage privato R2 e restano scaricabili solo con una sessione operatore; se lo storage non
 risponde il messaggio non va perso e nel thread compare `[N allegati non salvati]`.
 
-> Il Worker `cloudflare/email-router` incluso nel repo **non inoltra ancora** gli allegati e
-> rifiuta le email senza corpo testuale: il contratto backend è pronto, l'adapter va aggiornato
-> nel blocco dedicato ai Worker.
+Il Worker `cloudflare/email-router` incluso nel repo estrae gli allegati MIME e li inoltra già
+in questo formato. Regole dell'adapter, pensate per non far mai rifiutare l'intera email:
+
+- tronca ai limiti del backend (5 file, 10 MB per file e complessivi) invece di inoltrare tutto
+  e farsi rifiutare il messaggio; quello che resta fuori viene dichiarato nel corpo come
+  `[N allegati non inoltrati]`, così l'operatore sa di dover chiedere di nuovo il file;
+- scarta in silenzio gli allegati `inline` sotto 8 KB: sono loghi di firma e pixel di
+  tracciamento, non contenuto del cliente. Una schermata incollata nel corpo passa;
+- un'email con soli allegati non viene più rifiutata: viene rifiutata solo quando non c'è
+  né testo né un allegato utilizzabile.
 
 Una nuova email crea una conversazione con canale `email`, un contatto tenant-scoped e un ticket
 con SLA. Le email successive dello stesso thread vengono aggiunte alla conversazione senza

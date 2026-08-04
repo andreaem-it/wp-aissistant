@@ -55,6 +55,14 @@ I byte finiscono nello storage privato R2 e sono scaricabili solo con una sessio
 Se lo storage non risponde il messaggio del cliente **non** viene perso: resta il testo e nel
 thread compare `[1 allegato non salvato]`.
 
+Il Worker `cloudflare/whatsapp-adapter` fa già questo lavoro: risolve il `media id` con il token
+del tenant, verifica tipo e dimensione dai metadati Graph e scarica i byte. Il token viene
+inviato solo a `graph.facebook.com` e agli host CDN di Meta — un URL di download che puntasse
+altrove viene scartato senza essere nemmeno chiamato, così il segreto non finisce a un terzo.
+Se il download non riesce il messaggio arriva lo stesso con l'etichetta descrittiva
+(`[Immagine allegata: …]`): l'operatore vede che il cliente ha inviato qualcosa e può
+richiederlo. Quando invece il file è allegato, come testo resta la sola didascalia.
+
 ## Outbound
 
 `WHATSAPP_OUTBOUND_URL` riceve richieste autenticate con `WHATSAPP_OUTBOUND_TOKEN`.

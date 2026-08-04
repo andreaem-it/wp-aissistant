@@ -1,4 +1,5 @@
-import { graphPayload, inboundText, tenantConfig, tenantFromPhone } from "./protocol.js";
+import { graphPayload, inboundBody, tenantConfig, tenantFromPhone } from "./protocol.js";
+import { collectAttachments, mediaDescriptor } from "./media.js";
 
 const encoder = new TextEncoder();
 
@@ -39,8 +40,17 @@ async function webhook(request, env) {
       if (!tenant) continue;
       const names = new Map((value.contacts || []).map((contact) => [contact.wa_id, contact.profile?.name || ""]));
       for (const message of value.messages || []) {
-        const text = inboundText(message);
-        if (!text || !message.id || !message.from) continue;
+        if (!message.id || !message.from) continue;
+        const descriptor = mediaDescriptor(message);
+        // i byte li scarichiamo qui con il token del tenant: il backend non vede mai Meta
+        const { attachments } = descriptor
+          ? await collectAttachments([descriptor], {
+              token: tenant.access_token,
+              graphVersion: env.META_GRAPH_VERSION,
+            })
+          : { attachments: [] };
+        const text = inboundBody(message, { delivered: attachments.length });
+        if (!text && !attachments.length) continue;
         const response = await fetch(`${env.BACKEND_URL.replace(/\/$/, "")}/channels/whatsapp/inbound`, {
           method: "POST",
           headers: { Authorization: `Bearer ${tenant.channel_api_key}`, "Content-Type": "application/json" },
@@ -49,6 +59,7 @@ async function webhook(request, env) {
             from_name: names.get(message.from) || "",
             text,
             message_id: message.id,
+            ...(attachments.length ? { attachments } : {}),
           }),
         });
         if (!response.ok) throw new Error(`Backend WhatsApp adapter ${response.status}: ${(await response.text()).slice(0, 300)}`);
