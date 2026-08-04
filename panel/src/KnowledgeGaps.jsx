@@ -25,7 +25,7 @@ export default function KnowledgeGaps({ days = 30 }) {
     setBusy(true);
     setNotice("");
     try {
-      await api.reviewKnowledgeGap(gap.question, "ignored");
+      await api.reviewKnowledgeGap(gap.question, "ignored", gap.questions);
       await load();
     } catch {
       setError("Operazione non riuscita.");
@@ -41,7 +41,7 @@ export default function KnowledgeGaps({ days = 30 }) {
     setNotice("");
     try {
       await api.teachKnowledge(teaching.question, teaching.answer.trim());
-      await api.reviewKnowledgeGap(teaching.question, "taught");
+      await api.reviewKnowledgeGap(teaching.question, "taught", teaching.questions);
       setTeaching(null);
       setNotice("Risposta aggiunta alla knowledge base: sarà usata dalle prossime chat.");
       await load();
@@ -80,6 +80,7 @@ export default function KnowledgeGaps({ days = 30 }) {
                 <div style={{ fontSize: 13, fontWeight: 600 }}>«{gap.question}»</div>
                 <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: 3 }}>
                   {gap.occurrences} {gap.occurrences === 1 ? "volta" : "volte"}
+                  {gap.cluster_size > 1 && ` · ${gap.cluster_size} formulazioni simili`}
                   {gap.negative_feedback > 0 && ` · ${gap.negative_feedback} 👎`}
                   {gap.last_seen && ` · ultima ${formatMoment(gap.last_seen)}`}
                   {" · conversazioni "}
@@ -90,7 +91,7 @@ export default function KnowledgeGaps({ days = 30 }) {
                 <button
                   className="wpai-btn ghost"
                   disabled={busy}
-                  onClick={() => { setTeaching({ question: gap.question, answer: "" }); setNotice(""); }}
+                  onClick={() => { setTeaching({ question: gap.question, questions: gap.questions, answer: "" }); setNotice(""); }}
                 >
                   <GraduationCap size={13} /> Insegna
                 </button>

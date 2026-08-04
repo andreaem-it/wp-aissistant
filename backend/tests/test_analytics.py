@@ -201,6 +201,29 @@ def test_normalisation_groups_variants():
     assert analytics.question_hash("Fate consegne?") != analytics.question_hash("Fate resi?")
 
 
+def test_local_semantic_clustering_groups_paraphrases(client, tenant):
+    questions = [
+        "Spedite anche fuori dall'Italia?",
+        "È possibile ricevere un ordine in Svizzera?",
+        "Accettate pagamenti rateali?",
+    ]
+    for index, question in enumerate(questions):
+        chat = _chat(client, tenant, f"semantic-{index}", message=question)
+        _log_turn(tenant["cid"], chat["conversation_id"], "escalated_model", distance=0.9)
+
+    gaps = client.get("/analytics/knowledge-gaps", headers=tenant["op"]).json()["gaps"]
+    assert len(gaps) == 2
+    delivery = next(gap for gap in gaps if gap["cluster_size"] == 2)
+    assert delivery["occurrences"] == 2
+    assert set(delivery["questions"]) == set(questions[:2])
+
+    client.post("/analytics/knowledge-gaps/review", headers=tenant["op"], json={
+        "question": delivery["question"], "questions": delivery["questions"], "status": "ignored",
+    })
+    remaining = client.get("/analytics/knowledge-gaps", headers=tenant["op"]).json()["gaps"]
+    assert [gap["question"] for gap in remaining] == ["Accettate pagamenti rateali?"]
+
+
 def test_reviewed_gap_disappears_from_the_list(client, tenant):
     chat = _chat(client, tenant, "review", message="Fate consegne in Svizzera?")
     _log_turn(tenant["cid"], chat["conversation_id"], "escalated_model", distance=0.9)

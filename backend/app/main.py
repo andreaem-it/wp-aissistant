@@ -4685,6 +4685,7 @@ def analytics_knowledge_gaps(
 @app.post("/analytics/knowledge-gaps/review")
 def review_knowledge_gap(
     question: str = Body(...),
+    questions: list[str] = Body([]),
     status: str = Body("taught"),
     operator: Operator = Depends(require_operator),
     session: Session = Depends(get_session),
@@ -4694,10 +4695,12 @@ def review_knowledge_gap(
         raise HTTPException(400, "status must be 'taught' or 'ignored'")
     if not (question or "").strip():
         raise HTTPException(400, "question required")
-    review = analytics.review_gap(session, operator.client_id, question, status, operator.email)
+    variants = list(dict.fromkeys([question, *questions]))[:50]
+    reviews = [analytics.review_gap(session, operator.client_id, item, status, operator.email) for item in variants if item.strip()]
+    review = reviews[0]
     _audit(
         session, "operator", operator.email, "knowledge_gap.review",
-        client_id=operator.client_id, detail={"status": status},
+        client_id=operator.client_id, detail={"status": status, "questions": len(reviews)},
     )
     return {"ok": True, "question_hash": review.question_hash, "status": review.status}
 

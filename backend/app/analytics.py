@@ -16,6 +16,7 @@ import json
 import logging
 import os
 import re
+import unicodedata
 from datetime import datetime, timedelta
 
 from sqlalchemy import and_, func, or_
@@ -40,6 +41,19 @@ GAP_MAX_DISTANCE = float(os.getenv("SCOPE_MAX_DISTANCE", "0.62"))
 # neither says anything about the knowledge base.
 GAP_OUTCOMES = ("escalated_model",)
 MAX_QUESTION_CHARS = 300
+GAP_CLUSTER_SIMILARITY = float(os.getenv("GAP_CLUSTER_SIMILARITY", "0.5"))
+
+# Privacy-first semantic concepts. Clustering runs locally and never sends visitor questions
+# to another provider. Prefixes intentionally cover common Italian inflections.
+GAP_CONCEPTS = {
+    "shipping": ("sped", "consegn", "ricev", "recapit", "ordine"),
+    "international": ("ester", "svizzer", "fuori", "italia", "internazional"),
+    "returns": ("reso", "restitu", "rimbor"),
+    "payments": ("pag", "carta", "paypal", "bonifico"),
+    "installments": ("rata", "rateal", "dilazion"),
+    "availability": ("disponib", "magazz", "stock"),
+    "warranty": ("garanzia", "guasto", "ripar"),
+}
 
 
 def normalize_question(text: str) -> str:
@@ -50,6 +64,56 @@ def normalize_question(text: str) -> str:
 
 def question_hash(text: str) -> str:
     return hashlib.sha256(normalize_question(text).encode()).hexdigest()[:32]
+
+
+def semantic_terms(text: str) -> set[str]:
+    """Compact local representation: normalized words plus domain concepts."""
+    plain = unicodedata.normalize("NFKD", normalize_question(text)).encode("ascii", "ignore").decode()
+    words = {word for word in re.findall(r"[a-z0-9]+", plain) if len(word) >= 4}
+    concepts = {
+        f"concept:{concept}"
+        for concept, prefixes in GAP_CONCEPTS.items()
+        if any(word.startswith(prefix) for word in words for prefix in prefixes)
+    }
+    return words | concepts
+
+
+def semantic_similarity(left: str, right: str) -> float:
+    a, b = semantic_terms(left), semantic_terms(right)
+    if not a or not b:
+        return 0.0
+    concept_overlap = {term for term in a & b if term.startswith("concept:")}
+    if len(concept_overlap) >= 2:
+        return 1.0
+    return len(a & b) / len(a | b)
+
+
+def cluster_gap_groups(groups: dict[str, dict]) -> list[dict]:
+    """Merge paraphrases locally; the most frequent wording represents the cluster."""
+    ordered = sorted(groups.values(), key=lambda g: (-g["occurrences"], g["last_seen"] or ""))
+    clusters: list[dict] = []
+    for group in ordered:
+        target = next((cluster for cluster in clusters if
+                       semantic_similarity(group["question"], cluster["question"]) >= GAP_CLUSTER_SIMILARITY), None)
+        if target is None:
+            clusters.append({
+                **group,
+                "questions": [group["question"]],
+                "question_hashes": [group["question_hash"]],
+            })
+            continue
+        target["occurrences"] += group["occurrences"]
+        target["negative_feedback"] += group["negative_feedback"]
+        target["questions"].append(group["question"])
+        target["question_hashes"].append(group["question_hash"])
+        target["conversation_ids"] = list(dict.fromkeys(target["conversation_ids"] + group["conversation_ids"]))[:5]
+        if group["last_seen"] and (not target["last_seen"] or group["last_seen"] > target["last_seen"]):
+            target["last_seen"] = group["last_seen"]
+        if group["best_distance"] is not None and (target["best_distance"] is None or group["best_distance"] < target["best_distance"]):
+            target["best_distance"] = group["best_distance"]
+    for cluster in clusters:
+        cluster["cluster_size"] = len(cluster["questions"])
+    return sorted(clusters, key=lambda g: (-g["occurrences"], g["last_seen"] or ""))
 
 
 def _period(days: int) -> datetime:
@@ -272,7 +336,7 @@ def knowledge_gaps(
         if thumbs_down:
             group["negative_feedback"] += 1
 
-    ranked = sorted(groups.values(), key=lambda g: (-g["occurrences"], g["last_seen"] or ""))
+    ranked = cluster_gap_groups(groups)
     topics = session.exec(
         select(Conversation.ai_topic, func.count())
         .where(
