@@ -2685,6 +2685,7 @@ def email_inbound(
     thread_id: str = Body(""),
     in_reply_to: str = Body(""),
     from_name: str = Body(""),
+    attachments: list | None = Body(None),
     key: ApiKey = Depends(require_channel_write_key),
     session: Session = Depends(get_session),
 ):
@@ -2692,17 +2693,19 @@ def email_inbound(
 
     An email provider (or a tiny provider-specific adapter) posts normalized fields here using
     a server-side key scoped to channels:write. Provider message ids make retries idempotent;
-    thread ids keep replies in the same inbox conversation.
+    thread ids keep replies in the same inbox conversation. Attachments arrive as base64 bytes
+    the adapter already fetched, so no provider credential ever reaches the backend.
     """
     address = (from_email or "").strip().lower()[:320]
     body = (text or "").strip()[:MAX_CHAT_MESSAGE_CHARS]
     provider_message_id = (message_id or "").strip()[:500]
     root_thread_id = (thread_id or in_reply_to or provider_message_id).strip()[:500]
     clean_subject = (subject or "").strip()[:500]
+    media = _decode_inbound_media(attachments)
     if not address or not _EMAIL_RE.fullmatch(address):
         raise HTTPException(400, "valid from_email required")
-    if not body:
-        raise HTTPException(400, "text required")
+    if not body and not media:
+        raise HTTPException(400, "text or attachments required")
     if not provider_message_id:
         raise HTTPException(400, "message_id required")
     duplicate = session.exec(
@@ -2768,6 +2771,10 @@ def email_inbound(
         external_id=provider_message_id,
     )
     session.add(inbound_message)
+    stored_media, failed_media, media_keys = _store_inbound_media(
+        session, client_id=key.client_id, conv=conv, message=inbound_message, media=media,
+    )
+    inbound_message.content = _inbound_message_content(body, stored_media, failed_media)
     open_ticket = session.exec(
         select(Ticket).where(Ticket.conversation_id == conv.id, Ticket.status == "open")
     ).first()
@@ -2777,7 +2784,7 @@ def email_inbound(
         session.add(open_ticket)
     assignee = _auto_assign(session, conv)
     _apply_sla(session, conv, start=True)
-    session.commit()
+    _commit_with_media(session, media_keys)
     session.refresh(conv)
     session.refresh(inbound_message)
     _emit_visitor_message(session, conv, inbound_message)
@@ -2809,17 +2816,23 @@ def whatsapp_inbound(
     from_name: str = Body(""),
     consent: bool | None = Body(None),
     consent_source: str = Body(""),
+    attachments: list | None = Body(None),
     key: ApiKey = Depends(require_channel_write_key),
     session: Session = Depends(get_session),
 ):
-    """Accept a normalized inbound WhatsApp text message from a provider adapter."""
+    """Accept a normalized inbound WhatsApp message from a provider adapter.
+
+    Media is forwarded as base64 bytes the adapter already downloaded from the provider: the
+    backend keeps no Meta token and resolves no remote media URL.
+    """
     number = re.sub(r"[^0-9+]", "", (from_number or "").strip())[:32]
     body = (text or "").strip()[:MAX_CHAT_MESSAGE_CHARS]
     provider_message_id = (message_id or "").strip()[:500]
+    media = _decode_inbound_media(attachments)
     if not re.fullmatch(r"\+[1-9][0-9]{6,14}", number):
         raise HTTPException(400, "valid from_number required")
-    if not body:
-        raise HTTPException(400, "text required")
+    if not body and not media:
+        raise HTTPException(400, "text or attachments required")
     if not provider_message_id:
         raise HTTPException(400, "message_id required")
     clean_consent_source = (consent_source or "").strip()[:255]
@@ -2889,6 +2902,10 @@ def whatsapp_inbound(
         conversation_id=conv.id, role="user", content=body, external_id=provider_message_id,
     )
     session.add(inbound_message)
+    stored_media, failed_media, media_keys = _store_inbound_media(
+        session, client_id=key.client_id, conv=conv, message=inbound_message, media=media,
+    )
+    inbound_message.content = _inbound_message_content(body, stored_media, failed_media)
     open_ticket = session.exec(
         select(Ticket).where(Ticket.conversation_id == conv.id, Ticket.status == "open")
     ).first()
@@ -2898,7 +2915,7 @@ def whatsapp_inbound(
         session.add(open_ticket)
     assignee = _auto_assign(session, conv)
     _apply_sla(session, conv, start=True)
-    session.commit()
+    _commit_with_media(session, media_keys)
     session.refresh(conv)
     session.refresh(inbound_message)
     _emit_visitor_message(session, conv, inbound_message)
@@ -2930,21 +2947,26 @@ def meta_messaging_inbound(
     message_id: str = Body(...),
     thread_id: str = Body(""),
     sender_name: str = Body(""),
+    attachments: list | None = Body(None),
     key: ApiKey = Depends(require_channel_write_key),
     session: Session = Depends(get_session),
 ):
-    """Normalized inbound adapter shared by Messenger and Instagram Direct."""
+    """Normalized inbound adapter shared by Messenger and Instagram Direct.
+
+    As on the other channels, media arrives as base64 bytes already fetched by the adapter.
+    """
     clean_platform = (platform or "").strip().lower()
     external_sender = (sender_id or "").strip()[:255]
     body = (text or "").strip()[:MAX_CHAT_MESSAGE_CHARS]
     provider_message_id = (message_id or "").strip()[:500]
     provider_thread_id = (thread_id or external_sender).strip()[:500]
+    media = _decode_inbound_media(attachments)
     if clean_platform not in {"messenger", "instagram"}:
         raise HTTPException(400, "platform must be messenger or instagram")
     if not external_sender or not re.fullmatch(r"[A-Za-z0-9_.:-]{1,255}", external_sender):
         raise HTTPException(400, "valid sender_id required")
-    if not body:
-        raise HTTPException(400, "text required")
+    if not body and not media:
+        raise HTTPException(400, "text or attachments required")
     if not provider_message_id:
         raise HTTPException(400, "message_id required")
 
@@ -2997,6 +3019,10 @@ def meta_messaging_inbound(
         conversation_id=conv.id, role="user", content=body, external_id=provider_message_id,
     )
     session.add(inbound_message)
+    stored_media, failed_media, media_keys = _store_inbound_media(
+        session, client_id=key.client_id, conv=conv, message=inbound_message, media=media,
+    )
+    inbound_message.content = _inbound_message_content(body, stored_media, failed_media)
     open_ticket = session.exec(
         select(Ticket).where(Ticket.conversation_id == conv.id, Ticket.status == "open")
     ).first()
@@ -3007,7 +3033,7 @@ def meta_messaging_inbound(
         session.add(open_ticket)
     assignee = _auto_assign(session, conv)
     _apply_sla(session, conv, start=True)
-    session.commit()
+    _commit_with_media(session, media_keys)
     session.refresh(conv)
     session.refresh(inbound_message)
     _emit_visitor_message(session, conv, inbound_message)
@@ -3626,6 +3652,69 @@ def _attachment_payload(attachment: Attachment) -> dict:
         "size_bytes": attachment.size_bytes,
         "created_at": _iso(attachment.created_at),
     }
+
+
+def _store_inbound_media(
+    session: Session, *, client_id: int, conv: Conversation, message: Message,
+    media: list[tuple[str, str, bytes]],
+) -> tuple[list[str], int, list[str]]:
+    """Store media forwarded by a channel adapter as private attachments of `message`.
+
+    Returns (stored names, failed count, object keys). A storage outage must never cost us the
+    customer's message: the text is kept and the loss stays visible in the thread.
+    """
+    if not media:
+        return [], 0, []
+    if not attachment_service.configured():
+        log(logger, logging.WARNING, "attachment.inbound_storage_missing", client_id=client_id, count=len(media))
+        return [], len(media), []
+    session.flush()  # the attachment rows need the message id
+    names, failed, keys = [], 0, []
+    for filename, content_type, data in media:
+        safe = _safe_attachment_filename(filename)
+        object_key = f"tenant/{client_id}/conversation/{conv.id}/{uuid.uuid4().hex}{Path(safe).suffix.lower()[:12]}"
+        if not attachment_service.put(object_key, data, content_type):
+            log(logger, logging.WARNING, "attachment.inbound_store_failed",
+                client_id=client_id, conversation_id=conv.id, content_type=content_type)
+            failed += 1
+            continue
+        keys.append(object_key)
+        session.add(Attachment(
+            client_id=client_id, conversation_id=conv.id, message_id=message.id,
+            object_key=object_key, filename=safe, content_type=content_type, size_bytes=len(data),
+        ))
+        names.append(safe)
+    return names, failed, keys
+
+
+def _inbound_message_content(body: str, stored: list[str], failed: int) -> str:
+    """What the operator reads in the thread: the text, the media names and any media lost."""
+    parts = [body] if body else []
+    if stored:
+        parts.append(("Allegato: " if len(stored) == 1 else "Allegati: ") + ", ".join(stored))
+    if failed:
+        parts.append(f"[{failed} allegato non salvato]" if failed == 1 else f"[{failed} allegati non salvati]")
+    return "\n".join(parts)[:MAX_CHAT_MESSAGE_CHARS]
+
+
+def _decode_inbound_media(attachments) -> list[tuple[str, str, bytes]]:
+    """Adapter payloads are validated whole: a bad attachment fails the call, it is not dropped."""
+    try:
+        return attachment_service.decode_inbound(attachments)
+    except attachment_service.InboundMediaError as exc:
+        raise HTTPException(exc.status, str(exc)) from None
+
+
+def _commit_with_media(session: Session, object_keys: list[str]) -> None:
+    """Commit, removing the objects just stored if the transaction cannot be saved: private
+    bytes must never outlive the row that owns them."""
+    try:
+        session.commit()
+    except Exception:
+        session.rollback()
+        for key in object_keys:
+            attachment_service.delete(key)
+        raise
 
 
 @app.post("/conversations/{conversation_id}/attachments", status_code=201)

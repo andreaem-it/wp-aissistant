@@ -23,6 +23,32 @@ Function o route applicativa). `message_id` è obbligatorio e rende sicuri i ret
 `thread_id` deve restare stabile per tutta la catena. Se il provider non lo espone, usare il
 Message-ID iniziale e inviare sulle risposte il valore di `In-Reply-To`.
 
+### Allegati
+
+L'adapter può inoltrare gli allegati già decodificati, nello stesso payload:
+
+```json
+{
+  "from_email": "cliente@example.com",
+  "subject": "Foto del prodotto difettoso",
+  "text": "",
+  "message_id": "<con-foto@example.com>",
+  "attachments": [
+    { "filename": "difetto.jpg", "content_type": "image/jpeg", "data": "<base64>" }
+  ]
+}
+```
+
+Valgono i limiti comuni a tutti i canali: massimo 5 file, 10 MB per file e 10 MB complessivi,
+solo i content type in whitelist (niente SVG), payload rifiutato per intero se malformato
+(400/413/415). Con almeno un allegato valido `text` può essere vuoto. I byte finiscono nello
+storage privato R2 e restano scaricabili solo con una sessione operatore; se lo storage non
+risponde il messaggio non va perso e nel thread compare `[N allegati non salvati]`.
+
+> Il Worker `cloudflare/email-router` incluso nel repo **non inoltra ancora** gli allegati e
+> rifiuta le email senza corpo testuale: il contratto backend è pronto, l'adapter va aggiornato
+> nel blocco dedicato ai Worker.
+
 Una nuova email crea una conversazione con canale `email`, un contatto tenant-scoped e un ticket
 con SLA. Le email successive dello stesso thread vengono aggiunte alla conversazione senza
 duplicare ticket ancora aperti. Una risposta dell'operatore dal panel viene inviata al mittente

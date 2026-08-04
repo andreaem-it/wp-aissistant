@@ -23,6 +23,27 @@ tenant-aware esterno al backend.
 `thread_id` mantiene i messaggi nella stessa conversazione. Se manca, viene usato
 `sender_id`. Contatti, conversazioni, ticket, routing e SLA restano isolati per tenant.
 
+### Media in arrivo
+
+Foto e file si inviano nello stesso payload, già scaricati dall'adapter con il token Meta:
+
+```json
+{
+  "platform": "instagram",
+  "sender_id": "psid_12345",
+  "text": "",
+  "message_id": "mid.002",
+  "attachments": [
+    { "filename": "storia.jpg", "content_type": "image/jpeg", "data": "<base64>" }
+  ]
+}
+```
+
+Il backend non conserva token del provider e non segue URL remoti: riceve solo byte. Limiti
+comuni a tutti i canali: massimo 5 file, 10 MB per file e 10 MB complessivi, solo content type
+in whitelist (niente SVG), payload malformato rifiutato per intero. Con almeno un allegato
+valido `text` può essere vuoto. Il Worker Meta deve scaricare il media e inoltrarlo qui.
+
 ## Outbound
 
 Le risposte operatore vengono inviate a `META_MESSAGING_OUTBOUND_URL` con bearer token

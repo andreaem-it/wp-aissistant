@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import {
   Inbox, MessageCircle, Send, Save, CheckCircle2, RotateCcw, Trash2, Timer, Bookmark, Users,
   StickyNote, AtSign, History, AlertTriangle, Tag as TagIcon, Sparkles, Star, Paperclip, Download,
@@ -27,6 +27,53 @@ function initialsOf(visitorId) {
 function fillPlaceholders(body, values) {
   return body.replace(/\{(\w+)\}/g, (m, key) =>
     values && values[key] != null && values[key] !== "" ? values[key] : m
+  );
+}
+
+// Only formats the browser renders as a picture and never as script: SVG is deliberately absent.
+const INLINE_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+
+// The bytes stay private: they are fetched with the operator token and shown from an object URL,
+// so no attachment URL exists that would work outside this session.
+export function AttachmentPreview({ attachment, onOpen }) {
+  const [url, setUrl] = useState("");
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let objectUrl = "";
+    let cancelled = false;
+    setUrl("");
+    setFailed(false);
+    api
+      .downloadAttachment(attachment.id)
+      .then((blob) => {
+        if (cancelled) return;
+        objectUrl = URL.createObjectURL(blob);
+        setUrl(objectUrl);
+      })
+      .catch(() => {
+        if (!cancelled) setFailed(true);
+      });
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [attachment.id]);
+
+  if (failed) return null;
+  return (
+    <button
+      type="button"
+      className="wpai-attachment-preview"
+      onClick={() => onOpen(attachment)}
+      title={`Apri ${attachment.filename}`}
+    >
+      {url ? (
+        <img src={url} alt={attachment.filename} />
+      ) : (
+        <span className="wpai-attachment-loading">Caricamento anteprima…</span>
+      )}
+    </button>
   );
 }
 
@@ -618,17 +665,21 @@ export default function Conversations() {
                   <div key={m.id} className={`wpai-bubble ${m.role}`}>
                     <span>{m.content}</span>
                     {(m.attachments || []).map((attachment) => (
-                      <button
-                        key={attachment.id}
-                        type="button"
-                        className="wpai-attachment"
-                        onClick={() => downloadAttachment(attachment)}
-                        title={`${attachment.filename} · ${Math.max(1, Math.ceil(attachment.size_bytes / 1024))} KB`}
-                      >
-                        <Paperclip size={14} aria-hidden="true" />
-                        <span>{attachment.filename}</span>
-                        <Download size={14} aria-hidden="true" />
-                      </button>
+                      <Fragment key={attachment.id}>
+                        {INLINE_IMAGE_TYPES.has(attachment.content_type) && (
+                          <AttachmentPreview attachment={attachment} onOpen={downloadAttachment} />
+                        )}
+                        <button
+                          type="button"
+                          className="wpai-attachment"
+                          onClick={() => downloadAttachment(attachment)}
+                          title={`${attachment.filename} · ${Math.max(1, Math.ceil(attachment.size_bytes / 1024))} KB`}
+                        >
+                          <Paperclip size={14} aria-hidden="true" />
+                          <span>{attachment.filename}</span>
+                          <Download size={14} aria-hidden="true" />
+                        </button>
+                      </Fragment>
                     ))}
                   </div>
                 ))}

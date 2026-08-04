@@ -24,6 +24,37 @@ Creare una chiave server-side con scope `channels:write`, quindi inviare a
 facoltativo: se omesso non modifica lo stato; se vale `true`, `consent_source` è obbligatorio;
 se vale `false`, il consenso esistente viene revocato.
 
+### Media in arrivo
+
+Foto, PDF, audio e video si inviano nello stesso messaggio, già scaricati dall'adapter:
+
+```json
+{
+  "from_number": "+393331234567",
+  "text": "",
+  "message_id": "wamid.002",
+  "attachments": [
+    { "filename": "foto.jpg", "content_type": "image/jpeg", "data": "<base64>" }
+  ]
+}
+```
+
+È l'adapter a risolvere il `media id` con il token Meta e a scaricare i byte: il backend non
+conserva token del provider e non segue mai un URL remoto, quindi sul percorso inbound non
+esiste superficie SSRF. Regole applicate:
+
+- `content_type` deve essere fra quelli ammessi (`image/jpeg`, `image/png`, `image/webp`,
+  `application/pdf`, `text/plain`, `audio/mpeg`, `audio/ogg`, `video/mp4`): niente SVG.
+- massimo 5 allegati per messaggio, 10 MB per file e 10 MB complessivi
+  (`ATTACHMENT_MAX_INBOUND_FILES`, `ATTACHMENT_MAX_BYTES`, `ATTACHMENT_MAX_INBOUND_TOTAL_BYTES`).
+- un payload malformato viene rifiutato **per intero** (400/413/415): meglio un retry
+  dell'adapter che un messaggio salvato a metà.
+- con allegati validi `text` può essere vuoto: un messaggio con la sola foto è legittimo.
+
+I byte finiscono nello storage privato R2 e sono scaricabili solo con una sessione operatore.
+Se lo storage non risponde il messaggio del cliente **non** viene perso: resta il testo e nel
+thread compare `[1 allegato non salvato]`.
+
 ## Outbound
 
 `WHATSAPP_OUTBOUND_URL` riceve richieste autenticate con `WHATSAPP_OUTBOUND_TOKEN`.
