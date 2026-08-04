@@ -510,6 +510,27 @@ class WorkflowRun(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
+class WorkflowScheduledAction(SQLModel, table=True):
+    """Durable continuation of a workflow after a wait step."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    client_id: int = Field(index=True, foreign_key="client.id")
+    workflow_id: int = Field(index=True, foreign_key="workflow.id")
+    conversation_id: int = Field(index=True, foreign_key="conversation.id")
+    event: str
+    actions: str  # JSON actions remaining after the wait step
+    data: str = "{}"
+    status: str = Field(default="pending", index=True)  # pending | running | completed | cancelled | failed
+    run_at: datetime = Field(index=True)
+    cancel_on_reply: bool = True
+    baseline_message_id: int = 0
+    attempts: int = 0
+    max_attempts: int = 3
+    last_error: str = ""
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    completed_at: Optional[datetime] = None
+
+
 class ApiKey(SQLModel, table=True):
     """Scoped credential for the public API (`/v1/…`), separate from the widget `Client.api_key`:
     that one is public by design and identifies only the tenant, this one authorizes server-side

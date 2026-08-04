@@ -67,6 +67,7 @@ from .db import (
     WhatsAppConsent,
     Workflow,
     WorkflowRun,
+    WorkflowScheduledAction,
     engine,
     get_session,
     init_db,
@@ -5637,6 +5638,8 @@ def delete_workflow(
     workflow = session.get(Workflow, workflow_id)
     if not workflow or workflow.client_id != operator.client_id:
         raise HTTPException(404, "workflow not found")
+    for scheduled in session.exec(select(WorkflowScheduledAction).where(WorkflowScheduledAction.workflow_id == workflow.id)).all():
+        session.delete(scheduled)
     for run in session.exec(select(WorkflowRun).where(WorkflowRun.workflow_id == workflow.id)).all():
         session.delete(run)
     session.flush()
@@ -5693,6 +5696,26 @@ def list_workflow_runs(
         }
         for row in rows
     ]
+
+
+@app.get("/workflows/{workflow_id}/scheduled")
+def list_workflow_scheduled(
+    workflow_id: int,
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
+    workflow = session.get(Workflow, workflow_id)
+    if not workflow or workflow.client_id != operator.client_id:
+        raise HTTPException(404, "workflow not found")
+    rows = session.exec(
+        select(WorkflowScheduledAction).where(WorkflowScheduledAction.workflow_id == workflow.id)
+        .order_by(WorkflowScheduledAction.id.desc()).limit(100)
+    ).all()
+    return [{
+        "id": row.id, "conversation_id": row.conversation_id, "status": row.status,
+        "run_at": _iso(row.run_at), "attempts": row.attempts, "error": row.last_error,
+        "created_at": _iso(row.created_at),
+    } for row in rows]
 
 
 # ---- Public API: scoped keys ------------------------------------------------------------

@@ -49,6 +49,7 @@ const ACTION_LABELS = {
   escalate: "Passa a un operatore",
   send_email: "Invia email",
   send_webhook: "Invia al webhook",
+  wait: "Attendi",
 };
 
 const VALUELESS_OPS = ["is_set", "is_empty"];
@@ -75,14 +76,19 @@ function describeAction(action, { departments, operators, endpoints }) {
   if (action.type === "send_webhook") {
     return `${label}: ${endpoints.find((e) => e.id === action.endpoint_id)?.url || action.endpoint_id}`;
   }
+  if (action.type === "wait") return `${label}: ${action.minutes} min${action.cancel_on_reply ? " (annulla alla risposta)" : ""}`;
   return label;
 }
 
 function Runs({ workflowId }) {
   const [rows, setRows] = useState([]);
+  const [scheduled, setScheduled] = useState([]);
   const [open, setOpen] = useState(false);
   const load = useCallback(
-    () => api.workflowRuns(workflowId).then(setRows).catch(() => setRows([])),
+    () => Promise.all([
+      api.workflowRuns(workflowId).then(setRows).catch(() => setRows([])),
+      api.workflowScheduled(workflowId).then(setScheduled).catch(() => setScheduled([])),
+    ]),
     [workflowId],
   );
   useEffect(() => { if (open) load(); }, [open, load]);
@@ -93,7 +99,7 @@ function Runs({ workflowId }) {
         <History size={13} /> {open ? "Nascondi esecuzioni" : "Esecuzioni"}
       </button>
       {open && (
-        <table className="wpai-table" style={{ marginTop: 8 }}>
+        <><table className="wpai-table" style={{ marginTop: 8 }}>
           <tbody>
             {rows.map((run) => (
               <tr key={run.id}>
@@ -115,6 +121,14 @@ function Runs({ workflowId }) {
             {rows.length === 0 && <tr><td style={{ color: "var(--text-muted)" }}>Nessuna esecuzione.</td></tr>}
           </tbody>
         </table>
+        {scheduled.length > 0 && <table className="wpai-table" style={{ marginTop: 8 }}>
+          <thead><tr><th colSpan="3">Azioni programmate</th></tr></thead>
+          <tbody>{scheduled.map((item) => <tr key={item.id}>
+            <td style={{ fontSize: 12 }}>#{item.conversation_id}</td>
+            <td><span className={`wpai-badge ${item.status === "completed" ? "ok" : item.status === "failed" ? "breach" : "warn"}`}>{({ pending: "In attesa", running: "In corso", completed: "Completata", cancelled: "Annullata", failed: "Errore" })[item.status] || item.status}</span></td>
+            <td style={{ fontSize: 11.5, color: "var(--text-muted)" }}>{item.error || `Prevista ${formatMoment(item.run_at)}`}</td>
+          </tr>)}</tbody>
+        </table>}</>
       )}
     </div>
   );
@@ -250,6 +264,17 @@ export default function Automations() {
         </select>
       );
     }
+    if (action.type === "wait") {
+      return (
+        <>
+          <input type="number" min="1" max="43200" aria-label="Minuti di attesa" value={action.minutes || 60} onChange={(e) => updateAction(index, { minutes: Number(e.target.value) })} style={{ width: 130 }} />
+          <label style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12 }}>
+            <input type="checkbox" checked={action.cancel_on_reply !== false} onChange={(e) => updateAction(index, { cancel_on_reply: e.target.checked })} />
+            annulla se arriva una risposta
+          </label>
+        </>
+      );
+    }
     return null;
   };
 
@@ -364,7 +389,7 @@ export default function Automations() {
             <legend style={{ fontSize: 12, color: "var(--text-muted)" }}>Allora (in ordine)</legend>
             {form.actions.map((action, index) => (
               <div key={index} style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 6 }}>
-                <select aria-label="Azione" value={action.type} onChange={(e) => updateAction(index, { type: e.target.value })}>
+                <select aria-label="Azione" value={action.type} onChange={(e) => updateAction(index, e.target.value === "wait" ? { type: "wait", minutes: 60, cancel_on_reply: true } : { type: e.target.value })}>
                   {(catalog?.action_types || []).map((type) => (
                     <option key={type} value={type}>{ACTION_LABELS[type] || type}</option>
                   ))}

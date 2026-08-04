@@ -1,5 +1,6 @@
 """No-code automations: matching, actions, isolation, run log and loop protection."""
 import json
+from datetime import timedelta
 
 from sqlmodel import Session, select
 
@@ -315,3 +316,46 @@ def test_deleting_a_workflow_removes_its_runs(client, tenant):
     assert client.delete(f"/workflows/{created['id']}", headers=tenant["op"]).status_code == 200
     with Session(db.engine) as session:
         assert session.exec(select(db.WorkflowRun)).all() == []
+
+
+def test_wait_persists_and_executes_remaining_actions(client, tenant):
+    created = _workflow(client, tenant, actions=[
+        {"type": "wait", "minutes": 60, "cancel_on_reply": True},
+        {"type": "set_priority", "value": "urgent"},
+    ]).json()
+    conv_id = _escalate(client, tenant, visitor="delayed")
+    assert _conv(conv_id).priority == "normal"
+
+    with Session(db.engine) as session:
+        queued = session.exec(select(db.WorkflowScheduledAction)).one()
+        assert queued.status == "pending"
+        workflows.dispatch_scheduled(session, now=queued.run_at + timedelta(seconds=1))
+
+    assert _conv(conv_id).priority == "urgent"
+    scheduled = client.get(f"/workflows/{created['id']}/scheduled", headers=tenant["op"]).json()
+    assert scheduled[0]["status"] == "completed"
+
+
+def test_wait_is_cancelled_when_a_human_replies(client, tenant):
+    created = _workflow(client, tenant, actions=[
+        {"type": "wait", "minutes": 60},
+        {"type": "set_priority", "value": "urgent"},
+    ]).json()
+    conv_id = _escalate(client, tenant, visitor="delayed-cancel")
+    with Session(db.engine) as session:
+        session.add(db.Message(conversation_id=conv_id, role="operator", content="Ci penso io"))
+        session.commit()
+        queued = session.exec(select(db.WorkflowScheduledAction)).one()
+        workflows.dispatch_scheduled(session, now=queued.run_at + timedelta(seconds=1))
+
+    assert _conv(conv_id).priority == "normal"
+    scheduled = client.get(f"/workflows/{created['id']}/scheduled", headers=tenant["op"]).json()
+    assert scheduled[0]["status"] == "cancelled"
+    assert scheduled[0]["error"] == "nuova risposta ricevuta"
+
+
+def test_wait_validation_requires_a_following_action(client, tenant):
+    assert _workflow(client, tenant, actions=[{"type": "wait", "minutes": 60}]).status_code == 400
+    assert _workflow(client, tenant, actions=[
+        {"type": "wait", "minutes": 0}, {"type": "close_conversation"}
+    ]).status_code == 400

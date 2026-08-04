@@ -14,13 +14,13 @@ Design constraints that shape this module:
 
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from sqlmodel import Session, select
 
 from . import email as email_service
 from . import tagging
-from .db import Client, Conversation, ConversationRating, Department, Operator, Workflow, WorkflowRun
+from .db import Client, Conversation, ConversationRating, Department, Message, Operator, Workflow, WorkflowRun, WorkflowScheduledAction
 from .logging_config import log
 
 logger = logging.getLogger("wpai.workflows")
@@ -62,6 +62,7 @@ ACTION_TYPES = (
     "escalate",
     "send_email",
     "send_webhook",
+    "wait",
 )
 
 MAX_CONDITIONS = 10
@@ -117,13 +118,25 @@ def validate_actions(session: Session, client_id: int, raw) -> list[dict]:
     if len(raw) > MAX_ACTIONS:
         raise WorkflowConfigError(f"massimo {MAX_ACTIONS} azioni")
     clean = []
-    for item in raw:
+    wait_seen = False
+    for index, item in enumerate(raw):
         if not isinstance(item, dict):
             raise WorkflowConfigError("ogni azione deve essere un oggetto")
         kind = item.get("type")
         if kind not in ACTION_TYPES:
             raise WorkflowConfigError(f"azione non valida: {kind}")
         action = {"type": kind}
+        if kind == "wait":
+            if wait_seen or index == len(raw) - 1:
+                raise WorkflowConfigError("l'attesa può comparire una sola volta e deve precedere un'azione")
+            try:
+                minutes = int(item.get("minutes"))
+            except (TypeError, ValueError) as exc:
+                raise WorkflowConfigError("durata dell'attesa non valida") from exc
+            if not 1 <= minutes <= 43200:
+                raise WorkflowConfigError("l'attesa deve essere tra 1 minuto e 30 giorni")
+            action.update(minutes=minutes, cancel_on_reply=bool(item.get("cancel_on_reply", True)))
+            wait_seen = True
         if kind == "set_priority":
             if item.get("value") not in ("low", "normal", "high", "urgent"):
                 raise WorkflowConfigError("priorità non valida")
@@ -156,6 +169,22 @@ def validate_actions(session: Session, client_id: int, raw) -> list[dict]:
             action["endpoint_id"] = endpoint.id
         clean.append(action)
     return clean
+
+
+def _schedule(session: Session, workflow: Workflow, conv: Conversation, event: str, data: dict,
+              action: dict, remaining: list[dict]) -> str:
+    latest = session.exec(
+        select(Message.id).where(Message.conversation_id == conv.id).order_by(Message.id.desc()).limit(1)
+    ).first() or 0
+    row = WorkflowScheduledAction(
+        client_id=workflow.client_id, workflow_id=workflow.id, conversation_id=conv.id,
+        event=event, actions=json.dumps(remaining), data=json.dumps(data),
+        run_at=datetime.utcnow() + timedelta(minutes=action["minutes"]),
+        cancel_on_reply=action.get("cancel_on_reply", True), baseline_message_id=latest,
+    )
+    session.add(row)
+    session.commit()
+    return f"in attesa per {action['minutes']} min"
 
 
 # ---- evaluation ---------------------------------------------------------------------------
@@ -375,7 +404,14 @@ def run_for_event(
         matched = evaluate(workflow, context)
         if matched:
             try:
-                for action in json.loads(workflow.actions or "[]"):
+                configured = json.loads(workflow.actions or "[]")
+                for index, action in enumerate(configured):
+                    if action["type"] == "wait":
+                        if conv is None:
+                            applied.append("attesa saltata: nessuna conversazione")
+                        else:
+                            applied.append(_schedule(session, workflow, conv, event, data, action, configured[index + 1:]))
+                        break
                     applied.append(_apply_action(session, conv, action, event, data, depth))
             except Exception as exc:  # noqa: BLE001 — one bad action must not break the request
                 session.rollback()
@@ -408,6 +444,63 @@ def run_for_event(
             "matched": matched, "applied": applied, "error": error,
         })
     return summaries
+
+
+def dispatch_scheduled(session: Session, now: datetime | None = None) -> int:
+    """Claim and execute due continuations. Row locking makes concurrent workers safe."""
+    now = now or datetime.utcnow()
+    rows = session.exec(
+        select(WorkflowScheduledAction)
+        .where(WorkflowScheduledAction.status == "pending", WorkflowScheduledAction.run_at <= now)
+        .order_by(WorkflowScheduledAction.id).with_for_update(skip_locked=True).limit(20)
+    ).all()
+    processed = 0
+    for row in rows:
+        row.status = "running"
+        row.attempts += 1
+        row.updated_at = now
+        session.add(row)
+        session.commit()
+        try:
+            conv = session.get(Conversation, row.conversation_id)
+            workflow = session.get(Workflow, row.workflow_id)
+            if not conv or conv.client_id != row.client_id or not workflow or not workflow.active:
+                row.status, row.last_error = "cancelled", "workflow o conversazione non disponibile"
+            elif row.cancel_on_reply and session.exec(
+                select(Message.id).where(
+                    Message.conversation_id == conv.id, Message.id > row.baseline_message_id,
+                    Message.role.in_(("user", "operator")),
+                ).limit(1)
+            ).first():
+                row.status, row.last_error = "cancelled", "nuova risposta ricevuta"
+            else:
+                applied = [_apply_action(session, conv, action, row.event, json.loads(row.data), 0)
+                           for action in json.loads(row.actions)]
+                row.status = "completed"
+                session.add(WorkflowRun(
+                    client_id=row.client_id, workflow_id=row.workflow_id,
+                    conversation_id=row.conversation_id, event=f"{row.event}.delayed",
+                    matched=True, applied=json.dumps(applied, ensure_ascii=False),
+                ))
+            if row.status in ("completed", "cancelled"):
+                row.completed_at = datetime.utcnow()
+            row.updated_at = datetime.utcnow()
+            session.add(row)
+            session.commit()
+            processed += 1
+        except Exception as exc:  # noqa: BLE001
+            session.rollback()
+            row = session.get(WorkflowScheduledAction, row.id)
+            row.last_error = str(exc)[:300]
+            row.status = "failed" if row.attempts >= row.max_attempts else "pending"
+            if row.status == "pending":
+                row.run_at = datetime.utcnow() + timedelta(minutes=2 ** row.attempts)
+            else:
+                row.completed_at = datetime.utcnow()
+            row.updated_at = datetime.utcnow()
+            session.add(row)
+            session.commit()
+    return processed
 
 
 def preview(session: Session, workflow: Workflow, conv: Conversation, event: str | None = None) -> dict:

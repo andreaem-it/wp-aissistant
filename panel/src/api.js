@@ -166,6 +166,7 @@ export const api = {
   updateWorkflow: (id, body) => call(`/workflows/${id}`, { method: "PATCH", body }),
   deleteWorkflow: (id) => call(`/workflows/${id}`, { method: "DELETE" }),
   workflowRuns: (id) => call(`/workflows/${id}/runs`),
+  workflowScheduled: (id) => call(`/workflows/${id}/scheduled`),
   previewWorkflow: (id, conversation_id) =>
     call(`/workflows/${id}/preview`, { method: "POST", body: { conversation_id } }),
   apiKeys: () => call("/api-keys"),
