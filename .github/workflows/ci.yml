@@ -169,6 +169,12 @@ jobs:
       - name: Unit tests
         working-directory: sdk/browser
         run: npm test
+      - name: Type declarations
+        working-directory: sdk/browser
+        run: npm run types
+      - name: Package contents
+        working-directory: sdk/browser
+        run: npm pack --dry-run
 
   docker-build:
     name: Backend image build

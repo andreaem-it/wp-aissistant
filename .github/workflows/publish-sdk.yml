@@ -1,0 +1,59 @@
+name: Publish browser SDK
+
+# Pubblica @wp-aissistant/browser su npm da un tag `sdk-v<versione>`, mai automaticamente su
+# main: la pubblicazione è irreversibile (una versione npm non si riscrive).
+on:
+  push:
+    tags: ["sdk-v*"]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Esegue tutti i controlli senza pubblicare"
+        type: boolean
+        default: true
+
+concurrency:
+  group: publish-browser-sdk
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: npm publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # richiesto da npm per la provenance firmata
+    defaults:
+      run:
+        working-directory: sdk/browser
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Type declarations
+        run: npm run types
+
+      - name: Tag and package version must match
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          tag="${GITHUB_REF_NAME#sdk-v}"
+          version="$(node -p "require('./package.json').version")"
+          if [ "$tag" != "$version" ]; then
+            echo "Tag $GITHUB_REF_NAME non corrisponde alla versione $version del pacchetto" >&2
+            exit 1
+          fi
+
+      - name: Package contents
+        run: npm pack --dry-run
+
+      - name: Publish to npm
+        if: startsWith(github.ref, 'refs/tags/') && inputs.dry_run != true
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
