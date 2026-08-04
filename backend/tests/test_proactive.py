@@ -149,6 +149,68 @@ def test_ab_test_keeps_close_results_inconclusive(client, tenant):
     assert result["winner"] is None
 
 
+def test_promote_winner_archives_experiment_and_resets_rule(client, tenant):
+    created = _rule(client, tenant, message="Originale", message_b="Vincente").json()
+    with Session(db.engine) as session:
+        rule = session.get(db.ProactiveRule, created["id"])
+        rule.impressions, rule.engagements = 200, 20
+        rule.impressions_b, rule.engagements_b = 200, 60
+        session.add(rule)
+        session.commit()
+
+    response = client.post(
+        f"/proactive-rules/{created['id']}/experiment",
+        headers=tenant["op"], json={"action": "promote"},
+    )
+    assert response.status_code == 200
+    rule = response.json()["rule"]
+    assert rule["message"] == "Vincente"
+    assert rule["message_b"] == ""
+    assert (rule["impressions"], rule["engagements"], rule["impressions_b"], rule["engagements_b"]) == (0, 0, 0, 0)
+
+    history = client.get("/proactive-rules", headers=tenant["op"]).json()["experiments"]
+    assert len(history) == 1
+    assert history[0]["outcome"] == "promoted"
+    assert history[0]["statistical_winner"] == "b"
+    assert history[0]["selected_variant"] == "b"
+    assert (history[0]["engagements_a"], history[0]["engagements_b"]) == (20, 60)
+
+
+def test_stop_inconclusive_experiment_preserves_message_and_history(client, tenant):
+    created = _rule(client, tenant, message="Resta", message_b="Alternativa").json()
+    response = client.post(
+        f"/proactive-rules/{created['id']}/experiment",
+        headers=tenant["op"], json={"action": "stop"},
+    )
+    assert response.status_code == 200
+    assert response.json()["rule"]["message"] == "Resta"
+    history = client.get("/proactive-rules", headers=tenant["op"]).json()["experiments"]
+    assert history[0]["outcome"] == "stopped"
+    assert history[0]["selected_variant"] is None
+
+
+def test_cannot_promote_without_significant_winner(client, tenant):
+    created = _rule(client, tenant, message_b="Alternativa").json()
+    assert client.post(
+        f"/proactive-rules/{created['id']}/experiment",
+        headers=tenant["op"], json={"action": "promote"},
+    ).status_code == 409
+
+
+def test_experiment_history_is_tenant_scoped(client, tenant):
+    created = _rule(client, tenant, message_b="Alternativa").json()
+    client.post(
+        f"/proactive-rules/{created['id']}/experiment",
+        headers=tenant["op"], json={"action": "stop"},
+    )
+    other = _other_tenant(client, "Experiment Other")
+    assert client.get("/proactive-rules", headers=other["op"]).json()["experiments"] == []
+    assert client.post(
+        f"/proactive-rules/{created['id']}/experiment",
+        headers=other["op"], json={"action": "stop"},
+    ).status_code == 404
+
+
 def test_rules_are_tenant_scoped(client, tenant):
     created = _rule(client, tenant).json()
     other = _other_tenant(client)

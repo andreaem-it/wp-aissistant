@@ -53,6 +53,7 @@ from .db import (
     Plan,
     PluginInstallation,
     ProactiveRule,
+    ProactiveExperiment,
     Product,
     PushSubscription,
     RoutingSetting,
@@ -5264,12 +5265,24 @@ def _proactive_payload(rule: ProactiveRule, *, public: bool = False) -> dict:
         "position": rule.position,
         "impressions": rule.impressions,
         "engagements": rule.engagements,
-        # share of impressions that opened a chat (null until there's data to divide by)
         "engagement_rate": round(rule.engagements / rule.impressions, 3) if rule.impressions else None,
         "impressions_b": rule.impressions_b,
         "engagements_b": rule.engagements_b,
         "engagement_rate_b": round(rule.engagements_b / rule.impressions_b, 3) if rule.impressions_b else None,
         "ab_test": _proactive_ab_result(rule),
+    }
+
+
+def _proactive_experiment_payload(row: ProactiveExperiment) -> dict:
+    return {
+        "id": row.id, "rule_id": row.rule_id, "rule_name": row.rule_name,
+        "message_a": row.message_a, "message_b": row.message_b,
+        "impressions_a": row.impressions_a, "engagements_a": row.engagements_a,
+        "impressions_b": row.impressions_b, "engagements_b": row.engagements_b,
+        "statistical_winner": row.statistical_winner or None,
+        "selected_variant": row.selected_variant or None,
+        "outcome": row.outcome, "operator_email": row.operator_email,
+        "created_at": _iso(row.created_at),
     }
 
 
@@ -5320,11 +5333,58 @@ def list_proactive_rules(operator: Operator = Depends(require_operator), session
         select(ProactiveRule).where(ProactiveRule.client_id == operator.client_id)
         .order_by(ProactiveRule.position, ProactiveRule.id)
     ).all()
+    history = session.exec(
+        select(ProactiveExperiment).where(ProactiveExperiment.client_id == operator.client_id)
+        .order_by(ProactiveExperiment.id.desc()).limit(20)
+    ).all()
     return {
         "triggers": list(PROACTIVE_TRIGGERS),
         "frequencies": list(PROACTIVE_FREQUENCIES),
         "rules": [_proactive_payload(row) for row in rows],
+        "experiments": [_proactive_experiment_payload(row) for row in history],
     }
+
+
+@app.post("/proactive-rules/{rule_id}/experiment")
+def finish_proactive_experiment(
+    rule_id: int,
+    action: str = Body(..., embed=True),  # promote | stop
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
+    rule = session.get(ProactiveRule, rule_id)
+    if not rule or rule.client_id != operator.client_id:
+        raise HTTPException(404, "rule not found")
+    if action not in ("promote", "stop"):
+        raise HTTPException(400, "action must be 'promote' or 'stop'")
+    if not rule.message_b:
+        raise HTTPException(400, "no active experiment")
+    result = _proactive_ab_result(rule)
+    if action == "promote" and result["status"] != "winner":
+        raise HTTPException(409, "the experiment has no statistically significant winner")
+    selected = result["winner"] if action == "promote" else ""
+    session.add(ProactiveExperiment(
+        client_id=operator.client_id, rule_id=rule.id, rule_name=rule.name,
+        message_a=rule.message, message_b=rule.message_b,
+        impressions_a=rule.impressions, engagements_a=rule.engagements,
+        impressions_b=rule.impressions_b, engagements_b=rule.engagements_b,
+        statistical_winner=result.get("winner") or "", selected_variant=selected,
+        outcome="promoted" if action == "promote" else "stopped",
+        operator_email=operator.email,
+    ))
+    if selected == "b":
+        rule.message = rule.message_b
+    rule.message_b = ""
+    rule.impressions = rule.engagements = rule.impressions_b = rule.engagements_b = 0
+    rule.updated_at = datetime.utcnow()
+    session.add(rule)
+    session.commit()
+    _audit(
+        session, "operator", operator.email, f"proactive.experiment_{action}",
+        target=f"proactive:{rule.id}", client_id=operator.client_id,
+        detail={"selected_variant": selected or None},
+    )
+    return {"ok": True, "rule": _proactive_payload(rule)}
 
 
 @app.post("/proactive-rules")

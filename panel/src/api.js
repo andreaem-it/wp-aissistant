@@ -158,6 +158,8 @@ export const api = {
   proactiveRules: () => call("/proactive-rules"),
   createProactiveRule: (body) => call("/proactive-rules", { method: "POST", body }),
   updateProactiveRule: (id, body) => call(`/proactive-rules/${id}`, { method: "PATCH", body }),
+  finishProactiveExperiment: (id, action) =>
+    call(`/proactive-rules/${id}/experiment`, { method: "POST", body: { action } }),
   deleteProactiveRule: (id) => call(`/proactive-rules/${id}`, { method: "DELETE" }),
   workflows: () => call("/workflows"),
   createWorkflow: (body) => call("/workflows", { method: "POST", body }),

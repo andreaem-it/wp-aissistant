@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { MessageCircleMore, Plus, Trash2 } from "lucide-react";
+import { History, MessageCircleMore, Plus, Trash2, Trophy } from "lucide-react";
 import { api } from "./api.js";
 
 const TRIGGER_LABELS = {
@@ -32,6 +32,7 @@ function pct(value) {
 export default function Proactive() {
   const [rules, setRules] = useState([]);
   const [catalog, setCatalog] = useState({ triggers: [], frequencies: [] });
+  const [experiments, setExperiments] = useState([]);
   const [form, setForm] = useState(EMPTY);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -43,6 +44,7 @@ export default function Proactive() {
         .then((data) => {
           setRules(data.rules);
           setCatalog({ triggers: data.triggers, frequencies: data.frequencies });
+          setExperiments(data.experiments || []);
           setError("");
         })
         .catch(() => setError("Impossibile caricare i messaggi proattivi."))
@@ -73,6 +75,16 @@ export default function Proactive() {
     if (!window.confirm(`Eliminare il messaggio "${rule.name}"?`)) return;
     await api.deleteProactiveRule(rule.id);
     load();
+  };
+  const finishExperiment = async (rule, action) => {
+    const label = action === "promote" ? `promuovere la variante ${rule.ab_test.winner.toUpperCase()}` : "terminare il test senza un vincitore";
+    if (!window.confirm(`Vuoi ${label}? I risultati resteranno nello storico.`)) return;
+    try {
+      await api.finishProactiveExperiment(rule.id, action);
+      await load();
+    } catch {
+      setError("Impossibile chiudere l’esperimento.");
+    }
   };
 
   return (
@@ -126,7 +138,15 @@ export default function Proactive() {
                       Variante {rule.ab_test.winner.toUpperCase()} vincente
                       {rule.ab_test.lift_percent !== null && ` · +${rule.ab_test.lift_percent}%`}
                     </span>
+                    <button className="wpai-btn ghost" style={{ marginLeft: 6 }} onClick={() => finishExperiment(rule, "promote")}>
+                      <Trophy size={13} /> Promuovi vincitore
+                    </button>
                   </div>
+                )}
+                {rule.message_b && rule.ab_test.status === "inconclusive" && (
+                  <button className="wpai-btn ghost" style={{ marginTop: 6 }} onClick={() => finishExperiment(rule, "stop")}>
+                    Termina test
+                  </button>
                 )}
               </div>
               <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
@@ -144,6 +164,23 @@ export default function Proactive() {
           <span style={{ color: "var(--text-muted)", fontSize: 13 }}>Nessun messaggio proattivo.</span>
         )}
       </div>
+
+      {experiments.length > 0 && (
+        <details style={{ marginBottom: 14 }}>
+          <summary style={{ cursor: "pointer", fontSize: 12.5, fontWeight: 600 }}>
+            <History size={13} style={{ verticalAlign: "-2px", marginRight: 5 }} /> Storico esperimenti ({experiments.length})
+          </summary>
+          <div style={{ display: "grid", gap: 7, marginTop: 9 }}>
+            {experiments.map((item) => (
+              <div key={item.id} style={{ fontSize: 11.5, color: "var(--text-muted)", paddingBottom: 7, borderBottom: "1px solid var(--border)" }}>
+                <strong style={{ color: "var(--text)" }}>{item.rule_name}</strong> · {item.outcome === "promoted" ? `promossa ${item.selected_variant.toUpperCase()}` : "interrotto"}
+                {` · A ${item.engagements_a}/${item.impressions_a} · B ${item.engagements_b}/${item.impressions_b}`}
+                {item.operator_email && ` · ${item.operator_email}`}
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
 
       <form onSubmit={create} style={{ display: "grid", gap: 8 }}>
         <input

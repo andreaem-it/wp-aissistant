@@ -458,6 +458,25 @@ class ProactiveRule(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
 
+class ProactiveExperiment(SQLModel, table=True):
+    """Immutable result of a completed proactive-message A/B experiment."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    client_id: int = Field(index=True, foreign_key="client.id")
+    rule_id: Optional[int] = Field(default=None, index=True)
+    rule_name: str = ""
+    message_a: str = ""
+    message_b: str = ""
+    impressions_a: int = 0
+    engagements_a: int = 0
+    impressions_b: int = 0
+    engagements_b: int = 0
+    statistical_winner: str = ""  # a | b | empty
+    selected_variant: str = ""  # a | b | empty when stopped
+    outcome: str = "stopped"  # promoted | stopped
+    operator_email: str = ""
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 class Workflow(SQLModel, table=True):
     """A tenant automation: when `trigger` fires, if every condition matches, run the actions.
     `conditions` and `actions` are JSON lists validated against a closed vocabulary (see
