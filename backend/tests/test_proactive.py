@@ -1,4 +1,7 @@
 """Proactive widget messages: configuration, public payload, counters and tenant isolation."""
+from sqlmodel import Session
+
+from app import db
 
 ADMIN = {"Authorization": "Bearer test-admin"}
 
@@ -108,6 +111,42 @@ def test_variant_b_requires_a_configured_message(client, tenant):
         json={"kind": "impression", "variant": "b"},
     )
     assert response.status_code == 400
+
+
+def test_ab_test_waits_for_a_minimum_sample(client, tenant):
+    created = _rule(client, tenant, message_b="Alternativa").json()
+    assert created["ab_test"] == {
+        "status": "collecting", "winner": None, "lift_percent": None, "remaining": 30,
+    }
+
+
+def test_ab_test_declares_only_a_statistically_significant_winner(client, tenant):
+    created = _rule(client, tenant, message_b="Alternativa").json()
+    with Session(db.engine) as session:
+        rule = session.get(db.ProactiveRule, created["id"])
+        rule.impressions, rule.engagements = 200, 60
+        rule.impressions_b, rule.engagements_b = 200, 20
+        session.add(rule)
+        session.commit()
+
+    result = client.get("/proactive-rules", headers=tenant["op"]).json()["rules"][0]["ab_test"]
+    assert result["status"] == "winner"
+    assert result["winner"] == "a"
+    assert result["lift_percent"] == 200.0
+    assert result["z_score"] >= 1.96
+
+
+def test_ab_test_keeps_close_results_inconclusive(client, tenant):
+    created = _rule(client, tenant, message_b="Alternativa").json()
+    with Session(db.engine) as session:
+        rule = session.get(db.ProactiveRule, created["id"])
+        rule.impressions, rule.engagements = 100, 20
+        rule.impressions_b, rule.engagements_b = 100, 18
+        session.add(rule)
+        session.commit()
+    result = client.get("/proactive-rules", headers=tenant["op"]).json()["rules"][0]["ab_test"]
+    assert result["status"] == "inconclusive"
+    assert result["winner"] is None
 
 
 def test_rules_are_tenant_scoped(client, tenant):

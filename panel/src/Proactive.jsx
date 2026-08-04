@@ -110,6 +110,24 @@ export default function Proactive() {
                   {pct(rule.engagement_rate)} di conversione
                   {rule.message_b && ` · B: ${rule.impressions_b} visualizzazioni, ${rule.engagements_b} chat, ${pct(rule.engagement_rate_b)}`}
                 </div>
+                {rule.message_b && rule.ab_test.status === "collecting" && (
+                  <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: 5 }}>
+                    Test in raccolta dati · servono ancora almeno {rule.ab_test.remaining} visualizzazioni per variante
+                  </div>
+                )}
+                {rule.message_b && rule.ab_test.status === "inconclusive" && (
+                  <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: 5 }}>
+                    Nessun vincitore affidabile: continua il test
+                  </div>
+                )}
+                {rule.ab_test.status === "winner" && (
+                  <div style={{ marginTop: 6 }}>
+                    <span className="wpai-badge ok">
+                      Variante {rule.ab_test.winner.toUpperCase()} vincente
+                      {rule.ab_test.lift_percent !== null && ` · +${rule.ab_test.lift_percent}%`}
+                    </span>
+                  </div>
+                )}
               </div>
               <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                 <button className="wpai-btn ghost" onClick={() => toggle(rule)}>
