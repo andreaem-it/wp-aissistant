@@ -52,8 +52,8 @@ f7f0678 feat: package the browser sdk for npm
 c6a1e2c feat: cluster knowledge gaps locally
 ```
 
-Dimensioni attuali: **172 endpoint e 7797 righe** in `backend/app/main.py`, **47 tabelle** in
-`backend/app/db.py`, migrazioni fino a **`0045`**, 52 file di test backend (**466 test**), 29 test
+Dimensioni attuali: **177 endpoint e 7902 righe** in `backend/app/main.py`, **48 tabelle** in
+`backend/app/db.py`, migrazioni fino a **`0048`**, 54 file di test backend (**502 test**), 29 test
 panel, 7 test plugin. Plugin alla versione **1.2.2**.
 
 ## 3. Moduli backend e perché esistono
@@ -90,7 +90,7 @@ disattivi anche quelle.
 
 ## 4. Modello dati
 
-47 tabelle, migrazioni fino a `0045`.
+48 tabelle, migrazioni fino a `0048`.
 
 **Aggiunte in P1** (`0019`→`0029`):
 
@@ -100,7 +100,7 @@ disattivi anche quelle.
   `WorkflowRun`, `ProactiveRule`
 - **Commerciale/qualità:** `LeadForm`, `Lead`, `KnowledgeGapReview`
 
-**Aggiunte in P2 e dopo** (`0030`→`0045`):
+**Aggiunte in P2 e dopo** (`0030`→`0048`):
 
 - **Omnicanale:** `Contact` (identità del contatto, separata dalla conversazione, chiave
   `client_id + channel + external_id`), `WhatsAppConsent`, `Attachment`
@@ -108,6 +108,8 @@ disattivi anche quelle.
   `PushSubscription`, `PluginInstallation`
 - **Operatività:** `SupportSchedule`, `WorkflowScheduledAction`, `ProactiveExperiment`,
   `KnowledgeDraft`
+- **Commerciale:** `ModelPrice` (listino per modello, in millesimi di centesimo per milione di
+  token, da cui deriva il costo AI per tenant)
 
 `Conversation` ha acquisito: `language`, `priority`, `assigned_operator_id`, `department_id`,
 `channel`, `contact_id`, gli stampi SLA (`sla_*`, `first_response_*`, `resolution_*`) e la
@@ -211,7 +213,12 @@ Convenzioni utili viste nella suite:
 4. **Il margine copre solo l'inferenza.** `/admin/costs` prezza i token di `AiResponseLog`, ma
    embedding (ingest), storage R2, email e canali non sono registrati per turno: il margine
    mostrato è un **tetto**. Per chiuderlo serve tracciare anche quei consumi per tenant.
-5. **`set_client_plan` (`/admin/clients/{id}/plan`) scrive `plan_id` senza toccare Stripe.** Su
+5. **Le intestazioni CORS sono scritte a mano** in `_cors_headers()`, non derivate dalle rotte.
+   Hanno già annunciato solo `GET, POST, OPTIONS` mentre l'app instradava 36 rotte PUT/PATCH/
+   DELETE, rendendole invisibilmente inutilizzabili dal browser: il server rispondeva `204` al
+   preflight e nei log non compariva nulla. Ora c'è `test_cors.py` che confronta i metodi
+   annunciati con la tabella di routing, ma la lista resta duplicata.
+6. **`set_client_plan` (`/admin/clients/{id}/plan`) scrive `plan_id` senza toccare Stripe.** Su
    un cliente con abbonamento attivo crea disallineamento fra database e Stripe, e il primo
    webhook utile può sovrascrivere la modifica. Le azioni commerciali vanno fatte via API
    Stripe, lasciando che sia il webhook ad aggiornare il database.
@@ -233,7 +240,7 @@ prima di tutto il resto, perché è l'unica cosa che non dipende da noi.
 
 **B. Completare la parte commerciale.** Fatti: portale Stripe per il cliente con avvisi via email,
 vista **Ricavi** e vista **Costi e margine** nel superadmin. Restano, in ordine di valore: azioni
-commerciali via API Stripe (trial, coupon, sospensione — vedi debito 5); costi di embedding,
+commerciali via API Stripe (trial, coupon, sospensione — vedi debito 6); costi di embedding,
 storage e canali per chiudere il margine (debito 4); funnel di attivazione e clienti a rischio.
 
 > Il listino modelli parte **vuoto**: finché il superadmin non lo compila da *Costi e margine*,

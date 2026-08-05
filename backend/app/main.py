@@ -386,10 +386,13 @@ def rebuild_allowed_origins(session: Session) -> None:
 
 
 def _cors_headers(origin: str) -> dict:
+    # Every method the app actually routes must be listed, or the browser blocks the request
+    # before it is ever sent: the panel updates settings with PUT and removes rows with DELETE,
+    # and omitting them made 36 routes unreachable cross-origin while the server looked healthy.
     return {
         "Access-Control-Allow-Origin": origin,
         "Access-Control-Allow-Credentials": "true",
-        "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+        "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
         "Access-Control-Allow-Headers": "Authorization, Content-Type, X-Conversation-Token, ngrok-skip-browser-warning",
         "Access-Control-Max-Age": "600",
         "Vary": "Origin",

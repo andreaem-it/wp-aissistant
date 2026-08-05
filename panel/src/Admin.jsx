@@ -558,8 +558,16 @@ function ModelPriceEditor({ prices, onChanged }) {
       });
       setForm(blank);
       onChanged();
-    } catch {
-      setError("Prezzo non salvato. Controlla il nome del modello e i valori.");
+    } catch (e) {
+      // say which failure it was: a rejected value and a request the browser never sent are
+      // very different problems, and "controlla i valori" sends you looking in the wrong place
+      setError(
+        e?.status === 400
+          ? "Prezzo rifiutato: controlla il nome del modello e che i valori non siano negativi."
+          : e?.status
+            ? `Prezzo non salvato (errore ${e.status}).`
+            : "Prezzo non salvato: il server non è raggiungibile dal browser.",
+      );
     } finally {
       setBusy(false);
     }
