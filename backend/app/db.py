@@ -31,6 +31,23 @@ class Plan(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
+class ModelPrice(SQLModel, table=True):
+    """What one AI model costs us, so per-tenant spend can be derived from the token counts
+    already recorded in AiResponseLog.
+
+    Prices are in **cents per million tokens**, the unit providers publish, kept as integers to
+    avoid float drift when multiplied by large token counts. A model with no row here is not
+    assumed to be free: it is reported as unpriced, so the total never looks smaller than it is.
+    """
+    id: Optional[int] = Field(default=None, primary_key=True)
+    model: str = Field(index=True, unique=True)
+    input_cents_per_million: int = 0
+    output_cents_per_million: int = 0
+    currency: str = "eur"
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 class Client(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str

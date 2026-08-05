@@ -46,6 +46,10 @@ export const adminApi = {
   // observability (Fase 3b/3c)
   stats: () => call("/admin/stats"),
   revenue: (days = 30) => call(`/admin/revenue?days=${days}`),
+  costs: (days = 30) => call(`/admin/costs?days=${days}`),
+  modelPrices: () => call("/admin/model-prices"),
+  setModelPrice: (price) => call("/admin/model-prices", { method: "PUT", body: price }),
+  deleteModelPrice: (id) => call(`/admin/model-prices/${id}`, { method: "DELETE" }),
   health: () => call("/admin/health"),
   testEmail: (to) => call("/admin/test-email", { method: "POST", body: { to } }),
   audit: (clientId) => call(`/admin/audit${clientId ? `?client_id=${clientId}` : ""}`),

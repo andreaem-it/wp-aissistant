@@ -290,6 +290,12 @@ piani a pagamento):
   verificati del tenant. Un errore di invio non blocca la sincronizzazione (Stripe riceve `200`).
 - **Enforcement**: su `canceled` il client torna automaticamente al piano Free (i limiti per-piano
   seguono); `past_due` mantiene il piano come periodo di grazia mentre Stripe ritenta.
+- **Costi e margine per tenant** (`GET /admin/costs?days=30`, listino su `/admin/model-prices`):
+  il costo AI di ogni cliente è calcolato dai token già registrati in `AiResponseLog`, usando un
+  listino per modello in **centesimi per milione di token** gestito dal superadmin. Un modello
+  senza prezzo **non vale zero**: finisce in `unpriced_models` ed è escluso dai totali, così il
+  numero appare incompleto e non piccolo. È **solo costo di inferenza** — embedding, storage,
+  email e canali non sono registrati per turno — quindi il margine è un tetto, non il dato finale.
 - **Ricavi per il superadmin** (`GET /admin/revenue?days=30`): MRR/ARR, ricavo medio e clienti
   paganti, ripartizione per piano, insoluti, prove in scadenza e disdette (programmate e del
   periodo). Gli abbonamenti annuali sono normalizzati a un dodicesimo, quindi serve

@@ -21,6 +21,7 @@ from sqlalchemy import and_, case, func, or_
 from sqlmodel import Session, select
 
 from . import billing
+from . import costs as costs_service
 
 from .db import (
     AiResponseLog,
@@ -48,6 +49,7 @@ from .db import (
     Lead,
     LeadForm,
     Message,
+    ModelPrice,
     NoteMention,
     Operator,
     OperatorSession,
@@ -6853,6 +6855,70 @@ def admin_revenue(days: int = 30, session: Session = Depends(get_session)):
     if days < 1 or days > 365:
         raise HTTPException(400, "days must be between 1 and 365")
     return billing.revenue_summary(session, days=days)
+
+
+@app.get("/admin/costs", dependencies=[Depends(require_admin)])
+def admin_costs(days: int = 30, session: Session = Depends(get_session)):
+    """AI spend per tenant and the margin it leaves, priced from the recorded token usage.
+
+    Inference only: embeddings, storage and channel fees are not recorded per turn, so the
+    margin here is a ceiling. Models without a price are listed in `unpriced_models` and kept
+    out of the totals — see app/costs.py.
+    """
+    if days < 1 or days > 365:
+        raise HTTPException(400, "days must be between 1 and 365")
+    return costs_service.cost_summary(session, days=days)
+
+
+@app.get("/admin/model-prices", dependencies=[Depends(require_admin)])
+def list_model_prices(session: Session = Depends(get_session)):
+    return session.exec(select(ModelPrice).order_by(ModelPrice.model)).all()
+
+
+@app.put("/admin/model-prices", dependencies=[Depends(require_admin)])
+def upsert_model_price(
+    model: str = Body(...),
+    input_cents_per_million: int = Body(0),
+    output_cents_per_million: int = Body(0),
+    currency: str = Body("eur"),
+    session: Session = Depends(get_session),
+):
+    """Set the price of one model, in cents per million tokens. Upsert by model name so the
+    superadmin can paste the provider's current price list without deleting rows first."""
+    name = (model or "").strip()[:255]
+    if not name:
+        raise HTTPException(400, "model required")
+    if input_cents_per_million < 0 or output_cents_per_million < 0:
+        raise HTTPException(400, "prices cannot be negative")
+    clean_currency = (currency or "eur").strip().lower()
+    if len(clean_currency) != 3:
+        raise HTTPException(400, "currency must be a 3-letter ISO code")
+    row = session.exec(select(ModelPrice).where(ModelPrice.model == name)).first()
+    if row is None:
+        row = ModelPrice(model=name)
+    row.input_cents_per_million = input_cents_per_million
+    row.output_cents_per_million = output_cents_per_million
+    row.currency = clean_currency
+    row.updated_at = datetime.utcnow()
+    session.add(row)
+    session.commit()
+    # audit first: it commits again, which expires `row` — refreshing before that would leave
+    # an expired object to serialise, i.e. an empty response body
+    _audit(session, "admin", "admin", "model_price.set", target=f"model:{name}",
+           detail={"input": input_cents_per_million, "output": output_cents_per_million})
+    session.refresh(row)
+    return row
+
+
+@app.delete("/admin/model-prices/{price_id}", dependencies=[Depends(require_admin)])
+def delete_model_price(price_id: int, session: Session = Depends(get_session)):
+    row = session.get(ModelPrice, price_id)
+    if not row:
+        raise HTTPException(404, "model price not found")
+    session.delete(row)
+    session.commit()
+    _audit(session, "admin", "admin", "model_price.deleted", target=f"model:{row.model}")
+    return {"deleted": True}
 
 
 @app.get("/admin/health", dependencies=[Depends(require_admin)])

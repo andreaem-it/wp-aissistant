@@ -208,9 +208,9 @@ Convenzioni utili viste nella suite:
 3. **Le automazioni immediate girano sincrone** dentro la richiesta che emette l'evento. Le
    azioni **ritardate** sono invece già su coda (`WorkflowScheduledAction`, servita dal worker):
    il debito residuo riguarda solo le azioni immediate lente.
-4. **Costi e margine per tenant non esistono.** I ricavi ora si vedono (`/admin/revenue`), ma
-   nessuno calcola quanto costa servire un cliente, benché `AiResponseLog` registri già modello e
-   token a ogni turno: manca solo un listino prezzi per modello e l'aggregazione.
+4. **Il margine copre solo l'inferenza.** `/admin/costs` prezza i token di `AiResponseLog`, ma
+   embedding (ingest), storage R2, email e canali non sono registrati per turno: il margine
+   mostrato è un **tetto**. Per chiuderlo serve tracciare anche quei consumi per tenant.
 5. **`set_client_plan` (`/admin/clients/{id}/plan`) scrive `plan_id` senza toccare Stripe.** Su
    un cliente con abbonamento attivo crea disallineamento fra database e Stripe, e il primo
    webhook utile può sovrascrivere la modifica. Le azioni commerciali vanno fatte via API
@@ -232,9 +232,13 @@ prima di tutto il resto, perché è l'unica cosa che non dipende da noi.
 > e va portato sul canale WhatsApp, come passo intermedio verso l'Embedded Signup di Meta.
 
 **B. Completare la parte commerciale.** Fatti: portale Stripe per il cliente con avvisi via email,
-e vista **Ricavi** nel superadmin. Restano, in ordine di valore: costi e margine per tenant a
-partire dai token già registrati in `AiResponseLog`; azioni commerciali via API Stripe (trial,
-coupon, sospensione — vedi debito 5); funnel di attivazione e clienti a rischio.
+vista **Ricavi** e vista **Costi e margine** nel superadmin. Restano, in ordine di valore: azioni
+commerciali via API Stripe (trial, coupon, sospensione — vedi debito 5); costi di embedding,
+storage e canali per chiudere il margine (debito 4); funnel di attivazione e clienti a rischio.
+
+> Il listino modelli parte **vuoto**: finché il superadmin non lo compila da *Costi e margine*,
+> ogni modello usato compare fra quelli senza prezzo e i costi restano a zero. È voluto — un
+> prezzo indovinato sarebbe peggio di un buco dichiarato — ma va fatto prima di fidarsi dei numeri.
 
 **C. Dividere `main.py` in router.** Nessuna feature visibile, ma vedi il debito 1: ogni blocco
 successivo costa di più finché non è fatto.

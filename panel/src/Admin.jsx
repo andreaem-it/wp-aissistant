@@ -539,6 +539,212 @@ function RevenueView() {
   );
 }
 
+function ModelPriceEditor({ prices, onChanged }) {
+  const blank = { model: "", input_cents_per_million: "", output_cents_per_million: "" };
+  const [form, setForm] = useState(blank);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  const save = async (e) => {
+    e.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      await adminApi.setModelPrice({
+        model: form.model.trim(),
+        input_cents_per_million: Number(form.input_cents_per_million) || 0,
+        output_cents_per_million: Number(form.output_cents_per_million) || 0,
+      });
+      setForm(blank);
+      onChanged();
+    } catch {
+      setError("Prezzo non salvato. Controlla il nome del modello e i valori.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async (id) => {
+    setError("");
+    try {
+      await adminApi.deleteModelPrice(id);
+      onChanged();
+    } catch {
+      setError("Prezzo non rimosso. Riprova.");
+    }
+  };
+
+  return (
+    <div className="wpai-card" style={{ marginTop: 16 }}>
+      <div className="wpai-card-title">Listino modelli</div>
+      <p style={{ color: "var(--text-muted)", fontSize: 12.5, margin: "4px 0 10px" }}>
+        Prezzi in <strong>centesimi per milione di token</strong>, come li pubblicano i provider.
+        Un modello senza prezzo non viene considerato gratis: resta escluso dal totale e segnalato.
+      </p>
+      {error && <p className="wpai-error">{error}</p>}
+      <form onSubmit={save} style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
+        <label style={{ display: "grid", gap: 4, fontSize: 12.5, flex: "2 1 200px" }}>
+          Modello
+          <input value={form.model} onChange={(e) => setForm({ ...form, model: e.target.value })}
+                 placeholder="@cf/meta/llama-3.1-8b-instruct" required />
+        </label>
+        <label style={{ display: "grid", gap: 4, fontSize: 12.5, flex: "1 1 110px" }}>
+          Input
+          <input type="number" min="0" value={form.input_cents_per_million}
+                 onChange={(e) => setForm({ ...form, input_cents_per_million: e.target.value })} placeholder="0" />
+        </label>
+        <label style={{ display: "grid", gap: 4, fontSize: 12.5, flex: "1 1 110px" }}>
+          Output
+          <input type="number" min="0" value={form.output_cents_per_million}
+                 onChange={(e) => setForm({ ...form, output_cents_per_million: e.target.value })} placeholder="0" />
+        </label>
+        <button className="wpai-btn" type="submit" disabled={busy}>{busy ? "Salvataggio…" : "Salva"}</button>
+      </form>
+
+      {prices.length === 0 ? (
+        <p style={{ color: "var(--text-muted)", fontSize: 13, margin: "10px 0 0" }}>
+          Nessun prezzo impostato: finché il listino è vuoto i costi restano a zero e ogni modello
+          usato compare fra quelli senza prezzo.
+        </p>
+      ) : (
+        <table className="wpai-table" style={{ marginTop: 12 }}>
+          <thead><tr><th>Modello</th><th style={{ textAlign: "right" }}>Input</th><th style={{ textAlign: "right" }}>Output</th><th /></tr></thead>
+          <tbody>
+            {prices.map((p) => (
+              <tr key={p.id}>
+                <td>{p.model}</td>
+                <td style={{ textAlign: "right" }}>{p.input_cents_per_million}</td>
+                <td style={{ textAlign: "right" }}>{p.output_cents_per_million}</td>
+                <td style={{ textAlign: "right" }}>
+                  <button className="wpai-icon-btn" onClick={() => remove(p.id)} title={`Rimuovi ${p.model}`}>
+                    <Trash2 size={14} />
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
+function CostsView() {
+  const [data, setData] = useState(null);
+  const [prices, setPrices] = useState([]);
+  const [days, setDays] = useState(30);
+  const [error, setError] = useState("");
+
+  const loadPrices = useCallback(() => adminApi.modelPrices().then(setPrices).catch(() => setPrices([])), []);
+  const load = useCallback(() => {
+    setError("");
+    adminApi.costs(days).then(setData).catch(() => setError("Impossibile caricare i costi."));
+  }, [days]);
+
+  useEffect(() => { load(); }, [load]);
+  useEffect(() => { loadPrices(); }, [loadPrices]);
+
+  const reload = () => { load(); loadPrices(); };
+
+  if (error) return <div><h2 style={{ marginTop: 0 }}>Costi e margine</h2><p className="wpai-error">{error}</p></div>;
+  if (!data) return <p style={{ color: "var(--text-muted)" }}>Caricamento…</p>;
+
+  const money = (cents) => formatPrice(Math.round(cents), "eur");
+  const tokens = (n) => new Intl.NumberFormat("it-IT").format(n);
+
+  const cards = [
+    { label: "Costo AI / mese", value: money(data.monthly_cost_cents), Icon: Sparkles },
+    { label: "Ricavo / mese", value: money(data.monthly_revenue_cents), Icon: CreditCard },
+    { label: "Margine lordo", value: money(data.monthly_margin_cents), Icon: TrendingUp },
+    { label: "Margine %", value: data.margin_pct === null ? "—" : `${data.margin_pct}%`, Icon: Activity },
+  ];
+
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+        <h2 style={{ marginTop: 0, marginBottom: 0 }}>Costi e margine</h2>
+        <label style={{ fontSize: 13, display: "flex", alignItems: "center", gap: 8 }}>
+          Periodo
+          <select value={days} onChange={(e) => setDays(Number(e.target.value))} aria-label="Periodo di calcolo">
+            <option value={7}>7 giorni</option>
+            <option value={30}>30 giorni</option>
+            <option value={90}>90 giorni</option>
+          </select>
+        </label>
+      </div>
+
+      {data.unpriced_models.length > 0 && (
+        <div className="wpai-callout warn" role="alert" style={{ marginTop: 12 }}>
+          <div>
+            Modelli senza prezzo, esclusi dai totali: <strong>{data.unpriced_models.join(", ")}</strong>.
+            Finché mancano, il costo mostrato è più basso di quello reale.
+          </div>
+        </div>
+      )}
+
+      <div className="wpai-stat-grid" style={{ marginTop: 12 }}>
+        {cards.map((c) => (
+          <div key={c.label} className="wpai-card wpai-stat-card">
+            <div className="icon"><c.Icon size={18} strokeWidth={2.25} /></div>
+            <div className="value">{c.value}</div>
+            <div className="label">{c.label}</div>
+          </div>
+        ))}
+      </div>
+
+      <p style={{ color: "var(--text-muted)", fontSize: 12.5, margin: "10px 0 0" }}>
+        Solo costo di inferenza: embedding, storage, email e canali non sono registrati per turno,
+        quindi il margine è un <strong>tetto</strong>, non il dato finale. Il costo del periodo è
+        riportato al mese per essere confrontabile con il ricavo ricorrente.
+      </p>
+
+      <div className="wpai-card" style={{ marginTop: 16 }}>
+        <div className="wpai-card-title">Per cliente <span style={{ color: "var(--text-muted)", fontWeight: 500 }}>({data.clients.length})</span></div>
+        {data.clients.length === 0 ? (
+          <p style={{ color: "var(--text-muted)", fontSize: 13, margin: "8px 0 0" }}>
+            Nessun consumo AI nel periodo.
+          </p>
+        ) : (
+          <table className="wpai-table">
+            <thead>
+              <tr>
+                <th>Cliente</th><th>Piano</th>
+                <th style={{ textAlign: "right" }}>Turni</th>
+                <th style={{ textAlign: "right" }}>Token in/out</th>
+                <th style={{ textAlign: "right" }}>Costo/mese</th>
+                <th style={{ textAlign: "right" }}>Ricavo/mese</th>
+                <th style={{ textAlign: "right" }}>Margine</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.clients.map((r) => (
+                <tr key={r.client_id}>
+                  <td>
+                    {r.name}
+                    {!r.fully_priced && (
+                      <span className="wpai-badge warn" style={{ marginLeft: 6 }} title="Usa modelli senza prezzo">parziale</span>
+                    )}
+                  </td>
+                  <td>{r.plan || "—"}</td>
+                  <td style={{ textAlign: "right" }}>{tokens(r.turns)}</td>
+                  <td style={{ textAlign: "right", color: "var(--text-muted)" }}>{tokens(r.tokens_in)} / {tokens(r.tokens_out)}</td>
+                  <td style={{ textAlign: "right" }}>{money(r.monthly_cost_cents)}</td>
+                  <td style={{ textAlign: "right" }}>{money(r.monthly_revenue_cents)}</td>
+                  <td style={{ textAlign: "right", color: r.monthly_margin_cents < 0 ? "var(--red)" : "inherit" }}>
+                    {money(r.monthly_margin_cents)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      <ModelPriceEditor prices={prices} onChanged={reload} />
+    </div>
+  );
+}
+
 function HealthView() {
   const [h, setH] = useState(null);
   const [emailResult, setEmailResult] = useState(null);
@@ -855,7 +1061,7 @@ function Dashboard() {
   const [clients, setClients] = useState(null);
   const [plans, setPlans] = useState(null);
   const [selected, setSelected] = useState(null);
-  const [view, setView] = useState("overview"); // overview | revenue | clients | plans | health | audit | problematic | debug
+  const [view, setView] = useState("overview"); // overview | revenue | costs | clients | plans | health | audit | problematic | debug
   const [debugId, setDebugId] = useState(null);
   const [reembedResult, setReembedResult] = useState(null);
 
@@ -894,6 +1100,9 @@ function Dashboard() {
           </button>
           <button className={"wpai-nav-item" + (view === "revenue" ? " active" : "")} onClick={() => setView("revenue")}>
             <TrendingUp size={16} strokeWidth={2.25} /> Ricavi
+          </button>
+          <button className={"wpai-nav-item" + (view === "costs" ? " active" : "")} onClick={() => setView("costs")}>
+            <Sparkles size={16} strokeWidth={2.25} /> Costi e margine
           </button>
           <button className={"wpai-nav-item" + (view === "plans" ? " active" : "")} onClick={() => setView("plans")}>
             <CreditCard size={16} strokeWidth={2.25} /> Piani
@@ -939,6 +1148,7 @@ function Dashboard() {
           />
         )}
         {view === "revenue" && <RevenueView />}
+        {view === "costs" && <CostsView />}
         {view === "plans" && <PlansView plans={plans} onChanged={loadPlans} />}
         {view === "problematic" && <ProblematicView onOpenDebug={openDebug} />}
         {view === "debug" && <DebugView initialId={debugId} />}
