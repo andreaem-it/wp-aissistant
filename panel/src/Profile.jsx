@@ -59,11 +59,40 @@ function OnboardingCard() {
   );
 }
 
+const formatDate = (value) => (value ? new Date(value).toLocaleDateString("it-IT") : "");
+
+/** What the customer needs to know and do about their subscription, or null when all is well. */
+function billingNotice(status, usage) {
+  const on = formatDate(usage?.subscription_expires_at);
+  if (status === "past_due") {
+    return {
+      tone: "danger",
+      text: "Non siamo riusciti ad addebitare l'ultimo pagamento. Il servizio resta attivo mentre riproviamo: aggiorna il metodo di pagamento per non perderlo.",
+    };
+  }
+  if (status === "canceled") {
+    return { tone: "warn", text: "L'abbonamento è terminato: l'account usa ora i limiti del piano Free." };
+  }
+  if (usage?.cancel_at_period_end) {
+    return {
+      tone: "warn",
+      text: on
+        ? `Disdetta registrata: il piano resta attivo fino al ${on}, poi l'account passa al piano Free.`
+        : "Disdetta registrata: alla fine del periodo pagato l'account passa al piano Free.",
+    };
+  }
+  if (status === "trialing") {
+    return { tone: "", text: on ? `Prova gratuita attiva fino al ${on}.` : "Prova gratuita attiva." };
+  }
+  return null;
+}
+
 function BillingCard({ me }) {
   const [plans, setPlans] = useState([]);
   const [busy, setBusy] = useState(null);
   const [usage, setUsage] = useState(null);
   const [billingInterval, setBillingInterval] = useState("month");
+  const [error, setError] = useState("");
 
   useEffect(() => {
     api.plans().then(setPlans).catch(() => setPlans([]));
@@ -72,15 +101,35 @@ function BillingCard({ me }) {
 
   const upgrade = async (planId) => {
     setBusy(planId);
+    setError("");
     try {
       const { checkout_url } = await api.checkout(planId, billingInterval);
       window.location.href = checkout_url;
     } catch {
       setBusy(null);
-      alert("Il pagamento non è al momento disponibile. Riprova più tardi.");
+      setError("Il pagamento non è al momento disponibile. Riprova più tardi.");
     }
   };
 
+  const openPortal = async () => {
+    setBusy("portal");
+    setError("");
+    try {
+      const { portal_url } = await api.billingPortal();
+      window.location.href = portal_url;
+    } catch (e) {
+      setBusy(null);
+      // 409 = this tenant never checked out, so Stripe has nothing to show them
+      setError(
+        e?.status === 409
+          ? "Non hai ancora un abbonamento da gestire. Attiva prima un piano."
+          : "Il portale di fatturazione non è raggiungibile. Riprova più tardi.",
+      );
+    }
+  };
+
+  const status = usage?.billing_status || me.billing_status || "";
+  const notice = billingNotice(status, usage);
   const others = plans.filter((p) => p.id !== me.plan_id && p.purchasable);
 
   return (
@@ -89,8 +138,29 @@ function BillingCard({ me }) {
         <div className="wpai-card-icon"><CreditCard size={16} strokeWidth={2.25} /></div>
         <div>
           <div className="wpai-card-title">Piano — {me.plan_name || "—"}</div>
-          <div className="wpai-card-sub">Stato abbonamento: {me.billing_status || "—"}</div>
+          <div className="wpai-card-sub">Stato abbonamento: {status || "—"}</div>
         </div>
+      </div>
+
+      {notice && (
+        <div
+          className={"wpai-callout" + (notice.tone ? ` ${notice.tone}` : "")}
+          role={notice.tone === "danger" ? "alert" : "status"}
+          style={{ marginTop: 12 }}
+        >
+          <div>{notice.text}</div>
+        </div>
+      )}
+
+      {error && <p className="wpai-error" style={{ marginTop: 12 }}>{error}</p>}
+
+      <div style={{ marginTop: 12 }}>
+        <button className="wpai-btn" onClick={openPortal} disabled={busy === "portal"}>
+          {busy === "portal" ? "Apertura…" : "Gestisci abbonamento e fatture"}
+        </button>
+        <p style={{ color: "var(--text-muted)", fontSize: 12.5, margin: "6px 0 0" }}>
+          Metodo di pagamento, fatture, cambio piano e disdetta sul portale sicuro di Stripe.
+        </p>
       </div>
 
       {usage && (

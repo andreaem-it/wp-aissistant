@@ -1,10 +1,38 @@
 """Billing (Stripe) integration tests. Stripe network calls are monkeypatched, so no real
 account/keys are needed — conftest sets dummy STRIPE_* env so /billing/* is enabled."""
 import types
+from datetime import datetime
 
 from sqlmodel import Session
 
 from app import db
+
+
+def _attach_customer(client_id, customer="cus_portal", subscription="sub_portal"):
+    """Give the tenant a Stripe customer/subscription, as a completed checkout would."""
+    with Session(db.engine) as session:
+        row = session.get(db.Client, client_id)
+        row.stripe_customer_id = customer
+        row.stripe_subscription_id = subscription
+        session.add(row)
+        session.commit()
+
+
+def _capture_emails(monkeypatch):
+    """Collect every outgoing email instead of sending it; returns the growing list."""
+    sent = []
+
+    def fake_send(to, subject, body, **kwargs):
+        sent.append({"to": to, "subject": subject, "body": body})
+        return True
+
+    monkeypatch.setattr("app.email.send_email", fake_send)
+    return sent
+
+
+def _fire(client, monkeypatch, event):
+    monkeypatch.setattr("stripe.Webhook.construct_event", lambda payload, sig, secret: event)
+    return client.post("/billing/webhook", data="{}", headers={"stripe-signature": "x"})
 
 
 def _make_paid_plan(client, price_id="price_123"):
@@ -178,3 +206,235 @@ def test_webhook_subscription_deleted_marks_canceled(client, tenant, monkeypatch
     assert r.status_code == 200
     with Session(db.engine) as session:
         assert session.get(db.Client, tenant["cid"]).billing_status == "canceled"
+
+
+# ---- Billing portal ------------------------------------------------------------------------
+
+
+def test_portal_returns_url(client, tenant, monkeypatch):
+    _attach_customer(tenant["cid"])
+    monkeypatch.setattr(
+        "stripe.billing_portal.Session.create",
+        lambda **kw: types.SimpleNamespace(url="https://billing.stripe/p/session"),
+    )
+
+    response = client.post("/billing/portal", headers=tenant["op"])
+
+    assert response.status_code == 200
+    assert response.json()["portal_url"] == "https://billing.stripe/p/session"
+
+
+def test_portal_without_subscription_is_explicit(client, tenant):
+    # never checked out: say there is nothing to manage rather than open an empty portal
+    response = client.post("/billing/portal", headers=tenant["op"])
+    assert response.status_code == 409
+
+
+def test_portal_reports_stripe_failure(client, tenant, monkeypatch):
+    _attach_customer(tenant["cid"])
+
+    def explode(**kwargs):
+        raise RuntimeError("stripe is down")
+
+    monkeypatch.setattr("stripe.billing_portal.Session.create", explode)
+
+    response = client.post("/billing/portal", headers=tenant["op"])
+
+    # no optimistic confirmation: the operator is told the portal is unavailable
+    assert response.status_code == 502
+
+
+def test_portal_requires_authentication(client, tenant):
+    _attach_customer(tenant["cid"])
+    assert client.post("/billing/portal").status_code in (401, 403)
+
+
+def test_portal_opens_only_the_callers_own_customer(client, tenant, monkeypatch):
+    """Tenant isolation: the customer comes from the caller's session, never from the request."""
+    admin = {"Authorization": "Bearer test-admin"}
+    other = client.post("/admin/clients", headers=admin, json={"name": "Other"}).json()
+    client.post(
+        f"/admin/clients/{other['id']}/operators",
+        headers=admin,
+        json={"email": "op@other.it", "password": "pw"},
+    )
+    other_token = client.post(
+        "/operator/login", json={"email": "op@other.it", "password": "pw"}
+    ).json()["token"]
+    _attach_customer(tenant["cid"], customer="cus_acme", subscription="sub_acme")
+    _attach_customer(other["id"], customer="cus_other", subscription="sub_other")
+    seen = {}
+
+    def create_portal(**kwargs):
+        seen.update(kwargs)
+        return types.SimpleNamespace(url="https://billing.stripe/p/x")
+
+    monkeypatch.setattr("stripe.billing_portal.Session.create", create_portal)
+
+    client.post("/billing/portal", headers={"Authorization": f"Bearer {other_token}"})
+
+    assert seen["customer"] == "cus_other"
+
+
+# ---- Subscription period mirrored onto the client -------------------------------------------
+
+
+def test_webhook_stores_subscription_period(client, tenant, monkeypatch):
+    _attach_customer(tenant["cid"], subscription="sub_period")
+    event = {
+        "type": "customer.subscription.updated",
+        "data": {"object": {
+            "id": "sub_period",
+            "status": "active",
+            "current_period_end": 1789000000,
+            "cancel_at_period_end": False,
+            "metadata": {},
+        }},
+    }
+
+    assert _fire(client, monkeypatch, event).status_code == 200
+
+    with Session(db.engine) as session:
+        row = session.get(db.Client, tenant["cid"])
+        assert row.subscription_period_end == datetime.utcfromtimestamp(1789000000)
+        assert row.subscription_cancel_at_period_end is False
+
+
+def test_usage_reports_period_without_calling_stripe(client, tenant, monkeypatch):
+    """/usage is polled by the WordPress plugin: it must read the row, not call Stripe."""
+    with Session(db.engine) as session:
+        row = session.get(db.Client, tenant["cid"])
+        row.subscription_period_end = datetime(2026, 9, 12, 10, 30)
+        row.subscription_cancel_at_period_end = True
+        row.stripe_subscription_id = "sub_usage"
+        session.add(row)
+        session.commit()
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("/usage must not call Stripe")
+
+    monkeypatch.setattr("stripe.Subscription.retrieve", forbidden)
+
+    payload = client.get("/usage", headers=tenant["op"]).json()
+
+    assert payload["subscription_expires_at"].startswith("2026-09-12T10:30:00")
+    assert payload["cancel_at_period_end"] is True
+
+
+def test_webhook_ignores_a_malformed_period(client, tenant, monkeypatch):
+    _attach_customer(tenant["cid"], subscription="sub_bad")
+    event = {
+        "type": "customer.subscription.updated",
+        "data": {"object": {"id": "sub_bad", "status": "active", "current_period_end": "boom", "metadata": {}}},
+    }
+
+    assert _fire(client, monkeypatch, event).status_code == 200
+
+    with Session(db.engine) as session:
+        # an unreadable date leaves the field untouched rather than storing a wrong one
+        assert session.get(db.Client, tenant["cid"]).subscription_period_end is None
+
+
+# ---- Dunning notifications ------------------------------------------------------------------
+
+
+def test_payment_failure_warns_the_tenant(client, tenant, monkeypatch):
+    _attach_customer(tenant["cid"], subscription="sub_dunning")
+    sent = _capture_emails(monkeypatch)
+    event = {
+        "type": "invoice.payment_failed",
+        "data": {"object": {"subscription": "sub_dunning", "metadata": {}}},
+    }
+
+    assert _fire(client, monkeypatch, event).status_code == 200
+
+    assert [m["to"] for m in sent] == ["op@acme.it"]
+    assert "Pagamento non riuscito" in sent[0]["subject"]
+
+
+def test_trial_ending_warns_the_tenant(client, tenant, monkeypatch):
+    _attach_customer(tenant["cid"], subscription="sub_trial")
+    sent = _capture_emails(monkeypatch)
+    event = {
+        "type": "customer.subscription.trial_will_end",
+        "data": {"object": {"id": "sub_trial", "trial_end": 1789000000, "metadata": {}}},
+    }
+
+    assert _fire(client, monkeypatch, event).status_code == 200
+
+    assert len(sent) == 1
+    assert "prova" in sent[0]["subject"].lower()
+
+
+def test_scheduled_cancellation_is_announced_once(client, tenant, monkeypatch):
+    _attach_customer(tenant["cid"], subscription="sub_sched")
+    sent = _capture_emails(monkeypatch)
+    event = {
+        "type": "customer.subscription.updated",
+        "data": {"object": {
+            "id": "sub_sched",
+            "status": "active",
+            "cancel_at_period_end": True,
+            "current_period_end": 1789000000,
+            "metadata": {},
+        }},
+    }
+
+    assert _fire(client, monkeypatch, event).status_code == 200
+    assert _fire(client, monkeypatch, event).status_code == 200  # Stripe repeats the event
+
+    assert len(sent) == 1  # the customer is told once, not on every subscription update
+    assert "Disdetta" in sent[0]["subject"]
+
+
+def test_cancellation_notifies_the_tenant(client, tenant, monkeypatch):
+    _attach_customer(tenant["cid"], subscription="sub_gone")
+    sent = _capture_emails(monkeypatch)
+    event = {
+        "type": "customer.subscription.deleted",
+        "data": {"object": {"id": "sub_gone", "status": "canceled", "metadata": {}}},
+    }
+
+    assert _fire(client, monkeypatch, event).status_code == 200
+
+    assert len(sent) == 1
+    assert "terminato" in sent[0]["subject"].lower()
+
+
+def test_notification_failure_does_not_break_the_sync(client, tenant, monkeypatch):
+    """Stripe must still get its 200: a broken mailer cannot cause endless webhook retries."""
+    _attach_customer(tenant["cid"], subscription="sub_mailfail")
+
+    def explode(*args, **kwargs):
+        raise RuntimeError("smtp down")
+
+    monkeypatch.setattr("app.email.send_email", explode)
+    event = {
+        "type": "customer.subscription.deleted",
+        "data": {"object": {"id": "sub_mailfail", "status": "canceled", "metadata": {}}},
+    }
+
+    assert _fire(client, monkeypatch, event).status_code == 200
+    with Session(db.engine) as session:
+        assert session.get(db.Client, tenant["cid"]).billing_status == "canceled"
+
+
+def test_billing_events_do_not_notify_other_tenants(client, tenant, monkeypatch):
+    """Tenant isolation on the notification path: only the owning tenant's operators are mailed."""
+    admin = {"Authorization": "Bearer test-admin"}
+    other = client.post("/admin/clients", headers=admin, json={"name": "Bystander"}).json()
+    client.post(
+        f"/admin/clients/{other['id']}/operators",
+        headers=admin,
+        json={"email": "op@bystander.it", "password": "pw"},
+    )
+    _attach_customer(tenant["cid"], subscription="sub_scoped")
+    sent = _capture_emails(monkeypatch)
+    event = {
+        "type": "invoice.payment_failed",
+        "data": {"object": {"subscription": "sub_scoped", "metadata": {}}},
+    }
+
+    assert _fire(client, monkeypatch, event).status_code == 200
+
+    assert [m["to"] for m in sent] == ["op@acme.it"]

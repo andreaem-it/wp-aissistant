@@ -203,6 +203,62 @@ def send_channel_reply(to: str, client_name: str, subject: str, body: str, threa
     return send_email(to, clean_subject, body, headers=headers, reply_to=SUPPORT_EMAIL_ADDRESS)
 
 
+def _billing_link() -> str:
+    """Where the customer goes to fix a billing problem: the panel's own billing section."""
+    return f"{panel_url()}/?section=billing"
+
+
+def _on_date(value) -> str:
+    """' il 12/09/2026' when the date is known, '' otherwise — never an invented deadline."""
+    return f" il {value.strftime('%d/%m/%Y')}" if value else ""
+
+
+def send_payment_failed(to: str) -> bool:
+    """Warn the tenant that a charge failed, while Stripe is still retrying it."""
+    body = (
+        "Non siamo riusciti ad addebitare il tuo abbonamento WP AIssistant.\n\n"
+        "Il servizio resta attivo mentre riproviamo il pagamento. Per evitare interruzioni, "
+        "aggiorna il metodo di pagamento dal pannello:\n"
+        f"{_billing_link()}\n\n"
+        "Se hai già risolto, ignora questa email.\n"
+    )
+    return send_email(to, "Pagamento non riuscito — WP AIssistant", body)
+
+
+def send_trial_ending(to: str, trial_end=None) -> bool:
+    """Remind the tenant that the free trial is about to convert into a paid subscription."""
+    body = (
+        f"Il tuo periodo di prova di WP AIssistant termina{_on_date(trial_end)}.\n\n"
+        "Alla scadenza attiveremo l'abbonamento sul metodo di pagamento che hai registrato. "
+        "Puoi cambiare piano o disdire in qualsiasi momento dal pannello:\n"
+        f"{_billing_link()}\n"
+    )
+    return send_email(to, "La prova sta per terminare — WP AIssistant", body)
+
+
+def send_cancellation_scheduled(to: str, ends_at=None) -> bool:
+    """Confirm a cancellation requested from the billing portal, before it takes effect."""
+    body = (
+        f"Abbiamo registrato la disdetta del tuo abbonamento WP AIssistant.\n\n"
+        f"Il piano resta attivo fino alla fine del periodo già pagato{_on_date(ends_at)}; "
+        "dopo quella data l'account passa al piano Free.\n\n"
+        "Se hai cambiato idea puoi riattivarlo dal pannello:\n"
+        f"{_billing_link()}\n"
+    )
+    return send_email(to, "Disdetta registrata — WP AIssistant", body)
+
+
+def send_subscription_canceled(to: str) -> bool:
+    """Tell the tenant the paid subscription has ended and the account is now on Free."""
+    body = (
+        "Il tuo abbonamento WP AIssistant è terminato e l'account è passato al piano Free.\n\n"
+        "I tuoi dati e le conversazioni restano al loro posto: valgono i limiti del piano Free. "
+        "Puoi riattivare un piano quando vuoi dal pannello:\n"
+        f"{_billing_link()}\n"
+    )
+    return send_email(to, "Abbonamento terminato — WP AIssistant", body)
+
+
 def send_test(to: str) -> bool:
     """Send a diagnostic email so an admin can confirm SMTP works end-to-end."""
     return send_email(

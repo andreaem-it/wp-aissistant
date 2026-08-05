@@ -276,9 +276,18 @@ piani a pagamento):
   il nuovo operatore **verifica l'email** prima di poter accedere (vedi sopra, email transazionali);
   senza SMTP la verifica è disattivata e l'account è subito utilizzabile (niente link non recapitabili).
 - **Checkout upgrade** dal panel (`POST /billing/checkout`) per cambiare piano.
+- **Portale di fatturazione** (`POST /billing/portal`): apre il portale ospitato da Stripe dove il
+  cliente aggiorna il metodo di pagamento, scarica le fatture, cambia piano e disdice da solo.
+  Nessun dato di carta transita da noi; le modifiche rientrano come webhook. Senza un
+  `stripe_customer_id` (tenant che non ha mai fatto checkout) risponde `409`.
 - **Webhook** (`POST /billing/webhook`, firma verificata): sincronizza
   `plan_id`/`billing_status`/`stripe_customer_id`/`stripe_subscription_id` sugli eventi
-  `checkout.session.completed` e `customer.subscription.created/updated/deleted`.
+  `checkout.session.completed` e `customer.subscription.created/updated/deleted`, e specchia
+  `subscription_period_end`/`subscription_cancel_at_period_end` sul client, così `/usage` — che il
+  plugin WordPress interroga — non chiama mai Stripe in linea.
+- **Avvisi al cliente**: su `invoice.payment_failed`, `customer.subscription.trial_will_end`,
+  disdetta programmata e `customer.subscription.deleted` vengono inviate email agli operatori
+  verificati del tenant. Un errore di invio non blocca la sincronizzazione (Stripe riceve `200`).
 - **Enforcement**: su `canceled` il client torna automaticamente al piano Free (i limiti per-piano
   seguono); `past_due` mantiene il piano come periodo di grazia mentre Stripe ritenta.
 
@@ -381,6 +390,7 @@ Per collegare CRM e automazioni ci sono due strade complementari, documentate in
 | `STRICT_PRODUCTION_CONFIG` | `false` | Se `true`, impedisce l'avvio con secret deboli, CORS aperto o dipendenze production mancanti |
 | `INGEST_WORKER_ENABLED` | `true` | Avvia il worker di ingest nel processo dell'app (coda condivisa via Postgres) |
 | `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` | *(non impostati)* | Abilitano `/billing/*`; se assenti il billing è disattivato — setup in [`deploy/STRIPE.md`](deploy/STRIPE.md) |
+| `BILLING_PORTAL_RETURN_URL` | *(usa `BILLING_SUCCESS_URL`)* | Dove Stripe riporta il cliente quando chiude il portale di fatturazione |
 | `DOCS_ENABLED` | `false` | Espone `/docs`, `/redoc`, `/openapi.json` (off di default in prod) |
 | `METRICS_TOKEN` | *(non impostato)* | Se assente `/metrics` è disabilitato; se impostato richiede `Bearer <token>` |
 | `EMAIL_PROVIDER` | `smtp` | `smtp` o `brevo_api`. Usa `brevo_api` (invio via HTTPS) su host che bloccano le porte SMTP in uscita (es. Railway) |

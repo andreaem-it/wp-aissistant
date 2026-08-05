@@ -959,19 +959,14 @@ def _usage(session: Session, client_id: int) -> dict:
     plan = session.get(Plan, client.plan_id) if client and client.plan_id else None
     limit = plan.monthly_message_limit if plan else 0
     used = _monthly_message_count(session, client_id)
-    subscription_expires_at = None
-    if client and client.stripe_subscription_id:
-        try:
-            subscription = stripe.Subscription.retrieve(client.stripe_subscription_id)
-            period_end = getattr(subscription, "current_period_end", None) or subscription.get("current_period_end")
-            if period_end:
-                subscription_expires_at = datetime.utcfromtimestamp(int(period_end)).isoformat() + "Z"
-        except Exception:  # noqa: BLE001 — account status is informative, usage must still load
-            pass
+    # the subscription period is mirrored into the row by the Stripe webhook (app/billing.py):
+    # this endpoint is polled by the WordPress plugin, so it must never call Stripe inline.
+    period_end = client.subscription_period_end if client else None
     return {
         "plan": plan.name if plan else None,
         "billing_status": client.billing_status if client else "",
-        "subscription_expires_at": subscription_expires_at,
+        "subscription_expires_at": period_end.isoformat() + "Z" if period_end else None,
+        "cancel_at_period_end": bool(client.subscription_cancel_at_period_end) if client else False,
         "period": _month_start().strftime("%Y-%m"),
         "limit": limit,  # 0 = unlimited
         "used": used,
@@ -7215,6 +7210,35 @@ def billing_checkout(
         params["customer"] = client.stripe_customer_id
     checkout = stripe.checkout.Session.create(**params)
     return {"checkout_url": checkout.url, "id": checkout.id}
+
+
+@app.post("/billing/portal")
+def billing_portal(
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
+    """Open the Stripe billing portal for the operator's client.
+
+    This is where the customer updates the payment method, downloads invoices, switches plan
+    and cancels — all of it hosted by Stripe, so no card data ever reaches us. The resulting
+    changes come back as subscription.* webhooks, which is what actually updates our records.
+    """
+    if not billing.enabled():
+        raise HTTPException(503, "billing not configured")
+    client = session.get(Client, operator.client_id)
+    if not client or not client.stripe_customer_id:
+        # no Stripe customer yet: the tenant has never checked out, so there is nothing to
+        # manage. Say so explicitly instead of opening an empty portal.
+        raise HTTPException(409, "no active subscription to manage")
+    try:
+        portal = stripe.billing_portal.Session.create(
+            customer=client.stripe_customer_id,
+            return_url=billing.PORTAL_RETURN_URL,
+        )
+    except Exception:  # noqa: BLE001 — Stripe outage or unconfigured portal
+        log(logger, logging.WARNING, "billing.portal_failed", client_id=client.id)
+        raise HTTPException(502, "billing portal temporarily unavailable")
+    return {"portal_url": portal.url}
 
 
 @app.post("/billing/webhook")

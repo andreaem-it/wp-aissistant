@@ -782,6 +782,7 @@ button.wpai-btn.danger:hover { background: #b91c1c; }
   background: var(--surface); color: var(--text); font-size: 12.5px;
 }
 .wpai-callout.warn { background: var(--amber-soft); border-color: transparent; color: var(--amber); }
+.wpai-callout.danger { background: var(--red-soft); border-color: transparent; color: var(--red); }
 .wpai-callout > div { flex: 1; min-width: 160px; }
 .wpai-link-btn {
   border: none; background: none; padding: 0 4px; cursor: pointer;

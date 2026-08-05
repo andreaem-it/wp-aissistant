@@ -45,6 +45,13 @@ class Client(SQLModel, table=True):
     billing_status: str = "active"  # active | trialing | past_due | canceled
     stripe_customer_id: str = ""
     stripe_subscription_id: str = ""
+    # End of the paid period, mirrored from Stripe by the webhook. Stored rather than fetched
+    # so /usage — which the WordPress plugin polls — never depends on a live Stripe call.
+    # None means "no subscription yet" (free plan) or "Stripe has not reported one".
+    subscription_period_end: Optional[datetime] = None
+    # True once the customer asks to cancel from the billing portal: the plan stays usable
+    # until subscription_period_end, then Stripe sends subscription.deleted.
+    subscription_cancel_at_period_end: bool = False
 
 
 class Chunk(SQLModel, table=True):

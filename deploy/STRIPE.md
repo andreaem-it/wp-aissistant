@@ -36,9 +36,24 @@ Stripe → **Developers → API keys** → copia la **Secret key** (`sk_test_…
    - `customer.subscription.created`
    - `customer.subscription.updated`
    - `customer.subscription.deleted`
+   - `customer.subscription.trial_will_end` *(email di preavviso fine prova)*
+   - `invoice.payment_failed` *(email di pagamento non riuscito)*
 4. Dopo la creazione, copia il **Signing secret** (`whsec_…`).
 
-## 5. Env var su Railway (dashboard → Variables)
+## 5. Portale di fatturazione
+
+`POST /billing/portal` apre il portale ospitato da Stripe: è lì che il cliente aggiorna la carta,
+scarica le fatture, cambia piano e disdice, senza passare dal supporto.
+
+1. Stripe → **Settings → Billing → Customer portal**.
+2. Attiva le funzioni che vuoi concedere: metodo di pagamento, storico fatture, aggiornamento
+   dell'abbonamento (elenca i price id consentiti) e cancellazione.
+3. Imposta i link a termini e privacy: Stripe li richiede prima di poter salvare.
+
+> Finché il portale non è configurato in dashboard, `/billing/portal` risponde `502`: il panel
+> mostra "portale non raggiungibile" invece di una schermata rotta.
+
+## 6. Env var su Railway (dashboard → Variables)
 
 | Variabile | Valore |
 |---|---|
@@ -46,11 +61,12 @@ Stripe → **Developers → API keys** → copia la **Secret key** (`sk_test_…
 | `STRIPE_WEBHOOK_SECRET` | `whsec_…` |
 | `BILLING_SUCCESS_URL` | es. `https://app.tuodominio.com/billing?status=success` |
 | `BILLING_CANCEL_URL` | es. `https://app.tuodominio.com/billing?status=cancel` |
+| `BILLING_PORTAL_RETURN_URL` | es. `https://app.tuodominio.com/billing` (default: `BILLING_SUCCESS_URL`) |
 
 > Usa la **dashboard** di Railway, non la CLI in una sessione condivisa: eviti che la chiave
 > finisca nei log. Dopo il salvataggio Railway ridistribuisce il backend.
 
-## 6. Prova end-to-end (test mode)
+## 7. Prova end-to-end (test mode)
 
 1. Come operatore, avvia il checkout:
    ```bash
@@ -64,10 +80,10 @@ Stripe → **Developers → API keys** → copia la **Secret key** (`sk_test_…
 3. Verifica: in Stripe → Webhooks l'evento risulta **consegnato (200)**; e il client ha
    `billing_status = active` e il `plan_id` aggiornato (`GET /admin/clients`).
 
-## 7. Andare in live
+## 8. Andare in live
 
-Ripeti 1–5 con **Test mode OFF**: nuovi price id live, `sk_live_…`, nuovo webhook live con il
-suo `whsec_…`. Aggiorna le env var di Railway.
+Ripeti 1–6 con **Test mode OFF**: nuovi price id live, `sk_live_…`, nuovo webhook live con il
+suo `whsec_…`, portale configurato anche in live. Aggiorna le env var di Railway.
 
 ## Registrazione self-service (signup)
 
@@ -83,6 +99,10 @@ Regola `TRIAL_DAYS` (default 14) tra le env di Railway.
   il cliente continua sul suo piano.
 - **`canceled`** (abbonamento terminato): il client viene **retrocesso automaticamente al piano
   Free** (i limiti Free si applicano subito). Riabbonandosi torna sul piano scelto.
+
+In entrambi i casi il cliente **viene avvisato**: gli operatori verificati del tenant ricevono
+un'email, e nel panel compare un avviso con il pulsante per aprire il portale. Le email
+richiedono SMTP configurato; se manca, il messaggio finisce nei log invece che nella casella.
 
 ## Sicurezza
 

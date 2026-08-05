@@ -211,4 +211,5 @@ export const api = {
   plans: () => call("/billing/plans"),
   checkout: (plan_id, billing_interval = "month") =>
     call("/billing/checkout", { method: "POST", body: { plan_id, billing_interval } }),
+  billingPortal: () => call("/billing/portal", { method: "POST" }),
 };
