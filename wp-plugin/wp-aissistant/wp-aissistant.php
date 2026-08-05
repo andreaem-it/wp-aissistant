@@ -2,13 +2,13 @@
 /**
  * Plugin Name: WP AIssistant
  * Description: Floating AI chat widget backed by a RAG backend, with automatic site content sync.
- * Version: 1.1.9
+ * Version: 1.2.2
  */
 
 if (!defined('ABSPATH')) exit;
 
 define('WPAI_OPTION', 'wpai_settings');
-define('WPAI_VERSION', '1.1.9'); // keep in sync with the "Version:" header above
+define('WPAI_VERSION', '1.2.2'); // keep in sync with the "Version:" header above
 
 // The backend is a single hosted service (not something each site owner runs), so its URL
 // isn't a setting — it's hardcoded here. Override only for local/staging testing by defining
@@ -47,6 +47,14 @@ function wpai_sanitize_settings($input) {
     $themes = ['light', 'dark', 'auto'];
     $positions = ['right', 'left'];
     $motions = ['subtle', 'playful', 'none'];
+    $launcher_styles = ['bubble', 'pill', 'square', 'outline'];
+    $window_styles = ['soft', 'flat', 'glass', 'compact'];
+    $window_sizes = ['compact', 'standard', 'large'];
+    $launcher_icons = ['comment-dots', 'comments', 'sparkles', 'headset'];
+    $launcher_sizes = ['small', 'standard', 'large'];
+    $header_styles = ['tint', 'solid', 'minimal'];
+    $corner_styles = ['soft', 'rounded', 'square'];
+    $font_sizes = ['small', 'standard', 'large'];
     $support_days = array_values(array_intersect(
         array_map('absint', (array) ($input['support_days'] ?? [])),
         [1, 2, 3, 4, 5, 6, 7]
@@ -67,6 +75,17 @@ function wpai_sanitize_settings($input) {
         'widget_theme' => in_array($input['widget_theme'] ?? '', $themes, true) ? $input['widget_theme'] : 'light',
         'widget_position' => in_array($input['widget_position'] ?? '', $positions, true) ? $input['widget_position'] : 'right',
         'widget_motion' => in_array($input['widget_motion'] ?? '', $motions, true) ? $input['widget_motion'] : 'subtle',
+        'widget_launcher_style' => in_array($input['widget_launcher_style'] ?? '', $launcher_styles, true) ? $input['widget_launcher_style'] : 'bubble',
+        'widget_window_style' => in_array($input['widget_window_style'] ?? '', $window_styles, true) ? $input['widget_window_style'] : 'soft',
+        'widget_window_size' => in_array($input['widget_window_size'] ?? '', $window_sizes, true) ? $input['widget_window_size'] : 'standard',
+        'widget_launcher_icon' => in_array($input['widget_launcher_icon'] ?? '', $launcher_icons, true) ? $input['widget_launcher_icon'] : 'comment-dots',
+        'widget_launcher_size' => in_array($input['widget_launcher_size'] ?? '', $launcher_sizes, true) ? $input['widget_launcher_size'] : 'standard',
+        'widget_header_style' => in_array($input['widget_header_style'] ?? '', $header_styles, true) ? $input['widget_header_style'] : 'tint',
+        'widget_corner_style' => in_array($input['widget_corner_style'] ?? '', $corner_styles, true) ? $input['widget_corner_style'] : 'soft',
+        'widget_font_size' => in_array($input['widget_font_size'] ?? '', $font_sizes, true) ? $input['widget_font_size'] : 'standard',
+        'widget_input_placeholder' => sanitize_text_field($input['widget_input_placeholder'] ?? ''),
+        'widget_show_avatar' => empty($input['widget_show_avatar']) ? '0' : '1',
+        'widget_show_status' => empty($input['widget_show_status']) ? '0' : '1',
         'support_hours_enabled' => empty($input['support_hours_enabled']) ? '0' : '1',
         'support_days' => $support_days,
         'support_start' => sanitize_text_field($support_start),
@@ -183,6 +202,23 @@ function wpai_settings_page() {
     $image = $opts['widget_image'] ?? '';
     $usage = wpai_fetch_usage();
     $pct = $usage && !empty($usage['limit']) ? min(100, round($usage['used'] / $usage['limit'] * 100)) : 0;
+    $debug = [
+        'generated_at' => current_time('c'),
+        'site_url' => home_url(),
+        'wordpress_version' => get_bloginfo('version'),
+        'php_version' => PHP_VERSION,
+        'plugin_version' => WPAI_VERSION,
+        'woocommerce' => defined('WC_VERSION') ? WC_VERSION : null,
+        'theme' => wp_get_theme()->get('Name') . ' ' . wp_get_theme()->get('Version'),
+        'timezone' => wp_timezone_string(),
+        'locale' => determine_locale(),
+        'api_connected' => !empty($usage),
+        'plan' => $usage['plan'] ?? null,
+        'billing_status' => $usage['billing_status'] ?? null,
+        'schedule_sync' => get_option('wpai_schedule_sync_status', []),
+        'settings' => array_diff_key($opts, ['api_key' => true]),
+    ];
+    $debug_json = wp_json_encode($debug, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
     ?>
     <div class="wrap wpai-admin">
         <header class="wpai-admin-hero">
@@ -198,18 +234,31 @@ function wpai_settings_page() {
             <a href="<?php echo esc_url(admin_url('admin.php?page=wp-aissistant-sync')); ?>"><i class="fa-solid fa-rotate"></i> Sincronizzazione</a>
         </nav>
 
+        <div class="wpai-settings-tabs" role="tablist" aria-label="Impostazioni del plugin">
+            <button type="button" role="tab" aria-selected="true" data-settings-tab="general"><i class="fa-solid fa-sliders"></i> Generali</button>
+            <button type="button" role="tab" aria-selected="false" data-settings-tab="appearance"><i class="fa-solid fa-palette"></i> Aspetto</button>
+            <button type="button" role="tab" aria-selected="false" data-settings-tab="operators"><i class="fa-solid fa-headset"></i> Operatori</button>
+            <button type="button" role="tab" aria-selected="false" data-settings-tab="support"><i class="fa-regular fa-circle-question"></i> Info e supporto</button>
+        </div>
+
         <div class="wpai-admin-grid">
         <form method="post" action="options.php">
             <?php settings_fields('wpai'); ?>
-            <section class="wpai-admin-card">
+            <section class="wpai-admin-card" data-settings-panel="general">
                 <div class="wpai-card-heading"><span class="wpai-step">01</span><div><h2>Connessione</h2><p>Collega il sito al tuo account WP AIssistant.</p></div></div>
                 <label class="wpai-field" for="api_key"><span>API Key</span>
                     <input type="password" id="api_key" name="<?php echo esc_attr(WPAI_OPTION); ?>[api_key]" value="<?php echo esc_attr($opts['api_key'] ?? ''); ?>" autocomplete="off" />
                     <small>La trovi nel pannello operatore, nella sezione Profilo.</small>
                 </label>
+                <div class="wpai-license-status <?php echo $usage ? 'is-valid' : 'is-invalid'; ?>">
+                    <i class="fa-solid <?php echo $usage ? 'fa-circle-check' : 'fa-circle-exclamation'; ?>"></i>
+                    <div><strong><?php echo $usage ? 'Licenza verificata' : 'Licenza non verificata'; ?></strong>
+                    <span><?php echo $usage ? esc_html('Piano ' . ucfirst($usage['plan'] ?: 'attivo') . ' · stato ' . (($usage['billing_status'] ?? '') ?: 'attivo')) : 'Controlla la API Key e riprova.'; ?></span>
+                    <?php if (!empty($usage['subscription_expires_at'])) : ?><small>Scadenza / rinnovo: <?php echo esc_html(wp_date(get_option('date_format'), strtotime($usage['subscription_expires_at']))); ?></small><?php endif; ?></div>
+                </div>
             </section>
 
-            <section class="wpai-admin-card">
+            <section class="wpai-admin-card" data-settings-panel="appearance" hidden>
                 <div class="wpai-card-heading"><span class="wpai-step">02</span><div><h2>Identità</h2><p>Dai un nome e una voce riconoscibile all'assistente.</p></div></div>
                 <div class="wpai-fields-two">
                     <label class="wpai-field" for="widget_title"><span>Nome assistente</span>
@@ -235,7 +284,7 @@ function wpai_settings_page() {
                 </div></div>
             </section>
 
-            <section class="wpai-admin-card">
+            <section class="wpai-admin-card" data-settings-panel="appearance" hidden>
                 <div class="wpai-card-heading"><span class="wpai-step">03</span><div><h2>Look & feel</h2><p>Adatta il widget al design del sito.</p></div></div>
                 <div class="wpai-fields-two">
                     <label class="wpai-field" for="widget_color"><span>Colore principale</span><div class="wpai-color-control">
@@ -257,13 +306,63 @@ function wpai_settings_page() {
                         <option value="none"<?php selected($opts['widget_motion'] ?? 'subtle', 'none'); ?>>Disattivate</option>
                     </select></label>
                 </div>
+                <div class="wpai-fields-two">
+                    <label class="wpai-field" for="widget_launcher_style"><span>Stile pulsante chat</span><select id="widget_launcher_style" data-preview="launcher-style" name="<?php echo esc_attr(WPAI_OPTION); ?>[widget_launcher_style]">
+                        <option value="bubble"<?php selected($opts['widget_launcher_style'] ?? 'bubble', 'bubble'); ?>>Bolla morbida</option>
+                        <option value="pill"<?php selected($opts['widget_launcher_style'] ?? 'bubble', 'pill'); ?>>Pillola</option>
+                        <option value="square"<?php selected($opts['widget_launcher_style'] ?? 'bubble', 'square'); ?>>Quadrato</option>
+                        <option value="outline"<?php selected($opts['widget_launcher_style'] ?? 'bubble', 'outline'); ?>>Contorno</option>
+                    </select></label>
+                    <label class="wpai-field" for="widget_window_style"><span>Stile finestra</span><select id="widget_window_style" data-preview="window-style" name="<?php echo esc_attr(WPAI_OPTION); ?>[widget_window_style]">
+                        <option value="soft"<?php selected($opts['widget_window_style'] ?? 'soft', 'soft'); ?>>Morbida</option>
+                        <option value="flat"<?php selected($opts['widget_window_style'] ?? 'soft', 'flat'); ?>>Essenziale</option>
+                        <option value="glass"<?php selected($opts['widget_window_style'] ?? 'soft', 'glass'); ?>>Vetro</option>
+                        <option value="compact"<?php selected($opts['widget_window_style'] ?? 'soft', 'compact'); ?>>Compatta</option>
+                    </select></label>
+                    <label class="wpai-field" for="widget_window_size"><span>Dimensione finestra</span><select id="widget_window_size" name="<?php echo esc_attr(WPAI_OPTION); ?>[widget_window_size]">
+                        <option value="compact"<?php selected($opts['widget_window_size'] ?? 'standard', 'compact'); ?>>Compatta</option>
+                        <option value="standard"<?php selected($opts['widget_window_size'] ?? 'standard', 'standard'); ?>>Standard</option>
+                        <option value="large"<?php selected($opts['widget_window_size'] ?? 'standard', 'large'); ?>>Ampia</option>
+                    </select></label>
+                    <label class="wpai-field" for="widget_launcher_icon"><span>Icona pulsante</span><select id="widget_launcher_icon" name="<?php echo esc_attr(WPAI_OPTION); ?>[widget_launcher_icon]">
+                        <option value="comment-dots"<?php selected($opts['widget_launcher_icon'] ?? 'comment-dots', 'comment-dots'); ?>>Chat</option>
+                        <option value="comments"<?php selected($opts['widget_launcher_icon'] ?? 'comment-dots', 'comments'); ?>>Conversazione</option>
+                        <option value="sparkles"<?php selected($opts['widget_launcher_icon'] ?? 'comment-dots', 'sparkles'); ?>>AI / scintille</option>
+                        <option value="headset"<?php selected($opts['widget_launcher_icon'] ?? 'comment-dots', 'headset'); ?>>Supporto</option>
+                    </select></label>
+                    <label class="wpai-field" for="widget_launcher_size"><span>Dimensione pulsante</span><select id="widget_launcher_size" name="<?php echo esc_attr(WPAI_OPTION); ?>[widget_launcher_size]">
+                        <option value="small"<?php selected($opts['widget_launcher_size'] ?? 'standard', 'small'); ?>>Piccola</option>
+                        <option value="standard"<?php selected($opts['widget_launcher_size'] ?? 'standard', 'standard'); ?>>Standard</option>
+                        <option value="large"<?php selected($opts['widget_launcher_size'] ?? 'standard', 'large'); ?>>Grande</option>
+                    </select></label>
+                    <label class="wpai-field" for="widget_header_style"><span>Header della chat</span><select id="widget_header_style" name="<?php echo esc_attr(WPAI_OPTION); ?>[widget_header_style]">
+                        <option value="tint"<?php selected($opts['widget_header_style'] ?? 'tint', 'tint'); ?>>Tinta leggera</option>
+                        <option value="solid"<?php selected($opts['widget_header_style'] ?? 'tint', 'solid'); ?>>Colore pieno</option>
+                        <option value="minimal"<?php selected($opts['widget_header_style'] ?? 'tint', 'minimal'); ?>>Minimale</option>
+                    </select></label>
+                    <label class="wpai-field" for="widget_corner_style"><span>Angoli finestra</span><select id="widget_corner_style" name="<?php echo esc_attr(WPAI_OPTION); ?>[widget_corner_style]">
+                        <option value="soft"<?php selected($opts['widget_corner_style'] ?? 'soft', 'soft'); ?>>Morbidi</option>
+                        <option value="rounded"<?php selected($opts['widget_corner_style'] ?? 'soft', 'rounded'); ?>>Arrotondati</option>
+                        <option value="square"<?php selected($opts['widget_corner_style'] ?? 'soft', 'square'); ?>>Squadrati</option>
+                    </select></label>
+                    <label class="wpai-field" for="widget_font_size"><span>Dimensione testo</span><select id="widget_font_size" name="<?php echo esc_attr(WPAI_OPTION); ?>[widget_font_size]">
+                        <option value="small"<?php selected($opts['widget_font_size'] ?? 'standard', 'small'); ?>>Compatta</option>
+                        <option value="standard"<?php selected($opts['widget_font_size'] ?? 'standard', 'standard'); ?>>Standard</option>
+                        <option value="large"<?php selected($opts['widget_font_size'] ?? 'standard', 'large'); ?>>Ampia</option>
+                    </select></label>
+                </div>
+                <label class="wpai-field" for="widget_input_placeholder"><span>Testo nel campo di scrittura</span><input type="text" id="widget_input_placeholder" name="<?php echo esc_attr(WPAI_OPTION); ?>[widget_input_placeholder]" value="<?php echo esc_attr($opts['widget_input_placeholder'] ?? ''); ?>" placeholder="Scrivi un messaggio…" /></label>
+                <div class="wpai-switch-grid">
+                    <label class="wpai-switch-row" for="widget_show_avatar"><span><strong>Mostra avatar</strong><small>Visualizza l'immagine dell'assistente nell'header.</small></span><input type="checkbox" id="widget_show_avatar" name="<?php echo esc_attr(WPAI_OPTION); ?>[widget_show_avatar]" value="1"<?php checked($opts['widget_show_avatar'] ?? '1', '1'); ?> /></label>
+                    <label class="wpai-switch-row" for="widget_show_status"><span><strong>Mostra stato</strong><small>Visualizza il sottotitolo e l'indicatore di disponibilità.</small></span><input type="checkbox" id="widget_show_status" name="<?php echo esc_attr(WPAI_OPTION); ?>[widget_show_status]" value="1"<?php checked($opts['widget_show_status'] ?? '1', '1'); ?> /></label>
+                </div>
                 <label class="wpai-field" for="widget_launcher_label"><span>Etichetta del pulsante</span>
                     <input type="text" id="widget_launcher_label" data-preview="launcher" name="<?php echo esc_attr(WPAI_OPTION); ?>[widget_launcher_label]" value="<?php echo esc_attr($opts['widget_launcher_label'] ?? ''); ?>" placeholder="Come possiamo aiutarti?" />
                     <small>Lascia vuoto per mostrare soltanto l'icona.</small>
                 </label>
             </section>
 
-            <section class="wpai-admin-card">
+            <section class="wpai-admin-card" data-settings-panel="operators" hidden>
                 <div class="wpai-card-heading"><span class="wpai-step">04</span><div><h2>Disponibilità operatori</h2><p>Decidi quando la chat può passare in tempo reale al supporto umano.</p></div></div>
                 <label class="wpai-switch-row" for="support_hours_enabled">
                     <span><strong>Usa gli orari del supporto</strong><small>Fuori orario il visitatore potrà aprire un ticket asincrono.</small></span>
@@ -293,11 +392,21 @@ function wpai_settings_page() {
                 </div>
             </section>
 
-            <section class="wpai-admin-card">
+            <section class="wpai-admin-card" data-settings-panel="appearance" hidden>
                 <div class="wpai-card-heading"><span class="wpai-step">05</span><div><h2>Privacy</h2><p>Collega l'informativa mostrata nel widget.</p></div></div>
                 <label class="wpai-field" for="widget_privacy_url"><span>URL Privacy Policy</span>
                     <input type="url" id="widget_privacy_url" name="<?php echo esc_attr(WPAI_OPTION); ?>[widget_privacy_url]" value="<?php echo esc_attr($opts['widget_privacy_url'] ?? ''); ?>" placeholder="https://tuosito.it/privacy" />
                 </label>
+            </section>
+            <section class="wpai-admin-card" data-settings-panel="support" hidden>
+                <div class="wpai-card-heading"><span class="wpai-step"><i class="fa-regular fa-life-ring"></i></span><div><h2>Info e supporto</h2><p>Assistenza, versione e informazioni diagnostiche in un unico posto.</p></div></div>
+                <div class="wpai-support-links">
+                    <a href="https://panel.wpaissistant.it/tickets" target="_blank" rel="noopener"><i class="fa-solid fa-ticket"></i><span><strong>Apri un ticket</strong><small>Accedi all'helpdesk WP AIssistant</small></span></a>
+                    <a href="mailto:support@wpaissistant.it"><i class="fa-regular fa-envelope"></i><span><strong>Scrivi al supporto</strong><small>support@wpaissistant.it</small></span></a>
+                </div>
+                <dl class="wpai-plugin-info"><div><dt>Versione plugin</dt><dd><?php echo esc_html(WPAI_VERSION); ?></dd></div><div><dt>WordPress</dt><dd><?php echo esc_html(get_bloginfo('version')); ?></dd></div><div><dt>PHP</dt><dd><?php echo esc_html(PHP_VERSION); ?></dd></div></dl>
+                <label class="wpai-field"><span>Parametri di debug</span><textarea id="wpai-debug-data" rows="9" readonly><?php echo esc_textarea($debug_json); ?></textarea><small>API Key e segreti non sono inclusi.</small></label>
+                <div class="wpai-debug-actions"><button type="button" class="button" id="wpai-copy-debug"><i class="fa-regular fa-copy"></i> Copia</button><button type="button" class="button button-primary" id="wpai-download-debug"><i class="fa-solid fa-download"></i> Esporta JSON</button></div>
             </section>
             <div class="wpai-savebar"><span>Le modifiche vengono applicate al widget dopo il salvataggio.</span><?php submit_button('Salva modifiche', 'primary', 'submit', false); ?></div>
         </form>
@@ -308,7 +417,7 @@ function wpai_settings_page() {
                     <div class="wpai-preview-window" id="wpai-preview-window">
                         <div class="wpai-preview-header"><img src="<?php echo esc_url(wpai_widget_image()); ?>" alt=""><div><strong><?php echo esc_html(wpai_widget_title()); ?></strong><small><?php echo esc_html(wpai_setting('widget_subtitle', 'Di solito risponde subito')); ?></small></div><i class="fa-solid fa-xmark"></i></div>
                         <div class="wpai-preview-body"><small class="wpai-preview-disclosure"><span class="wpai-preview-disclosure-copy"><?php echo esc_html(wpai_setting('widget_ai_disclosure', 'Stai parlando con un assistente virtuale basato su intelligenza artificiale.')); ?></span><?php echo wpai_opt('widget_privacy_url') ? ' Proseguendo accetti la nostra privacy policy.' : ''; ?></small><span><?php echo esc_html(wpai_setting('widget_welcome', 'Ciao! Come posso aiutarti oggi?')); ?></span></div>
-                        <div class="wpai-preview-input">Scrivi un messaggio… <i class="fa-solid fa-arrow-up"></i></div>
+                        <div class="wpai-preview-input"><span>Scrivi un messaggio…</span><i class="fa-solid fa-arrow-up"></i></div>
                     </div>
                     <div class="wpai-preview-launcher"><span><?php echo esc_html(wpai_setting('widget_launcher_label')); ?></span><i class="fa-solid fa-comment-dots"></i></div>
                 </div>
@@ -398,6 +507,17 @@ add_action('wp_enqueue_scripts', function () {
         'theme' => wpai_setting('widget_theme', 'light'),
         'position' => wpai_setting('widget_position', 'right'),
         'motion' => wpai_setting('widget_motion', 'subtle'),
+        'launcherStyle' => wpai_setting('widget_launcher_style', 'bubble'),
+        'windowStyle' => wpai_setting('widget_window_style', 'soft'),
+        'windowSize' => wpai_setting('widget_window_size', 'standard'),
+        'launcherIcon' => wpai_setting('widget_launcher_icon', 'comment-dots'),
+        'launcherSize' => wpai_setting('widget_launcher_size', 'standard'),
+        'headerStyle' => wpai_setting('widget_header_style', 'tint'),
+        'cornerStyle' => wpai_setting('widget_corner_style', 'soft'),
+        'fontSize' => wpai_setting('widget_font_size', 'standard'),
+        'inputPlaceholder' => wpai_setting('widget_input_placeholder', ''),
+        'showAvatar' => wpai_setting('widget_show_avatar', '1') === '1',
+        'showStatus' => wpai_setting('widget_show_status', '1') === '1',
         'support' => [
             'enabled' => wpai_setting('support_hours_enabled', '0') === '1',
             'days' => array_map('intval', (array) wpai_setting('support_days', [1, 2, 3, 4, 5])),

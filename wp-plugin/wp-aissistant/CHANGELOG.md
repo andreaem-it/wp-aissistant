@@ -2,6 +2,19 @@
 
 Tutte le modifiche rilevanti del plugin WP AIssistant.
 
+## [1.2.2] - 2026-08-04
+
+- Anteprima live estesa a ogni nuova opzione di Aspetto.
+
+## [1.2.0] - 2026-08-04
+
+- Impostazioni riorganizzate in Generali, Aspetto, Operatori e Info e supporto.
+- Quattro preset per il pulsante di apertura, quattro stili di finestra e tre dimensioni.
+- Anteprima live aggiornata per launcher e finestra.
+- Connessione arricchita con verifica della licenza, piano, stato e scadenza/rinnovo.
+- Link diretti all'helpdesk e al supporto email.
+- Export JSON dei parametri diagnostici di sito e plugin, senza credenziali o segreti.
+
 ## [1.1.9] - 2026-08-02
 
 - Aggiunti A/B test per i messaggi proattivi, con assegnazione stabile per visitatore.

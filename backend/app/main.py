@@ -959,8 +959,19 @@ def _usage(session: Session, client_id: int) -> dict:
     plan = session.get(Plan, client.plan_id) if client and client.plan_id else None
     limit = plan.monthly_message_limit if plan else 0
     used = _monthly_message_count(session, client_id)
+    subscription_expires_at = None
+    if client and client.stripe_subscription_id:
+        try:
+            subscription = stripe.Subscription.retrieve(client.stripe_subscription_id)
+            period_end = getattr(subscription, "current_period_end", None) or subscription.get("current_period_end")
+            if period_end:
+                subscription_expires_at = datetime.utcfromtimestamp(int(period_end)).isoformat() + "Z"
+        except Exception:  # noqa: BLE001 — account status is informative, usage must still load
+            pass
     return {
         "plan": plan.name if plan else None,
+        "billing_status": client.billing_status if client else "",
+        "subscription_expires_at": subscription_expires_at,
         "period": _month_start().strftime("%Y-%m"),
         "limit": limit,  # 0 = unlimited
         "used": used,

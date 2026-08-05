@@ -990,6 +990,13 @@
       WPAI.position === "left" ? "wpai-left" : "wpai-right",
       "wpai-theme-" + (["light", "dark", "auto"].includes(WPAI.theme) ? WPAI.theme : "light"),
       "wpai-motion-" + (["subtle", "playful", "none"].includes(WPAI.motion) ? WPAI.motion : "subtle"),
+      "wpai-launcher-" + (["bubble", "pill", "square", "outline"].includes(WPAI.launcherStyle) ? WPAI.launcherStyle : "bubble"),
+      "wpai-window-" + (["soft", "flat", "glass", "compact"].includes(WPAI.windowStyle) ? WPAI.windowStyle : "soft"),
+      "wpai-size-" + (["compact", "standard", "large"].includes(WPAI.windowSize) ? WPAI.windowSize : "standard"),
+      "wpai-launcher-size-" + (["small", "standard", "large"].includes(WPAI.launcherSize) ? WPAI.launcherSize : "standard"),
+      "wpai-header-" + (["tint", "solid", "minimal"].includes(WPAI.headerStyle) ? WPAI.headerStyle : "tint"),
+      "wpai-corners-" + (["soft", "rounded", "square"].includes(WPAI.cornerStyle) ? WPAI.cornerStyle : "soft"),
+      "wpai-font-" + (["small", "standard", "large"].includes(WPAI.fontSize) ? WPAI.fontSize : "standard"),
     ].join(" ");
     root.style.setProperty("--wpai-accent", /^#[0-9a-f]{6}$/i.test(WPAI.color || "") ? WPAI.color : "#635bff");
     document.body.appendChild(root);
@@ -1003,7 +1010,7 @@
     const toggleLabel = document.createElement("span");
     toggleLabel.textContent = WPAI.launcherLabel || "";
     const toggleIcon = document.createElement("i");
-    toggleIcon.className = "fa-solid fa-comment-dots";
+    toggleIcon.className = "fa-solid fa-" + (["comment-dots", "comments", "sparkles", "headset"].includes(WPAI.launcherIcon) ? WPAI.launcherIcon : "comment-dots");
     toggleIcon.setAttribute("aria-hidden", "true");
     if (WPAI.launcherLabel) {
       toggle.classList.add("has-label");
@@ -1030,7 +1037,7 @@
     const subtitle = document.createElement("small");
     subtitle.textContent = WPAI.subtitle;
     headerCopy.appendChild(heading);
-    headerCopy.appendChild(subtitle);
+    if (WPAI.showStatus !== false) headerCopy.appendChild(subtitle);
     const close = document.createElement("button");
     close.id = "wpai-close";
     close.type = "button";
@@ -1039,7 +1046,7 @@
     closeIcon.className = "fa-solid fa-xmark";
     closeIcon.setAttribute("aria-hidden", "true");
     close.appendChild(closeIcon);
-    header.appendChild(avatar);
+    if (WPAI.showAvatar !== false) header.appendChild(avatar);
     header.appendChild(headerCopy);
     header.appendChild(close);
 
@@ -1068,7 +1075,7 @@
     const input = document.createElement("input");
     input.id = "wpai-input";
     input.type = "text";
-    input.placeholder = t("chat.placeholder");
+    input.placeholder = WPAI.inputPlaceholder || t("chat.placeholder");
     input.autocomplete = "off";
     input.setAttribute("aria-label", "Messaggio");
     const send = document.createElement("button");

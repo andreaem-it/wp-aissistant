@@ -3,7 +3,7 @@ Tags: ai, chatbot, customer-support, woocommerce, rag
 Requires at least: 5.8
 Tested up to: 6.5
 Requires PHP: 7.4
-Stable tag: 1.1.9
+Stable tag: 1.2.2
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -19,7 +19,7 @@ conversazione viene inoltrata a un operatore umano tramite ticket.
 
 Funzionalità principali:
 
-* Widget di chat flottante personalizzabile (identità, colore, tema, posizione e animazioni).
+* Widget personalizzabile con identità, colore, tema, posizione, animazioni e preset per pulsante e finestra.
 * Anteprima live nel pannello amministrativo.
 * Sincronizzazione automatica di pagine, articoli e prodotti WooCommerce alla pubblicazione.
 * Pulsante di sincronizzazione completa per il primo caricamento / re-sync.
@@ -37,6 +37,12 @@ Richiede un'istanza del backend WP AIssistant raggiungibile e una API Key del cl
 4. In *AI Assistant → Sincronizzazione* usa **Sincronizza ora** per il primo caricamento.
 
 == Changelog ==
+
+= 1.2.0 =
+* Impostazioni organizzate nelle schede Generali, Aspetto, Operatori e Info e supporto.
+* Nuovi stili per launcher, finestra e dimensioni del widget con anteprima live.
+* Verifica licenza con piano, stato e scadenza/rinnovo dell'abbonamento.
+* Esportazione diagnostica JSON senza API Key o segreti.
 
 = 1.1.8 =
 * Gli orari del supporto e il fuso WordPress vengono sincronizzati automaticamente con il backend.
