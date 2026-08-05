@@ -10,6 +10,7 @@ import Signup from "./Signup.jsx";
 import Settings from "./Settings.jsx";
 import Developers from "./Developers.jsx";
 import Automations from "./Automations.jsx";
+import ThemeToggle from "./ThemeToggle.jsx";
 import Leads from "./Leads.jsx";
 import { VerifyEmail, ResetPassword, ForgotPassword } from "./Auth.jsx";
 
@@ -198,7 +199,13 @@ export default function App() {
             </button>
           ))}
         </div>
-        <div className={"wpai-sidebar-footer" + (tab === "profile" ? " active" : "")}>
+        {/* the toggle carries the auto margin; the footer's own is cleared so the free space
+            is not split between two auto margins, which would strand both mid-sidebar */}
+        <div style={{ marginTop: "auto", paddingTop: 14 }}><ThemeToggle /></div>
+        <div
+          className={"wpai-sidebar-footer" + (tab === "profile" ? " active" : "")}
+          style={{ marginTop: 0 }}
+        >
           <button className="wpai-footer-profile" onClick={() => setTab("profile")}>
             <div className="wpai-avatar">{initials}</div>
             <div className="wpai-sidebar-email">{email}</div>

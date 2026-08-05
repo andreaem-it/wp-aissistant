@@ -17,6 +17,24 @@
       rel="stylesheet"
     />
     <title>WP AIssistant — Pannello</title>
+    <script>
+      // Paint the right theme before the first frame. The module bundle is deferred, so
+      // resolving the theme only in React would flash a white page at anyone using dark mode.
+      // Deliberately duplicates the small resolution rule in src/theme.js — the alternative is
+      // the flash, and both sides are covered by theme.test.js.
+      (function () {
+        try {
+          var stored = localStorage.getItem("wpai_panel_theme");
+          var pref = ["light", "dark", "auto"].indexOf(stored) >= 0 ? stored : "auto";
+          var dark = pref === "dark" || (pref === "auto"
+            && window.matchMedia("(prefers-color-scheme: dark)").matches);
+          document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
+          document.documentElement.setAttribute("data-theme-preference", pref);
+        } catch (e) {
+          document.documentElement.setAttribute("data-theme", "light");
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

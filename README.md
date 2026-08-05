@@ -247,6 +247,12 @@ cd panel
 npm install
 npm run dev                     # http://localhost:5173
 ```
+Il panel ha un **tema chiaro/scuro/automatico**, con il selettore in fondo alla barra laterale
+(sia operatore sia superadmin). La preferenza vive nel browser (`localStorage`), non nell'account:
+appartiene allo schermo che stai usando. Su «automatico» segue il sistema operativo e reagisce
+dal vivo se cambia. Il tema viene applicato da uno script inline in `index.html` prima del primo
+frame, altrimenti chi usa il tema scuro vedrebbe un lampo bianco a ogni caricamento.
+
 Configura il backend con `VITE_API_BASE` (default `http://localhost:8000`). All'avvio
 accedi con **email e password dell'operatore** (crealo prima via endpoint admin, vedi sopra).
 

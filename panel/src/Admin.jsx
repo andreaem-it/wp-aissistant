@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { getAdminKey, setAdminKey, clearAdminKey, adminApi } from "./adminApi.js";
 import { MiniBars, Breakdown } from "./Charts.jsx";
+import ThemeToggle from "./ThemeToggle.jsx";
 
 function formatPrice(cents, currency) {
   if (!cents) return "Gratis";
@@ -1118,7 +1119,7 @@ function Dashboard() {
     <div className="wpai-app">
       <nav className="wpai-sidebar">
         <div className="wpai-brand">
-          <div className="wpai-brand-mark" style={{ background: "linear-gradient(135deg, #16161f, #4a4a5a)" }} />
+          <div className="wpai-brand-mark" style={{ background: "var(--brand-mark)" }} />
           <div className="wpai-brand-name"><Shield size={13} style={{ verticalAlign: -2, marginRight: 4 }} />Superadmin</div>
         </div>
         <div className="wpai-nav">
@@ -1151,6 +1152,7 @@ function Dashboard() {
           </button>
         </div>
         <div style={{ marginTop: "auto" }}>
+          <div style={{ marginBottom: 12 }}><ThemeToggle /></div>
           <button
             className="wpai-btn ghost"
             style={{ marginBottom: 10 }}
