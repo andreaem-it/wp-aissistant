@@ -1,9 +1,10 @@
 # Handoff — stato del progetto e regole per chi prosegue
 
-> Documento di sincronizzazione scritto il **1 agosto 2026**, dopo la chiusura dell'intero
-> backlog P1. Serve a chi (persona o assistente AI) riprende il lavoro senza aver seguito la
+> Documento di sincronizzazione, riallineato il **5 agosto 2026** dopo la chiusura del grosso del
+> backlog P2. Serve a chi (persona o assistente AI) riprende il lavoro senza aver seguito la
 > sessione precedente. È una guida al **contesto e alle convenzioni**: la verità sul codice sta
 > nel codice, la verità sul prodotto in [`competitor-feature-backlog.md`](competitor-feature-backlog.md).
+> Se i numeri qui sotto non tornano più, ricontali invece di fidarti: questo file invecchia.
 
 ## 1. Cos'è il progetto
 
@@ -23,31 +24,37 @@ llama per la chat), panel e sito su Cloudflare Pages. CI/CD su GitHub Actions.
 
 ## 2. Stato al momento dell'handoff
 
-**P0 (produzione) e P1 (differenziazione) sono chiusi e rilasciati.** Cicli 2 e 3 del backlog
-completati. Tutto è su `main`, con CI, deploy panel e CD immagine verdi, e verificato in
-produzione.
+**P0 e P1 sono chiusi.** Del **P2 è rilasciato quasi tutto il codice**: modello di canale
+unificato, email, WhatsApp, Messenger/Instagram, allegati inbound come file privati, CRM,
+help desk esterni, notifiche push operatore e SDK browser pubblicato su npm.
 
-Ultimi 13 commit (dal più recente):
+Attenzione alla distinzione che conta:
+
+> Sui canali il codice è completo e testato, ma **nessuno di essi è attivo in produzione**:
+> mancano le credenziali dei provider, i webhook registrati e i worker Meta distribuiti.
+> "Rilasciato nel repo" non vuol dire "funzionante per un cliente".
+
+Restano scoperti: **marketplace/connettori**, la **parte commerciale** (fatturato, margini,
+azioni commerciali nel superadmin) e il filone **Voice**.
+
+Ultimi commit rilevanti (dal più recente):
 
 ```
-1168770 feat(i18n): answer visitors in their own language
-b3ba361 feat(analytics): add outcome metrics and knowledge gap detection
-ef5ddd8 feat(leads): add lead capture forms with consent and scoring
-6dfe44a feat(widget): add contextual proactive messages
-a597b5f feat(automations): add no-code workflows on events
-caf08b2 test: reset the public API rate limiter between tests
-5255912 feat(api): add versioned public API and signed webhooks
-9af1a72 fix(helpdesk): bound the in-memory presence store
-f1991e3 feat(helpdesk): add post-conversation CSAT rating and report
-df4d66b feat(helpdesk): add conversation tags and AI classification
-c732d53 feat(helpdesk): add internal notes, mentions and presence
-d1c39dc feat(helpdesk): add saved inbox views and ordering
-7df2715 feat(helpdesk): add SLA policies and automatic routing
+02d0387 feat: let customers manage their own subscription
+45ef930 feat: restyle plugin settings and expose licence status
+ebc2f2d feat: add the Messenger and Instagram worker
+22a3aea feat: forward channel media from the workers
+2736482 feat: store inbound channel media as private attachments
+f7f0678 feat: package the browser sdk for npm
+88a4c39 feat: draft knowledge articles from recurring gaps
+36ae576 feat: schedule delayed workflow actions
+5c81160 feat: archive and promote proactive experiments
+c6a1e2c feat: cluster knowledge gaps locally
 ```
 
-Dimensioni attuali: 141 endpoint e 5863 righe in `backend/app/main.py`, 34 tabelle in
-`backend/app/db.py`, migrazioni fino a `0029`, 41 file di test backend (355 test), 26 test
-panel, 7 test plugin. Plugin alla versione **1.1.7**.
+Dimensioni attuali: **172 endpoint e 7797 righe** in `backend/app/main.py`, **47 tabelle** in
+`backend/app/db.py`, migrazioni fino a **`0045`**, 52 file di test backend (**466 test**), 29 test
+panel, 7 test plugin. Plugin alla versione **1.2.2**.
 
 ## 3. Moduli backend e perché esistono
 
@@ -63,17 +70,29 @@ con un vincolo di progetto preciso da rispettare se lo modifichi:
 | `analytics.py` | Metriche di esito e gap della knowledge base | I gap sono **derivati** dai log a ogni interrogazione, non memorizzati: l'elenco deve accorciarsi da sé quando il contenuto viene aggiunto. Persiste solo la decisione dell'operatore |
 | `language.py` | Rilevamento lingua del visitatore | Deterministico, nessuna chiamata AI sul percorso caldo. Se il testo non dice abbastanza si ripiega sul locale, **non si indovina** |
 | `i18n.py` | Testi visitor-facing prodotti dal backend | Le risposte deterministiche (ordini, carrello) sono **tradotte a template**, mai rigenerate: un dato d'ordine non deve cambiare cambiando lingua |
-| `worker.py` | Coda ingest asincrona + classificazione | Job idempotenti, retry con backoff, lease recuperabili |
-| `rag.py`, `llm.py`, `billing.py`, `security.py`, `ratelimit.py`, `email.py`, `notify.py`, `metrics.py`, `production_config.py` | Preesistenti | — |
+| `worker.py` | Coda ingest asincrona + classificazione + azioni workflow ritardate | Job idempotenti, retry con backoff, lease recuperabili |
+| `business_hours.py` | Calendario lavorativo del tenant | DST-safe e festività italiane calcolate, non hardcodate. Mette in pausa le scadenze SLA fuori orario |
+| `attachments.py` | File privati su Cloudflare R2 | Nessun file è mai pubblico: download autenticato e tenant-scoped, cancellazione inclusa nel flusso GDPR |
+| `whatsapp.py`, `meta_messaging.py`, `email.py` (canale) | Adapter di canale **provider-neutral** | Il backend parla un contratto normalizzato: credenziali Meta/provider stanno **fuori**, negli adapter Cloudflare. Deduplicazione sull'id messaggio del provider |
+| `crm.py`, `helpdesk.py` | Connettori esterni per tenant | Le credenziali del provider **non entrano nel database**: vivono nell'adapter. Qui resta solo la mappatura e l'esito dell'ultimo invio |
+| `push.py` | Notifiche push agli operatori | Sottoscrizioni per dispositivo, endpoint scaduti rimossi da soli |
+| `billing.py` | Stripe: piani, stato, portale, avvisi | Il webhook è l'**unica** fonte di verità sullo stato dell'abbonamento; un'email fallita non deve far ritentare l'evento a Stripe |
+| `rag.py`, `llm.py`, `security.py`, `ratelimit.py`, `notify.py`, `metrics.py`, `production_config.py` | Preesistenti | — |
 
 ### Thread in background (avviati nel `lifespan` di `main.py`)
 
-Worker ingest, purge retention, monitor SLA, dispatcher webhook. Ognuno ha un env var per
-disattivarlo; **i test li disattivano tutti** e chiamano le funzioni direttamente.
+Quattro: worker ingest, purge retention, monitor SLA, dispatcher webhook. Ognuno ha un env var
+per disattivarlo; **i test li disattivano tutti** e chiamano le funzioni direttamente.
 
-## 4. Modello dati: cosa è stato aggiunto in P1
+Le **azioni workflow ritardate** non hanno un thread proprio: `workflows.dispatch_scheduled()`
+gira dentro il loop del worker ingest (`worker.py`). Se disattivi `INGEST_WORKER_ENABLED`,
+disattivi anche quelle.
 
-Migrazioni `0019`→`0029`. Tabelle nuove:
+## 4. Modello dati
+
+47 tabelle, migrazioni fino a `0045`.
+
+**Aggiunte in P1** (`0019`→`0029`):
 
 - **Help desk:** `Department`, `DepartmentMember`, `SlaPolicy`, `RoutingSetting`, `SavedView`,
   `InternalNote`, `NoteMention`, `Tag`, `ConversationTag`, `ConversationRating`
@@ -81,8 +100,24 @@ Migrazioni `0019`→`0029`. Tabelle nuove:
   `WorkflowRun`, `ProactiveRule`
 - **Commerciale/qualità:** `LeadForm`, `Lead`, `KnowledgeGapReview`
 
+**Aggiunte in P2 e dopo** (`0030`→`0045`):
+
+- **Omnicanale:** `Contact` (identità del contatto, separata dalla conversazione, chiave
+  `client_id + channel + external_id`), `WhatsAppConsent`, `Attachment`
+- **Integrazioni:** `CrmConnection`, `CrmSync`, `HelpdeskConnection`, `HelpdeskExport`,
+  `PushSubscription`, `PluginInstallation`
+- **Operatività:** `SupportSchedule`, `WorkflowScheduledAction`, `ProactiveExperiment`,
+  `KnowledgeDraft`
+
 `Conversation` ha acquisito: `language`, `priority`, `assigned_operator_id`, `department_id`,
-gli stampi SLA (`sla_*`, `first_response_*`, `resolution_*`) e la classificazione AI (`ai_*`).
+`channel`, `contact_id`, gli stampi SLA (`sla_*`, `first_response_*`, `resolution_*`) e la
+classificazione AI (`ai_*`). `Client` porta lo stato di fatturazione (`billing_status`,
+`stripe_*`, `subscription_period_end`, `subscription_cancel_at_period_end`), specchiato dal
+webhook Stripe **e mai letto chiamando Stripe in linea**.
+
+> Il modello di canale è il vincolo architetturale più importante del progetto: una conversazione
+> non presuppone più un visitatore web. Qualunque canale nuovo passa da `Contact` + `channel`,
+> non da un campo dedicato.
 
 ## 5. Regole di lavoro (non negoziabili)
 
@@ -162,36 +197,47 @@ Convenzioni utili viste nella suite:
 
 ## 8. Debito noto (non bloccante, ma reale)
 
-1. **`backend/app/main.py`: 5863 righe, 141 endpoint di sei aree diverse.** Da spezzare in
-   router FastAPI per area (helpdesk, analytics, API pubblica, widget, admin, billing). Ogni
-   blocco nuovo diventa più lento e rischioso finché resta così. L'omnicanale ne aggiungerebbe
-   almeno altre due aree.
-2. **Widget: 1130 righe in un file.** I testi sono usciti in `chat-i18n.js` (con i primi test
+1. **`backend/app/main.py`: 7797 righe, 172 endpoint di otto aree diverse.** Era il debito
+   numero uno a 5863 righe ed è peggiorato di un terzo da allora: l'omnicanale ha aggiunto le
+   due aree previste. Da spezzare in router FastAPI per area (helpdesk, analytics, API pubblica,
+   widget, admin, billing, canali, integrazioni). **Ogni blocco nuovo è più lento e più rischioso
+   finché resta così** — è il candidato numero uno del prossimo lavoro non-feature.
+2. **Widget: 1155 righe in un file.** I testi sono usciti in `chat-i18n.js` (con i primi test
    Node del plugin), il resto no. Senza bundler nel plugin, la strada praticabile è più file
    enqueued con dipendenze, come già fatto per l'i18n.
-3. **Le automazioni girano sincrone** dentro la richiesta che emette l'evento. Va bene per le
-   azioni attuali; un'azione lenta o ritardata (es. «dopo 24h senza risposta») va su coda.
-4. **Il raggruppamento dei gap KB è esatto**, non semantico: due formulazioni diverse della
-   stessa domanda restano righe separate.
+3. **Le automazioni immediate girano sincrone** dentro la richiesta che emette l'evento. Le
+   azioni **ritardate** sono invece già su coda (`WorkflowScheduledAction`, servita dal worker):
+   il debito residuo riguarda solo le azioni immediate lente.
+4. **Nessuna vista commerciale.** Il sistema conosce piani e stato abbonamento ma non calcola
+   mai ricavi, MRR, churn o margine per tenant, benché `AiResponseLog` registri già modello e
+   token per ogni turno. È la lacuna più grossa del superadmin.
+5. **`set_client_plan` (`/admin/clients/{id}/plan`) scrive `plan_id` senza toccare Stripe.** Su
+   un cliente con abbonamento attivo crea disallineamento fra database e Stripe, e il primo
+   webhook utile può sovrascrivere la modifica. Le azioni commerciali vanno fatte via API
+   Stripe, lasciando che sia il webhook ad aggiornare il database.
 
 ## 9. Cosa fare dopo
 
-Il backlog (`competitor-feature-backlog.md`) indica il **P2 — espansione di canale**, con
-l'email per prima. Attenzione alla dipendenza architetturale:
+Il codice dei canali è scritto: il lavoro che resta è di natura diversa da quello dei mesi
+scorsi. Tre filoni, in quest'ordine.
 
-> Oggi `Conversation` presuppone un visitatore web identificato da un token di browser. Email,
-> WhatsApp e Messenger richiedono un **modello di canale unificato**, con l'identità del
-> contatto separata dalla conversazione e il threading. Il backlog mette l'email per prima
-> proprio perché è quella che costringe a definire il modello: farla dopo WhatsApp
-> significherebbe rifarla.
+**A. Attivare ciò che è già costruito.** Nessun canale è vivo per un cliente. Serve: credenziali
+e numero WhatsApp, deploy dei worker Meta, webhook email presso il provider, portale Stripe
+abilitato in dashboard. La business verification di Meta può richiedere settimane: va avviata
+prima di tutto il resto, perché è l'unica cosa che non dipende da noi.
 
-Ordine consigliato:
+> Sui canali c'è anche un problema di **onboarding**: oggi le credenziali per tenant vivono in
+> `META_TENANTS_JSON`, un secret statico del worker WhatsApp. Non scala oltre i primi clienti.
+> Il pattern giusto è già in casa — l'adapter CRM usa un KV per tenant scritto da `/configure` —
+> e va portato sul canale WhatsApp, come passo intermedio verso l'Embedded Signup di Meta.
 
-1. (Opzionale ma consigliato) Divisione di `main.py` in router — nessuna feature visibile, ma
-   abilita tutto il resto.
-2. Modello di canale unificato + **email come canale conversazionale**.
-3. WhatsApp Business, poi Messenger/Instagram sul modello già definito.
-4. Connettori CRM, notifiche push operatore, SDK/widget headless.
+**B. Costruire la parte commerciale.** È la lacuna più grossa: piani e abbonamenti esistono, i
+ricavi no. In ordine di valore: vista ricavi nel superadmin (MRR/ARR, trial, insoluti, churn);
+costi e margine per tenant a partire dai token già registrati in `AiResponseLog`; azioni
+commerciali via API Stripe; funnel di attivazione e clienti a rischio.
+
+**C. Dividere `main.py` in router.** Nessuna feature visibile, ma vedi il debito 1: ogni blocco
+successivo costa di più finché non è fatto.
 
 Il filone **P3 — Voice** resta separato e non va iniziato prima del go/no-go sul PoC di latenza
 descritto in [`voice-roadmap.md`](voice-roadmap.md).
