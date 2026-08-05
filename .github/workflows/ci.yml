@@ -118,6 +118,26 @@ jobs:
         working-directory: cloudflare/whatsapp-adapter
         run: npx wrangler deploy --dry-run
 
+  meta-messaging-worker:
+    name: Messenger/Instagram Worker
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: cloudflare/meta-messaging-adapter/package-lock.json
+      - name: Install dependencies
+        working-directory: cloudflare/meta-messaging-adapter
+        run: npm ci
+      - name: Unit tests
+        working-directory: cloudflare/meta-messaging-adapter
+        run: npm test
+      - name: Build Worker
+        working-directory: cloudflare/meta-messaging-adapter
+        run: npx wrangler deploy --dry-run
+
   email-worker:
     name: Email router Worker
     runs-on: ubuntu-latest

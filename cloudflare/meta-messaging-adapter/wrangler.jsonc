@@ -1,0 +1,14 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "wp-aissistant-meta-messaging-adapter",
+  "main": "src/index.js",
+  "compatibility_date": "2026-08-01",
+  "workers_dev": true,
+  "observability": { "enabled": true },
+  "vars": {
+    "BACKEND_URL": "https://backend.wpaissistant.it",
+    "META_GRAPH_VERSION": "vXX.X"
+  }
+  // Segreti da impostare con `wrangler secret put`:
+  // META_APP_SECRET, META_VERIFY_TOKEN, OUTBOUND_TOKEN, META_TENANTS_JSON
+}
