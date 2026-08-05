@@ -3,6 +3,11 @@ name: Deploy website (Cloudflare Pages)
 # Deploys the static marketing site in website/ to Cloudflare Pages. Requires two repo
 # secrets: CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID. Until they're set, the job
 # skips cleanly (green) instead of failing.
+#
+# The silent skip is tolerable *here only*: the wp-aissistant-site Pages project has
+# Cloudflare's native Git integration, so it redeploys on push whether or not this job runs.
+# The panel has no such integration — there the same skip left it a week stale, which is why
+# deploy-panel.yml now fails loudly instead. Do not "align" the two workflows.
 on:
   push:
     branches: [main]
