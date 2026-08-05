@@ -239,6 +239,11 @@ storage e canali per chiudere il margine (debito 4); funnel di attivazione e cli
 > Il listino modelli parte **vuoto**: finché il superadmin non lo compila da *Costi e margine*,
 > ogni modello usato compare fra quelli senza prezzo e i costi restano a zero. È voluto — un
 > prezzo indovinato sarebbe peggio di un buco dichiarato — ma va fatto prima di fidarsi dei numeri.
+> I prezzi Workers AI stanno su
+> [developers.cloudflare.com/workers-ai/platform/pricing](https://developers.cloudflare.com/workers-ai/platform/pricing/);
+> la chiave da usare è **la stringa esatta che compare fra i modelli senza prezzo**, perché è
+> quella che `AiResponseLog` ha registrato. Attenzione: Cloudflare fattura in USD e i piani sono
+> in EUR — finché le due valute non coincidono il margine è segnalato come non contabile.
 
 **C. Dividere `main.py` in router.** Nessuna feature visibile, ma vedi il debito 1: ogni blocco
 successivo costa di più finché non è fatto.

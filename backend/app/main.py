@@ -6870,25 +6870,39 @@ def admin_costs(days: int = 30, session: Session = Depends(get_session)):
     return costs_service.cost_summary(session, days=days)
 
 
+def _model_price_payload(row: ModelPrice) -> dict:
+    """Prices go back out in the provider's own unit, so the panel shows what was pasted in."""
+    return {
+        "id": row.id,
+        "model": row.model,
+        "input_price_per_million": costs_service.price_per_million(row.input_millicents_per_million),
+        "output_price_per_million": costs_service.price_per_million(row.output_millicents_per_million),
+        "currency": row.currency,
+    }
+
+
 @app.get("/admin/model-prices", dependencies=[Depends(require_admin)])
 def list_model_prices(session: Session = Depends(get_session)):
-    return session.exec(select(ModelPrice).order_by(ModelPrice.model)).all()
+    rows = session.exec(select(ModelPrice).order_by(ModelPrice.model)).all()
+    return [_model_price_payload(row) for row in rows]
 
 
 @app.put("/admin/model-prices", dependencies=[Depends(require_admin)])
 def upsert_model_price(
     model: str = Body(...),
-    input_cents_per_million: int = Body(0),
-    output_cents_per_million: int = Body(0),
+    input_price_per_million: float = Body(0),
+    output_price_per_million: float = Body(0),
     currency: str = Body("eur"),
     session: Session = Depends(get_session),
 ):
-    """Set the price of one model, in cents per million tokens. Upsert by model name so the
-    superadmin can paste the provider's current price list without deleting rows first."""
+    """Set the price of one model, **per million tokens in the provider's own currency** — the
+    figure as published (0.152), not a converted one. Upsert by model name so the superadmin can
+    paste a whole price list without deleting rows first.
+    """
     name = (model or "").strip()[:255]
     if not name:
         raise HTTPException(400, "model required")
-    if input_cents_per_million < 0 or output_cents_per_million < 0:
+    if input_price_per_million < 0 or output_price_per_million < 0:
         raise HTTPException(400, "prices cannot be negative")
     clean_currency = (currency or "eur").strip().lower()
     if len(clean_currency) != 3:
@@ -6896,18 +6910,17 @@ def upsert_model_price(
     row = session.exec(select(ModelPrice).where(ModelPrice.model == name)).first()
     if row is None:
         row = ModelPrice(model=name)
-    row.input_cents_per_million = input_cents_per_million
-    row.output_cents_per_million = output_cents_per_million
+    row.input_millicents_per_million = costs_service.to_millicents(input_price_per_million)
+    row.output_millicents_per_million = costs_service.to_millicents(output_price_per_million)
     row.currency = clean_currency
     row.updated_at = datetime.utcnow()
     session.add(row)
     session.commit()
-    # audit first: it commits again, which expires `row` — refreshing before that would leave
-    # an expired object to serialise, i.e. an empty response body
+    payload = _model_price_payload(row)  # read before _audit commits and expires the row
     _audit(session, "admin", "admin", "model_price.set", target=f"model:{name}",
-           detail={"input": input_cents_per_million, "output": output_cents_per_million})
-    session.refresh(row)
-    return row
+           detail={"input": input_price_per_million, "output": output_price_per_million,
+                   "currency": clean_currency})
+    return payload
 
 
 @app.delete("/admin/model-prices/{price_id}", dependencies=[Depends(require_admin)])

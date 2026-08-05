@@ -35,14 +35,19 @@ class ModelPrice(SQLModel, table=True):
     """What one AI model costs us, so per-tenant spend can be derived from the token counts
     already recorded in AiResponseLog.
 
-    Prices are in **cents per million tokens**, the unit providers publish, kept as integers to
-    avoid float drift when multiplied by large token counts. A model with no row here is not
-    assumed to be free: it is reported as unpriced, so the total never looks smaller than it is.
+    Providers quote a price per million tokens with three or more decimals ($0.152/M), so the
+    unit here is **thousandths of a cent per million tokens**: an integer, to avoid float drift
+    when multiplied by large token counts, but fine enough not to round $0.012/M down to a cent.
+    The API takes and returns the provider's own figure and converts at the edge.
+
+    A model with no row here is not assumed to be free: it is reported as unpriced, so the total
+    never looks smaller than it is.
     """
     id: Optional[int] = Field(default=None, primary_key=True)
     model: str = Field(index=True, unique=True)
-    input_cents_per_million: int = 0
-    output_cents_per_million: int = 0
+    input_millicents_per_million: int = 0
+    output_millicents_per_million: int = 0
+    # the currency the provider bills in; never converted silently into the plan's currency
     currency: str = "eur"
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)

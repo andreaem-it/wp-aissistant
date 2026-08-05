@@ -24,6 +24,17 @@ from .logging_config import log
 logger = logging.getLogger("wpai.costs")
 
 TOKENS_PER_UNIT = 1_000_000  # providers quote prices per million tokens
+MILLICENTS_PER_CENT = 1000
+
+
+def price_per_million(millicents: int) -> float:
+    """Stored price back to the provider's own figure, e.g. 15200 -> 0.152 per million."""
+    return millicents / MILLICENTS_PER_CENT / 100
+
+
+def to_millicents(price_per_million_units: float) -> int:
+    """The provider's figure into storage: 0.152 per million -> 15200 thousandths of a cent."""
+    return round(price_per_million_units * 100 * MILLICENTS_PER_CENT)
 
 
 def turn_cost_cents(price: "ModelPrice | None", tokens_prompt: int, tokens_completion: int) -> float:
@@ -31,10 +42,11 @@ def turn_cost_cents(price: "ModelPrice | None", tokens_prompt: int, tokens_compl
     cent, and rounding here instead of at the total would erase most of the spend."""
     if not price:
         return 0.0
-    return (
-        tokens_prompt * price.input_cents_per_million
-        + tokens_completion * price.output_cents_per_million
+    millicents = (
+        tokens_prompt * price.input_millicents_per_million
+        + tokens_completion * price.output_millicents_per_million
     ) / TOKENS_PER_UNIT
+    return millicents / MILLICENTS_PER_CENT
 
 
 def cost_summary(session: Session, days: int = 30) -> dict:
@@ -63,11 +75,14 @@ def cost_summary(session: Session, days: int = 30) -> dict:
 
     per_client: dict[int, dict] = {}
     unpriced: set[str] = set()
+    currencies: set[str] = set()
     for client_id, model, turns, tokens_in, tokens_out in usage:
         tokens_in, tokens_out = int(tokens_in or 0), int(tokens_out or 0)
         price = prices.get(model or "")
         if not price and (tokens_in or tokens_out):
             unpriced.add(model or "(sconosciuto)")
+        if price:
+            currencies.add(price.currency)
         entry = per_client.setdefault(
             client_id,
             {"turns": 0, "tokens_in": 0, "tokens_out": 0, "cost": 0.0, "priced": True},
@@ -93,6 +108,8 @@ def cost_summary(session: Session, days: int = 30) -> dict:
             total_cost += monthly_cost
         if client.billing_status in ("active", "past_due"):
             total_revenue += revenue
+            if plan:
+                currencies.add(plan.currency)
         rows.append({
             "client_id": client_id,
             "name": client.name,
@@ -112,12 +129,18 @@ def cost_summary(session: Session, days: int = 30) -> dict:
     margin = total_revenue - total_cost
     if unpriced:
         log(logger, logging.INFO, "costs.unpriced_models", models=sorted(unpriced))
+    # a provider billing in USD against plans priced in EUR is not a margin, it is two numbers
+    # in different units. Say so rather than convert at a rate nobody chose.
+    mixed = len(currencies) > 1
     return {
         "window_days": window,
         "monthly_cost_cents": round(total_cost, 2),
         "monthly_revenue_cents": total_revenue,
         "monthly_margin_cents": round(margin, 2),
-        "margin_pct": round(margin / total_revenue * 100, 1) if total_revenue else None,
+        "margin_pct": round(margin / total_revenue * 100, 1) if total_revenue and not mixed else None,
+        "currency": next(iter(currencies), "eur") if not mixed else None,
+        "mixed_currencies": mixed,
+        "currencies": sorted(currencies),
         # names, not a boolean: the superadmin has to know *which* price to add
         "unpriced_models": sorted(unpriced),
         "clients": rows,

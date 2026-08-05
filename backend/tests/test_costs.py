@@ -10,10 +10,12 @@ ADMIN = {"Authorization": "Bearer test-admin"}
 
 
 def _price(client, model, input_cents=0, output_cents=0, currency="eur"):
+    """Prices are stated here in **cents** per million tokens because the expectations below are
+    in cents; the API takes the provider's own figure (currency units), hence the /100."""
     return client.put("/admin/model-prices", headers=ADMIN, json={
         "model": model,
-        "input_cents_per_million": input_cents,
-        "output_cents_per_million": output_cents,
+        "input_price_per_million": input_cents / 100,
+        "output_price_per_million": output_cents / 100,
         "currency": currency,
     })
 
@@ -197,7 +199,7 @@ def test_price_upsert_replaces_by_model_name(client):
     rows = client.get("/admin/model-prices", headers=ADMIN).json()
 
     assert len(rows) == 1
-    assert rows[0]["input_cents_per_million"] == 250
+    assert rows[0]["input_price_per_million"] == 2.5
 
 
 def test_price_validation(client):
@@ -233,3 +235,85 @@ def test_costs_require_the_admin_key(client, tenant):
     assert client.get("/admin/model-prices", headers=tenant["op"]).status_code in (401, 403)
     assert client.put("/admin/model-prices", headers=tenant["op"],
                       json={"model": "x"}).status_code in (401, 403)
+
+
+# ---- Provider figures survive the round trip ---------------------------------------------------
+
+
+def test_published_price_is_stored_without_rounding(client):
+    """Cloudflare quotes $0.152 per M input: storing 0.15 would be a 1% error on every turn."""
+    client.put("/admin/model-prices", headers=ADMIN, json={
+        "model": "@cf/meta/llama-3.1-8b-instruct-fp8",
+        "input_price_per_million": 0.152,
+        "output_price_per_million": 0.287,
+        "currency": "usd",
+    })
+
+    row = client.get("/admin/model-prices", headers=ADMIN).json()[0]
+
+    assert row["input_price_per_million"] == 0.152
+    assert row["output_price_per_million"] == 0.287
+    assert row["currency"] == "usd"
+
+
+def test_sub_cent_price_is_not_rounded_to_zero(client):
+    """An embedding model at $0.012/M would round to a whole cent — a 17% error."""
+    plan_id = _plan(client, "Pro", price_cents=10_000)
+    cid = _tenant(client, "Fine", plan_id)
+    client.put("/admin/model-prices", headers=ADMIN, json={
+        "model": "bge", "input_price_per_million": 0.012, "output_price_per_million": 0,
+    })
+    _turns(cid, "bge", tokens_in=100_000_000)  # 100M tokens x $0.012/M = $1.20 = 120 cents
+
+    row = client.get("/admin/costs", headers=ADMIN).json()["clients"][0]
+
+    assert row["cost_cents"] == 120.0
+
+
+def test_cost_of_the_real_cloudflare_price(client):
+    """End to end on the numbers actually published for the model this product runs on."""
+    plan_id = _plan(client, "Pro", price_cents=10_000)
+    cid = _tenant(client, "Reale", plan_id)
+    client.put("/admin/model-prices", headers=ADMIN, json={
+        "model": "llama-fp8",
+        "input_price_per_million": 0.152,
+        "output_price_per_million": 0.287,
+    })
+    _turns(cid, "llama-fp8", tokens_in=10_000_000, tokens_out=2_000_000)
+
+    row = client.get("/admin/costs", headers=ADMIN).json()["clients"][0]
+
+    # 10M x $0.152 = $1.52 ; 2M x $0.287 = $0.574 ; total $2.094 = 209.4 cents
+    assert row["cost_cents"] == 209.4
+
+
+# ---- Currency ----------------------------------------------------------------------------------
+
+
+def test_costs_flag_a_currency_mismatch_instead_of_converting(client):
+    """A USD price list against EUR plans is two units, not a margin. Say so."""
+    plan_id = _plan(client, "Euro", price_cents=10_000)  # plans default to eur
+    cid = _tenant(client, "Misto", plan_id)
+    _price(client, "usd-model", input_cents=100, currency="usd")
+    _turns(cid, "usd-model", tokens_in=1_000_000)
+
+    data = client.get("/admin/costs", headers=ADMIN).json()
+
+    assert data["mixed_currencies"] is True
+    assert data["currency"] is None
+    assert data["currencies"] == ["eur", "usd"]
+    # a percentage across two currencies would be meaningless
+    assert data["margin_pct"] is None
+
+
+def test_costs_report_a_single_currency_when_they_agree(client):
+    plan_id = _plan(client, "Euro", price_cents=10_000)
+    cid = _tenant(client, "Coerente", plan_id)
+    _price(client, "eur-model", input_cents=100, currency="eur")
+    _turns(cid, "eur-model", tokens_in=1_000_000)
+
+    data = client.get("/admin/costs", headers=ADMIN).json()
+
+    assert data["mixed_currencies"] is False
+    assert data["currency"] == "eur"
+    assert data["margin_pct"] == 99.0

@@ -540,7 +540,7 @@ function RevenueView() {
 }
 
 function ModelPriceEditor({ prices, onChanged }) {
-  const blank = { model: "", input_cents_per_million: "", output_cents_per_million: "" };
+  const blank = { model: "", input_price_per_million: "", output_price_per_million: "", currency: "usd" };
   const [form, setForm] = useState(blank);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -552,8 +552,9 @@ function ModelPriceEditor({ prices, onChanged }) {
     try {
       await adminApi.setModelPrice({
         model: form.model.trim(),
-        input_cents_per_million: Number(form.input_cents_per_million) || 0,
-        output_cents_per_million: Number(form.output_cents_per_million) || 0,
+        input_price_per_million: Number(form.input_price_per_million) || 0,
+        output_price_per_million: Number(form.output_price_per_million) || 0,
+        currency: form.currency,
       });
       setForm(blank);
       onChanged();
@@ -578,8 +579,9 @@ function ModelPriceEditor({ prices, onChanged }) {
     <div className="wpai-card" style={{ marginTop: 16 }}>
       <div className="wpai-card-title">Listino modelli</div>
       <p style={{ color: "var(--text-muted)", fontSize: 12.5, margin: "4px 0 10px" }}>
-        Prezzi in <strong>centesimi per milione di token</strong>, come li pubblicano i provider.
-        Un modello senza prezzo non viene considerato gratis: resta escluso dal totale e segnalato.
+        Prezzo <strong>per milione di token</strong>, esattamente come lo pubblica il provider
+        (es. <code>0.152</code>). I decimali sono conservati. Un modello senza prezzo non viene
+        considerato gratis: resta escluso dal totale e segnalato.
       </p>
       {error && <p className="wpai-error">{error}</p>}
       <form onSubmit={save} style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
@@ -589,14 +591,21 @@ function ModelPriceEditor({ prices, onChanged }) {
                  placeholder="@cf/meta/llama-3.1-8b-instruct" required />
         </label>
         <label style={{ display: "grid", gap: 4, fontSize: 12.5, flex: "1 1 110px" }}>
-          Input
-          <input type="number" min="0" value={form.input_cents_per_million}
-                 onChange={(e) => setForm({ ...form, input_cents_per_million: e.target.value })} placeholder="0" />
+          Input / M token
+          <input type="number" min="0" step="any" value={form.input_price_per_million}
+                 onChange={(e) => setForm({ ...form, input_price_per_million: e.target.value })} placeholder="0.152" />
         </label>
         <label style={{ display: "grid", gap: 4, fontSize: 12.5, flex: "1 1 110px" }}>
-          Output
-          <input type="number" min="0" value={form.output_cents_per_million}
-                 onChange={(e) => setForm({ ...form, output_cents_per_million: e.target.value })} placeholder="0" />
+          Output / M token
+          <input type="number" min="0" step="any" value={form.output_price_per_million}
+                 onChange={(e) => setForm({ ...form, output_price_per_million: e.target.value })} placeholder="0.287" />
+        </label>
+        <label style={{ display: "grid", gap: 4, fontSize: 12.5, flex: "0 1 90px" }}>
+          Valuta
+          <select value={form.currency} onChange={(e) => setForm({ ...form, currency: e.target.value })}>
+            <option value="usd">USD</option>
+            <option value="eur">EUR</option>
+          </select>
         </label>
         <button className="wpai-btn" type="submit" disabled={busy}>{busy ? "Salvataggio…" : "Salva"}</button>
       </form>
@@ -608,13 +617,14 @@ function ModelPriceEditor({ prices, onChanged }) {
         </p>
       ) : (
         <table className="wpai-table" style={{ marginTop: 12 }}>
-          <thead><tr><th>Modello</th><th style={{ textAlign: "right" }}>Input</th><th style={{ textAlign: "right" }}>Output</th><th /></tr></thead>
+          <thead><tr><th>Modello</th><th style={{ textAlign: "right" }}>Input / M</th><th style={{ textAlign: "right" }}>Output / M</th><th>Valuta</th><th /></tr></thead>
           <tbody>
             {prices.map((p) => (
               <tr key={p.id}>
                 <td>{p.model}</td>
-                <td style={{ textAlign: "right" }}>{p.input_cents_per_million}</td>
-                <td style={{ textAlign: "right" }}>{p.output_cents_per_million}</td>
+                <td style={{ textAlign: "right" }}>{p.input_price_per_million}</td>
+                <td style={{ textAlign: "right" }}>{p.output_price_per_million}</td>
+                <td style={{ textTransform: "uppercase" }}>{p.currency}</td>
                 <td style={{ textAlign: "right" }}>
                   <button className="wpai-icon-btn" onClick={() => remove(p.id)} title={`Rimuovi ${p.model}`}>
                     <Trash2 size={14} />
@@ -649,7 +659,9 @@ function CostsView() {
   if (error) return <div><h2 style={{ marginTop: 0 }}>Costi e margine</h2><p className="wpai-error">{error}</p></div>;
   if (!data) return <p style={{ color: "var(--text-muted)" }}>Caricamento…</p>;
 
-  const money = (cents) => formatPrice(Math.round(cents), "eur");
+  // with a price list in one currency and plans in another, no symbol is right: show bare
+  // numbers rather than label dollars as euros
+  const money = (cents) => (data.mixed_currencies ? (cents / 100).toFixed(2) : formatPrice(Math.round(cents), data.currency));
   const tokens = (n) => new Intl.NumberFormat("it-IT").format(n);
 
   const cards = [
@@ -672,6 +684,16 @@ function CostsView() {
           </select>
         </label>
       </div>
+
+      {data.mixed_currencies && (
+        <div className="wpai-callout warn" role="alert" style={{ marginTop: 12 }}>
+          <div>
+            Costi e ricavi sono in valute diverse ({data.currencies.join(", ").toUpperCase()}):
+            gli importi non sono convertiti, quindi il margine non è un dato contabile finché il
+            listino non usa la stessa valuta dei piani.
+          </div>
+        </div>
+      )}
 
       {data.unpriced_models.length > 0 && (
         <div className="wpai-callout warn" role="alert" style={{ marginTop: 12 }}>
