@@ -1,7 +1,7 @@
 """Billing (Stripe) integration tests. Stripe network calls are monkeypatched, so no real
 account/keys are needed — conftest sets dummy STRIPE_* env so /billing/* is enabled."""
 import types
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from sqlmodel import Session
 
@@ -438,3 +438,226 @@ def test_billing_events_do_not_notify_other_tenants(client, tenant, monkeypatch)
     assert _fire(client, monkeypatch, event).status_code == 200
 
     assert [m["to"] for m in sent] == ["op@acme.it"]
+
+
+# ---- Revenue reporting ----------------------------------------------------------------------
+
+
+def _plan(client, name, price_cents=0, yearly_price_cents=0, currency="eur"):
+    admin = {"Authorization": "Bearer test-admin"}
+    return client.post("/admin/plans", headers=admin, json={
+        "name": name,
+        "price_cents": price_cents,
+        "yearly_price_cents": yearly_price_cents,
+        "currency": currency,
+    }).json()["id"]
+
+
+def _subscriber(client, name, plan_id, *, status="active", interval="month", **fields):
+    """Create a tenant already in a given commercial state, as the webhook would leave it."""
+    admin = {"Authorization": "Bearer test-admin"}
+    created = client.post("/admin/clients", headers=admin, json={"name": name}).json()
+    with Session(db.engine) as session:
+        row = session.get(db.Client, created["id"])
+        row.plan_id = plan_id
+        row.billing_status = status
+        row.subscription_interval = interval
+        for key, value in fields.items():
+            setattr(row, key, value)
+        session.add(row)
+        session.commit()
+    return created["id"]
+
+
+ADMIN = {"Authorization": "Bearer test-admin"}
+
+
+def test_revenue_normalises_yearly_subscriptions(client):
+    """A yearly subscriber contributes a twelfth per month, not the monthly price."""
+    monthly = _plan(client, "Mensile", price_cents=10_000, yearly_price_cents=120_000)
+    _subscriber(client, "Mese", monthly, interval="month")
+    _subscriber(client, "Anno", monthly, interval="year")
+
+    data = client.get("/admin/revenue", headers=ADMIN).json()
+
+    # 10000 (monthly) + 120000/12 = 10000 -> 20000, not 10000 + 10000*12
+    assert data["mrr_cents"] == 20_000
+    assert data["arr_cents"] == 240_000
+    assert data["paying_clients"] == 2
+    assert data["arpa_cents"] == 10_000
+
+
+def test_revenue_does_not_price_a_yearly_plan_without_a_yearly_price(client):
+    """Rather than charge them the monthly rate, an unpriceable subscription counts as zero."""
+    plan_id = _plan(client, "SoloMensile", price_cents=5_000, yearly_price_cents=0)
+    _subscriber(client, "Annuale", plan_id, interval="year")
+
+    assert client.get("/admin/revenue", headers=ADMIN).json()["mrr_cents"] == 0
+
+
+def test_revenue_separates_paid_at_risk_and_trial(client):
+    plan_id = _plan(client, "Pro", price_cents=7_900)
+    _subscriber(client, "Paga", plan_id, status="active")
+    _subscriber(client, "Insoluto", plan_id, status="past_due")
+    _subscriber(client, "Prova", plan_id, status="trialing")
+    _subscriber(client, "Uscito", plan_id, status="canceled")
+
+    data = client.get("/admin/revenue", headers=ADMIN).json()
+
+    # money actually collected is never mixed with money at risk or merely hoped for
+    assert data["mrr_cents"] == 7_900
+    assert data["at_risk_cents"] == 7_900
+    assert data["trial_cents"] == 7_900
+    assert [r["name"] for r in data["past_due"]] == ["Insoluto"]
+
+
+def test_revenue_flags_mixed_currencies_instead_of_summing_them(client):
+    euro = _plan(client, "Euro", price_cents=10_000, currency="eur")
+    dollars = _plan(client, "Dollari", price_cents=10_000, currency="usd")
+    _subscriber(client, "IT", euro)
+    _subscriber(client, "US", dollars)
+
+    data = client.get("/admin/revenue", headers=ADMIN).json()
+
+    assert data["mixed_currencies"] is True
+    assert data["currency"] is None  # no single currency can label the total
+
+
+def test_revenue_groups_by_plan(client):
+    small = _plan(client, "Small", price_cents=2_900)
+    big = _plan(client, "Big", price_cents=9_900)
+    _subscriber(client, "A", small)
+    _subscriber(client, "B", big)
+    _subscriber(client, "C", big)
+
+    by_plan = client.get("/admin/revenue", headers=ADMIN).json()["by_plan"]
+
+    assert by_plan["Small"] == {"clients": 1, "mrr_cents": 2_900}
+    assert by_plan["Big"] == {"clients": 2, "mrr_cents": 19_800}
+
+
+def test_revenue_lists_trials_ending_within_a_week(client):
+    plan_id = _plan(client, "Trial", price_cents=4_900)
+    _subscriber(
+        client, "Scade", plan_id, status="trialing",
+        subscription_period_end=datetime.utcnow() + timedelta(days=3),
+    )
+    _subscriber(
+        client, "Lontano", plan_id, status="trialing",
+        subscription_period_end=datetime.utcnow() + timedelta(days=30),
+    )
+
+    ending = client.get("/admin/revenue", headers=ADMIN).json()["trials_ending"]
+
+    assert [r["name"] for r in ending] == ["Scade"]
+
+
+def test_revenue_reports_cancellations_in_the_window(client):
+    plan_id = _plan(client, "Churn", price_cents=4_900)
+    _subscriber(
+        client, "Recente", plan_id, status="canceled",
+        subscription_canceled_at=datetime.utcnow() - timedelta(days=3),
+    )
+    _subscriber(
+        client, "Vecchia", plan_id, status="canceled",
+        subscription_canceled_at=datetime.utcnow() - timedelta(days=200),
+    )
+
+    data = client.get("/admin/revenue", headers=ADMIN).json()
+
+    assert [r["name"] for r in data["recent_cancellations"]] == ["Recente"]
+    assert data["window_days"] == 30
+    # a rate is never reported: without historical snapshots it would be invented
+    assert "churn_rate" not in data
+
+
+def test_revenue_window_is_configurable_and_bounded(client):
+    plan_id = _plan(client, "Window", price_cents=1_000)
+    _subscriber(
+        client, "Uscito", plan_id, status="canceled",
+        subscription_canceled_at=datetime.utcnow() - timedelta(days=100),
+    )
+
+    wide = client.get("/admin/revenue", headers=ADMIN, params={"days": 180}).json()
+    assert [r["name"] for r in wide["recent_cancellations"]] == ["Uscito"]
+    assert client.get("/admin/revenue", headers=ADMIN, params={"days": 0}).status_code == 400
+    assert client.get("/admin/revenue", headers=ADMIN, params={"days": 400}).status_code == 400
+
+
+def test_revenue_lists_scheduled_cancellations(client):
+    plan_id = _plan(client, "Scheduled", price_cents=4_900)
+    _subscriber(
+        client, "Disdetto", plan_id, subscription_cancel_at_period_end=True,
+        subscription_period_end=datetime.utcnow() + timedelta(days=10),
+    )
+    _subscriber(client, "Resta", plan_id)
+
+    scheduled = client.get("/admin/revenue", headers=ADMIN).json()["scheduled_cancellations"]
+
+    assert [r["name"] for r in scheduled] == ["Disdetto"]
+
+
+def test_revenue_requires_the_admin_key(client, tenant):
+    """Cross-tenant: revenue spans every client, so an operator token must never reach it."""
+    assert client.get("/admin/revenue", headers=tenant["op"]).status_code in (401, 403)
+    assert client.get("/admin/revenue").status_code in (401, 403)
+
+
+# ---- Billing interval captured from Stripe --------------------------------------------------
+
+
+def test_webhook_reads_the_interval_from_the_subscription(client, tenant, monkeypatch):
+    _attach_customer(tenant["cid"], subscription="sub_interval")
+    event = {
+        "type": "customer.subscription.updated",
+        "data": {"object": {
+            "id": "sub_interval",
+            "status": "active",
+            "items": {"data": [{"price": {"recurring": {"interval": "year"}}}]},
+            "metadata": {},
+        }},
+    }
+
+    assert _fire(client, monkeypatch, event).status_code == 200
+
+    with Session(db.engine) as session:
+        assert session.get(db.Client, tenant["cid"]).subscription_interval == "year"
+
+
+def test_webhook_keeps_the_known_interval_when_stripe_omits_it(client, tenant, monkeypatch):
+    """Guessing "month" for a yearly subscriber would inflate the MRR twelvefold."""
+    _attach_customer(tenant["cid"], subscription="sub_keep")
+    with Session(db.engine) as session:
+        row = session.get(db.Client, tenant["cid"])
+        row.subscription_interval = "year"
+        session.add(row)
+        session.commit()
+    event = {
+        "type": "customer.subscription.updated",
+        "data": {"object": {"id": "sub_keep", "status": "active", "metadata": {}}},
+    }
+
+    assert _fire(client, monkeypatch, event).status_code == 200
+
+    with Session(db.engine) as session:
+        assert session.get(db.Client, tenant["cid"]).subscription_interval == "year"
+
+
+def test_cancellation_is_timestamped_and_cleared_on_resubscribe(client, tenant, monkeypatch):
+    _attach_customer(tenant["cid"], subscription="sub_churn")
+    deleted = {
+        "type": "customer.subscription.deleted",
+        "data": {"object": {"id": "sub_churn", "status": "canceled", "metadata": {}}},
+    }
+    assert _fire(client, monkeypatch, deleted).status_code == 200
+    with Session(db.engine) as session:
+        assert session.get(db.Client, tenant["cid"]).subscription_canceled_at is not None
+
+    revived = {
+        "type": "customer.subscription.created",
+        "data": {"object": {"id": "sub_churn", "status": "active", "metadata": {}}},
+    }
+    assert _fire(client, monkeypatch, revived).status_code == 200
+    with Session(db.engine) as session:
+        # a live subscription is not churn: the timestamp must not linger
+        assert session.get(db.Client, tenant["cid"]).subscription_canceled_at is None

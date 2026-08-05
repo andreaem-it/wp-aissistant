@@ -290,6 +290,12 @@ piani a pagamento):
   verificati del tenant. Un errore di invio non blocca la sincronizzazione (Stripe riceve `200`).
 - **Enforcement**: su `canceled` il client torna automaticamente al piano Free (i limiti per-piano
   seguono); `past_due` mantiene il piano come periodo di grazia mentre Stripe ritenta.
+- **Ricavi per il superadmin** (`GET /admin/revenue?days=30`): MRR/ARR, ricavo medio e clienti
+  paganti, ripartizione per piano, insoluti, prove in scadenza e disdette (programmate e del
+  periodo). Gli abbonamenti annuali sono normalizzati a un dodicesimo, quindi serve
+  `subscription_interval` sul client: lo imposta il webhook. Le tre voci — incassato, a rischio,
+  in prova — restano **separate**, e le disdette sono un **conteggio**, non un tasso: senza
+  storico della base clienti un churn rate sarebbe inventato.
 
 ### Plugin WP
 

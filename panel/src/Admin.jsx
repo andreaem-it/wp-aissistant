@@ -3,7 +3,7 @@ import {
   Shield, Building2, Plus, Eye, EyeOff, Copy, Check, RefreshCw,
   Trash2, MessageSquare, Users, FileText, Package, Sparkles, CreditCard,
   LayoutDashboard, Activity, ScrollText, AlertTriangle, Search,
-  ThumbsUp, ThumbsDown, X,
+  ThumbsUp, ThumbsDown, X, TrendingUp,
 } from "lucide-react";
 import { getAdminKey, setAdminKey, clearAdminKey, adminApi } from "./adminApi.js";
 import { MiniBars, Breakdown } from "./Charts.jsx";
@@ -424,6 +424,121 @@ function OverviewView() {
   );
 }
 
+function RevenueView() {
+  const [data, setData] = useState(null);
+  const [days, setDays] = useState(30);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    setError("");
+    adminApi.revenue(days).then(setData).catch(() => setError("Impossibile caricare i ricavi."));
+  }, [days]);
+
+  if (error) return <div><h2 style={{ marginTop: 0 }}>Ricavi</h2><p className="wpai-error">{error}</p></div>;
+  if (!data) return <p style={{ color: "var(--text-muted)" }}>Caricamento…</p>;
+
+  // with more than one currency in play no single total is meaningful, so amounts are shown
+  // unformatted rather than labelled with a currency that would be wrong for some of them
+  const money = (cents) => (data.mixed_currencies ? (cents / 100).toFixed(2) : formatPrice(cents, data.currency));
+  const day = (value) => (value ? new Date(value).toLocaleDateString("it-IT") : "—");
+
+  const cards = [
+    { label: "MRR", value: money(data.mrr_cents), Icon: CreditCard },
+    { label: "ARR", value: money(data.arr_cents), Icon: TrendingUp },
+    { label: "Clienti paganti", value: data.paying_clients, Icon: Building2 },
+    { label: "Ricavo medio", value: money(data.arpa_cents), Icon: Users },
+    { label: "A rischio", value: money(data.at_risk_cents), Icon: AlertTriangle },
+    { label: "In prova", value: money(data.trial_cents), Icon: Sparkles },
+  ];
+
+  const tables = [
+    { key: "past_due", title: "Insoluti", rows: data.past_due, date: null,
+      empty: "Nessun pagamento in sospeso." },
+    { key: "trials_ending", title: "Prove in scadenza (7 giorni)", rows: data.trials_ending, date: "ends_at",
+      empty: "Nessuna prova in scadenza." },
+    { key: "scheduled_cancellations", title: "Disdette programmate", rows: data.scheduled_cancellations, date: "ends_at",
+      empty: "Nessuna disdetta programmata." },
+    { key: "recent_cancellations", title: `Disdette (${data.window_days} giorni)`, rows: data.recent_cancellations, date: "canceled_at",
+      empty: "Nessuna disdetta nel periodo." },
+  ];
+
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+        <h2 style={{ marginTop: 0, marginBottom: 0 }}>Ricavi</h2>
+        <label style={{ fontSize: 13, display: "flex", alignItems: "center", gap: 8 }}>
+          Periodo
+          <select value={days} onChange={(e) => setDays(Number(e.target.value))} aria-label="Periodo delle disdette">
+            <option value={30}>30 giorni</option>
+            <option value={90}>90 giorni</option>
+            <option value={180}>180 giorni</option>
+            <option value={365}>365 giorni</option>
+          </select>
+        </label>
+      </div>
+
+      {data.mixed_currencies && (
+        <div className="wpai-callout warn" role="status" style={{ marginTop: 12 }}>
+          <div>
+            I piani usano valute diverse: gli importi sono sommati senza conversione e vanno letti
+            come un ordine di grandezza, non come un totale contabile.
+          </div>
+        </div>
+      )}
+
+      <div className="wpai-stat-grid" style={{ marginTop: 12 }}>
+        {cards.map((c) => (
+          <div key={c.label} className="wpai-card wpai-stat-card">
+            <div className="icon"><c.Icon size={18} strokeWidth={2.25} /></div>
+            <div className="value">{c.value}</div>
+            <div className="label">{c.label}</div>
+          </div>
+        ))}
+      </div>
+
+      <p style={{ color: "var(--text-muted)", fontSize: 12.5, margin: "10px 0 0" }}>
+        L'MRR conta solo gli abbonamenti attivi. Gli insoluti e le prove restano separati perché
+        non sono ancora incassati. Le disdette sono un conteggio del periodo: senza uno storico
+        della base clienti un tasso di churn sarebbe inventato.
+      </p>
+
+      <div className="wpai-two-col" style={{ marginTop: 16 }}>
+        <div className="wpai-card">
+          <div className="wpai-card-title">MRR per piano</div>
+          <Breakdown items={Object.entries(data.by_plan).map(([label, v]) => ({ label, value: v.mrr_cents / 100 }))} />
+        </div>
+        <div className="wpai-card">
+          <div className="wpai-card-title">Clienti paganti per piano</div>
+          <Breakdown items={Object.entries(data.by_plan).map(([label, v]) => ({ label, value: v.clients }))} />
+        </div>
+      </div>
+
+      {tables.map((t) => (
+        <div className="wpai-card" style={{ marginTop: 16 }} key={t.key}>
+          <div className="wpai-card-title">{t.title} <span style={{ color: "var(--text-muted)", fontWeight: 500 }}>({t.rows.length})</span></div>
+          {t.rows.length === 0 ? (
+            <p style={{ color: "var(--text-muted)", fontSize: 13, margin: "8px 0 0" }}>{t.empty}</p>
+          ) : (
+            <table className="wpai-table">
+              <thead><tr><th>Cliente</th><th>Piano</th>{t.date && <th>Data</th>}<th style={{ textAlign: "right" }}>Valore/mese</th></tr></thead>
+              <tbody>
+                {t.rows.map((r) => (
+                  <tr key={r.client_id}>
+                    <td>{r.name}</td>
+                    <td>{r.plan || "—"}</td>
+                    {t.date && <td style={{ whiteSpace: "nowrap", color: "var(--text-muted)" }}>{day(r[t.date])}</td>}
+                    <td style={{ textAlign: "right" }}>{money(r.monthly_value_cents)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function HealthView() {
   const [h, setH] = useState(null);
   const [emailResult, setEmailResult] = useState(null);
@@ -740,7 +855,7 @@ function Dashboard() {
   const [clients, setClients] = useState(null);
   const [plans, setPlans] = useState(null);
   const [selected, setSelected] = useState(null);
-  const [view, setView] = useState("overview"); // overview | clients | plans | health | audit | problematic | debug
+  const [view, setView] = useState("overview"); // overview | revenue | clients | plans | health | audit | problematic | debug
   const [debugId, setDebugId] = useState(null);
   const [reembedResult, setReembedResult] = useState(null);
 
@@ -776,6 +891,9 @@ function Dashboard() {
           </button>
           <button className={"wpai-nav-item" + (view === "clients" ? " active" : "")} onClick={() => setView("clients")}>
             <Building2 size={16} strokeWidth={2.25} /> Clienti
+          </button>
+          <button className={"wpai-nav-item" + (view === "revenue" ? " active" : "")} onClick={() => setView("revenue")}>
+            <TrendingUp size={16} strokeWidth={2.25} /> Ricavi
           </button>
           <button className={"wpai-nav-item" + (view === "plans" ? " active" : "")} onClick={() => setView("plans")}>
             <CreditCard size={16} strokeWidth={2.25} /> Piani
@@ -820,6 +938,7 @@ function Dashboard() {
             onReloadPlans={loadPlans}
           />
         )}
+        {view === "revenue" && <RevenueView />}
         {view === "plans" && <PlansView plans={plans} onChanged={loadPlans} />}
         {view === "problematic" && <ProblematicView onOpenDebug={openDebug} />}
         {view === "debug" && <DebugView initialId={debugId} />}

@@ -52,6 +52,12 @@ class Client(SQLModel, table=True):
     # True once the customer asks to cancel from the billing portal: the plan stays usable
     # until subscription_period_end, then Stripe sends subscription.deleted.
     subscription_cancel_at_period_end: bool = False
+    # "month" | "year" | "" (unknown/none). Needed to normalise revenue: a yearly subscriber
+    # pays yearly_price_cents once, not price_cents every month — without this the MRR lies.
+    subscription_interval: str = ""
+    # when the paid subscription actually ended; the only trace we keep of churn, since we
+    # store no historical snapshots of the customer base.
+    subscription_canceled_at: Optional[datetime] = None
 
 
 class Chunk(SQLModel, table=True):

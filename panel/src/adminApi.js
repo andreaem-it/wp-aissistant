@@ -45,6 +45,7 @@ export const adminApi = {
   setClientPlan: (clientId, plan_id) => call(`/admin/clients/${clientId}/plan`, { method: "POST", body: { plan_id } }),
   // observability (Fase 3b/3c)
   stats: () => call("/admin/stats"),
+  revenue: (days = 30) => call(`/admin/revenue?days=${days}`),
   health: () => call("/admin/health"),
   testEmail: (to) => call("/admin/test-email", { method: "POST", body: { to } }),
   audit: (clientId) => call(`/admin/audit${clientId ? `?client_id=${clientId}` : ""}`),

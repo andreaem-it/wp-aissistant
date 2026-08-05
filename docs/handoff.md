@@ -208,9 +208,9 @@ Convenzioni utili viste nella suite:
 3. **Le automazioni immediate girano sincrone** dentro la richiesta che emette l'evento. Le
    azioni **ritardate** sono invece già su coda (`WorkflowScheduledAction`, servita dal worker):
    il debito residuo riguarda solo le azioni immediate lente.
-4. **Nessuna vista commerciale.** Il sistema conosce piani e stato abbonamento ma non calcola
-   mai ricavi, MRR, churn o margine per tenant, benché `AiResponseLog` registri già modello e
-   token per ogni turno. È la lacuna più grossa del superadmin.
+4. **Costi e margine per tenant non esistono.** I ricavi ora si vedono (`/admin/revenue`), ma
+   nessuno calcola quanto costa servire un cliente, benché `AiResponseLog` registri già modello e
+   token a ogni turno: manca solo un listino prezzi per modello e l'aggregazione.
 5. **`set_client_plan` (`/admin/clients/{id}/plan`) scrive `plan_id` senza toccare Stripe.** Su
    un cliente con abbonamento attivo crea disallineamento fra database e Stripe, e il primo
    webhook utile può sovrascrivere la modifica. Le azioni commerciali vanno fatte via API
@@ -231,10 +231,10 @@ prima di tutto il resto, perché è l'unica cosa che non dipende da noi.
 > Il pattern giusto è già in casa — l'adapter CRM usa un KV per tenant scritto da `/configure` —
 > e va portato sul canale WhatsApp, come passo intermedio verso l'Embedded Signup di Meta.
 
-**B. Costruire la parte commerciale.** È la lacuna più grossa: piani e abbonamenti esistono, i
-ricavi no. In ordine di valore: vista ricavi nel superadmin (MRR/ARR, trial, insoluti, churn);
-costi e margine per tenant a partire dai token già registrati in `AiResponseLog`; azioni
-commerciali via API Stripe; funnel di attivazione e clienti a rischio.
+**B. Completare la parte commerciale.** Fatti: portale Stripe per il cliente con avvisi via email,
+e vista **Ricavi** nel superadmin. Restano, in ordine di valore: costi e margine per tenant a
+partire dai token già registrati in `AiResponseLog`; azioni commerciali via API Stripe (trial,
+coupon, sospensione — vedi debito 5); funnel di attivazione e clienti a rischio.
 
 **C. Dividere `main.py` in router.** Nessuna feature visibile, ma vedi il debito 1: ogni blocco
 successivo costa di più finché non è fatto.

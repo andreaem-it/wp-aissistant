@@ -9,7 +9,7 @@ without Stripe.
 
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import stripe
 from sqlmodel import Session, select
@@ -78,6 +78,17 @@ def _apply_plan(session: Session, client: "Client", plan_id) -> None:
         client.plan_id = int(plan_id)
 
 
+def _interval(obj) -> str:
+    """"month"/"year" from a Stripe subscription payload; "" when the shape is unfamiliar."""
+    try:
+        items = (obj.get("items") or {}).get("data") or []
+        recurring = (items[0].get("price") or {}).get("recurring") or {} if items else {}
+        found = recurring.get("interval") or ""
+    except (AttributeError, IndexError, TypeError):
+        return ""
+    return found if found in ("month", "year") else ""
+
+
 def _period_end(value) -> "datetime | None":
     """Stripe sends unix seconds; anything else means "unknown", never a wrong date."""
     try:
@@ -120,6 +131,8 @@ def handle_event(session: Session, event) -> None:
         client.stripe_customer_id = obj.get("customer") or client.stripe_customer_id
         client.stripe_subscription_id = obj.get("subscription") or client.stripe_subscription_id
         _apply_plan(session, client, metadata.get("plan_id"))
+        if metadata.get("billing_interval") in ("month", "year"):
+            client.subscription_interval = metadata["billing_interval"]
         # activate only if a subscription.* event hasn't already set a precise status (e.g.
         # "trialing" for a signup) — avoids overwriting the trial status regardless of order.
         if client.billing_status in ("incomplete", ""):
@@ -136,10 +149,17 @@ def handle_event(session: Session, event) -> None:
         if etype == "customer.subscription.deleted":
             client.billing_status = "canceled"
             client.subscription_cancel_at_period_end = False
+            client.subscription_canceled_at = datetime.utcnow()
         else:
             client.billing_status = map_status(obj.get("status", "active"))  # active | trialing | past_due | ...
             _apply_plan(session, client, metadata.get("plan_id"))
             client.subscription_cancel_at_period_end = bool(obj.get("cancel_at_period_end"))
+            client.subscription_canceled_at = None  # a live subscription is not churn
+        # keep the last known interval when Stripe sends a payload we cannot read: guessing
+        # "month" for a yearly subscriber would inflate the MRR by twelve.
+        client.subscription_interval = (
+            _interval(obj) or metadata.get("billing_interval") or client.subscription_interval
+        )
         # mirror the paid-through date so /usage can answer without calling Stripe
         client.subscription_period_end = _period_end(obj.get("current_period_end")) or client.subscription_period_end
         # policy: canceled -> downgrade to Free (its limits apply via plan_id). past_due keeps
@@ -175,3 +195,104 @@ def handle_event(session: Session, event) -> None:
         # the status itself arrives on subscription.updated; here we only warn the customer,
         # while Stripe keeps retrying the charge (the plan stays active as a grace period).
         _notify(session, client, email_service.send_payment_failed)
+
+
+# ---- Revenue reporting ----------------------------------------------------------------------
+#
+# Everything below is derived from the current rows: we keep no historical snapshots of the
+# customer base. That bounds what can honestly be reported — see revenue_summary().
+
+
+def monthly_value_cents(plan: "Plan | None", interval: str) -> int:
+    """What one subscriber on this plan contributes per month, normalised across intervals.
+
+    A yearly subscriber pays yearly_price_cents once a year, so it is divided by twelve. When a
+    plan has no yearly price the yearly subscription cannot be priced, and this returns 0 rather
+    than silently charging them the monthly rate.
+    """
+    if not plan:
+        return 0
+    if interval == "year":
+        return round(plan.yearly_price_cents / 12) if plan.yearly_price_cents else 0
+    return plan.price_cents
+
+
+# statuses that represent a contracted subscription, split by what they mean commercially
+_EARNING = ("active",)
+_AT_RISK = ("past_due",)
+_TRIALING = ("trialing",)
+
+
+def revenue_summary(session: Session, days: int = 30) -> dict:
+    """Recurring revenue rebuilt from the plans and subscriptions as they stand right now.
+
+    Three buckets, deliberately kept apart instead of folded into one headline number:
+      - `mrr_cents`     — subscriptions that are actually being paid (`active`)
+      - `at_risk_cents` — `past_due`: contracted, charged, but the last payment failed
+      - `trial_cents`   — `trialing`: not revenue yet, only what it would become
+
+    Churn is reported as a **count of cancellations** in the window, not as a rate: without
+    snapshots of the past customer base a rate would be invented, not measured.
+    """
+    plans = {plan.id: plan for plan in session.exec(select(Plan)).all()}
+    clients = session.exec(select(Client)).all()
+    since = datetime.utcnow() - timedelta(days=max(days, 1))
+    soon = datetime.utcnow() + timedelta(days=7)
+
+    buckets = {"mrr_cents": 0, "at_risk_cents": 0, "trial_cents": 0}
+    by_plan: dict[str, dict] = {}
+    currencies: set[str] = set()
+    paying = 0
+    trials_ending, past_due, scheduled_cancellations, recent_cancellations = [], [], [], []
+
+    for client in clients:
+        plan = plans.get(client.plan_id)
+        value = monthly_value_cents(plan, client.subscription_interval)
+        status = client.billing_status
+        row = {
+            "client_id": client.id,
+            "name": client.name,
+            "plan": plan.name if plan else None,
+            "monthly_value_cents": value,
+        }
+
+        if status in _EARNING:
+            buckets["mrr_cents"] += value
+        elif status in _AT_RISK:
+            buckets["at_risk_cents"] += value
+            past_due.append(row)
+        elif status in _TRIALING:
+            buckets["trial_cents"] += value
+            if client.subscription_period_end and client.subscription_period_end <= soon:
+                trials_ending.append({**row, "ends_at": client.subscription_period_end})
+
+        if value and status in (*_EARNING, *_AT_RISK):
+            paying += 1
+            if plan:
+                currencies.add(plan.currency)
+                entry = by_plan.setdefault(plan.name, {"clients": 0, "mrr_cents": 0})
+                entry["clients"] += 1
+                entry["mrr_cents"] += value
+
+        if client.subscription_cancel_at_period_end:
+            scheduled_cancellations.append({**row, "ends_at": client.subscription_period_end})
+        if client.subscription_canceled_at and client.subscription_canceled_at >= since:
+            recent_cancellations.append({**row, "canceled_at": client.subscription_canceled_at})
+
+    return {
+        **buckets,
+        "arr_cents": buckets["mrr_cents"] * 12,
+        "paying_clients": paying,
+        "arpa_cents": round(buckets["mrr_cents"] / paying) if paying else 0,
+        # a single total is meaningless across currencies; say so instead of summing anyway
+        "currency": next(iter(currencies), "eur") if len(currencies) <= 1 else None,
+        "mixed_currencies": len(currencies) > 1,
+        "by_plan": by_plan,
+        "window_days": max(days, 1),
+        "trials_ending": sorted(trials_ending, key=lambda r: r["ends_at"]),
+        "past_due": past_due,
+        "scheduled_cancellations": scheduled_cancellations,
+        "recent_cancellations": sorted(
+            recent_cancellations, key=lambda r: r["canceled_at"], reverse=True
+        ),
+    }

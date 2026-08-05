@@ -6842,6 +6842,19 @@ def admin_stats(session: Session = Depends(get_session)):
     return data
 
 
+@app.get("/admin/revenue", dependencies=[Depends(require_admin)])
+def admin_revenue(days: int = 30, session: Session = Depends(get_session)):
+    """Recurring revenue across every tenant, plus the accounts that need commercial attention.
+
+    Rebuilt from the plans and subscriptions as they stand: we keep no historical snapshots of
+    the customer base, so this reports cancellation *counts* over the window rather than a churn
+    rate that would have to be invented. See billing.revenue_summary().
+    """
+    if days < 1 or days > 365:
+        raise HTTPException(400, "days must be between 1 and 365")
+    return billing.revenue_summary(session, days=days)
+
+
 @app.get("/admin/health", dependencies=[Depends(require_admin)])
 def admin_health(session: Session = Depends(get_session)):
     """Operational snapshot for the superadmin: DB reachability, ingest queue depth (incl.
@@ -7202,9 +7215,19 @@ def billing_checkout(
         "success_url": billing.SUCCESS_URL,
         "cancel_url": billing.CANCEL_URL,
         "client_reference_id": str(client.id),
-        "metadata": {"client_id": str(client.id), "plan_id": str(plan.id)},
+        # the interval rides along so revenue reporting can tell a yearly subscriber from a
+        # monthly one even before the first subscription.* event arrives
+        "metadata": {
+            "client_id": str(client.id),
+            "plan_id": str(plan.id),
+            "billing_interval": billing_interval,
+        },
         # carry ids onto the subscription too, so later subscription.* events map back to the client
-        "subscription_data": {"metadata": {"client_id": str(client.id), "plan_id": str(plan.id)}},
+        "subscription_data": {"metadata": {
+            "client_id": str(client.id),
+            "plan_id": str(plan.id),
+            "billing_interval": billing_interval,
+        }},
     }
     if client.stripe_customer_id:
         params["customer"] = client.stripe_customer_id
