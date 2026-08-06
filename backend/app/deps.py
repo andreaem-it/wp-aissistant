@@ -45,6 +45,11 @@ def hash_session_token(token: str) -> str:
 # ---- Callers ---------------------------------------------------------------------------------
 
 
+def hash_api_key(token: str) -> str:
+    """Server-side API keys are stored as a digest: a leaked database must not yield the keys."""
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
 def get_client(api_key: str, session: Session) -> Client:
     client = session.exec(select(Client).where(Client.api_key == api_key)).first()
     if not client:
@@ -75,7 +80,7 @@ def require_channel_write_key(
     """
     if not authorization or not authorization.lower().startswith("bearer "):
         raise HTTPException(401, "missing bearer token")
-    digest = hashlib.sha256(authorization[7:].strip().encode()).hexdigest()
+    digest = hash_api_key(authorization[7:].strip())
     key = session.exec(select(ApiKey).where(ApiKey.token_hash == digest)).first()
     if key is None or key.revoked_at is not None:
         raise HTTPException(401, "invalid api key")

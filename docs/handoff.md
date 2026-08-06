@@ -201,9 +201,8 @@ Convenzioni utili viste nella suite:
 
 ## 8. Debito noto (non bloccante, ma reale)
 
-1. **`backend/app/main.py`: 7582 righe, 167 endpoint.** La divisione è **iniziata**: la fase 1
-   ha estratto le fondamenta in `deps.py` e la prima area in `routers/commercial.py`. Restano
-   otto aree. Vedi «Dividere main.py» qui sotto per il modello e l'ordine.
+1. **`backend/app/main.py`: 7192 righe, 156 endpoint.** La divisione è **in corso**: due aree
+   estratte su nove, da 8016 righe iniziali. Vedi «Dividere main.py» qui sotto.
 2. **Widget: 1155 righe in un file.** I testi sono usciti in `chat-i18n.js` (con i primi test
    Node del plugin), il resto no. Senza bundler nel plugin, la strada praticabile è più file
    enqueued con dipendenze, come già fatto per l'i18n.
@@ -256,8 +255,13 @@ tranne quel pezzo di costi.
 
 ### Dividere main.py: modello e fasi
 
-Fatto (fase 1): `deps.py` con le dipendenze condivise, `routers/commercial.py` con billing e le
-viste commerciali del superadmin, `tests/test_routes.py` a fare da rete.
+Fatto:
+
+- **Fase 1** — `deps.py` (sessione, autenticazione, audit), `routers/commercial.py` (billing e
+  viste commerciali), `tests/test_routes.py` a fare da rete.
+- **Fase 2** — `routers/developers.py` (chiavi API e webhook). Le utility condivise sono salite
+  dove appartengono: `util.py` (`iso`, `bounded_limit`), `deps.py` (`hash_api_key`) e
+  `apikeys.py` (scope e formato delle chiavi, condivisi con `/v1` che è rimasto).
 
 Il modello, da ripetere per ogni area:
 
@@ -276,9 +280,14 @@ Il modello, da ripetere per ogni area:
 > conclude che le rotte sono sparite mentre vengono servite benissimo. `_iter_routes()` in
 > `tests/test_routes.py` attraversa i router inclusi: usare quello.
 
-Ordine consigliato per le fasi successive, dalla più isolata alla più intrecciata: API pubblica
-`/v1` e webhook → canali (`/channels`, email/WhatsApp/Meta) → analytics e gap KB → automazioni
-(workflow, proattivi, lead) → help desk e inbox → widget e chat → admin residuo.
+Ordine per le fasi successive, dalla più isolata alla più intrecciata: **API pubblica `/v1`**
+→ canali (`/channels`, email/WhatsApp/Meta) → analytics e gap KB → automazioni (workflow,
+proattivi, lead) → help desk e inbox → widget e chat → admin residuo.
+
+`/v1` è il prossimo ma non è gratis: dipende ancora da `_build_stats`, `_require_conversation`,
+`_notify_visitor_reply`, `_enqueue` e `_whatsapp_channel_status`, tutti condivisi con il resto.
+Vanno fatti salire **prima**, un modulo di dominio alla volta, altrimenti il router finirebbe
+per importare `main.py`.
 
 Il filone **P3 — Voice** resta separato e non va iniziato prima del go/no-go sul PoC di latenza
 descritto in [`voice-roadmap.md`](voice-roadmap.md).
