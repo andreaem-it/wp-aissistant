@@ -77,6 +77,8 @@ con un vincolo di progetto preciso da rispettare se lo modifichi:
 | `crm.py`, `helpdesk.py` | Connettori esterni per tenant | Le credenziali del provider **non entrano nel database**: vivono nell'adapter. Qui resta solo la mappatura e l'esito dell'ultimo invio |
 | `push.py` | Notifiche push agli operatori | Sottoscrizioni per dispositivo, endpoint scaduti rimossi da soli |
 | `billing.py` | Stripe: piani, stato, portale, avvisi | Il webhook è l'**unica** fonte di verità sullo stato dell'abbonamento; un'email fallita non deve far ritentare l'evento a Stripe |
+| `deps.py` | Dipendenze condivise: chi chiama, per quale tenant, e l'audit | Non deve conoscere nessuna feature: se un helper serve a una sola area, va con quell'area. È ciò che permette a un router di uscire da `main.py` senza importarlo |
+| `routers/` | Un modulo per area dell'API | Uno spostamento **non cambia nulla di osservabile**: stessi path, metodi e risposte. `tests/test_routes.py` blocca i path già spostati |
 | `rag.py`, `llm.py`, `security.py`, `ratelimit.py`, `notify.py`, `metrics.py`, `production_config.py` | Preesistenti | — |
 
 ### Thread in background (avviati nel `lifespan` di `main.py`)
@@ -199,11 +201,9 @@ Convenzioni utili viste nella suite:
 
 ## 8. Debito noto (non bloccante, ma reale)
 
-1. **`backend/app/main.py`: 7797 righe, 172 endpoint di otto aree diverse.** Era il debito
-   numero uno a 5863 righe ed è peggiorato di un terzo da allora: l'omnicanale ha aggiunto le
-   due aree previste. Da spezzare in router FastAPI per area (helpdesk, analytics, API pubblica,
-   widget, admin, billing, canali, integrazioni). **Ogni blocco nuovo è più lento e più rischioso
-   finché resta così** — è il candidato numero uno del prossimo lavoro non-feature.
+1. **`backend/app/main.py`: 7582 righe, 167 endpoint.** La divisione è **iniziata**: la fase 1
+   ha estratto le fondamenta in `deps.py` e la prima area in `routers/commercial.py`. Restano
+   otto aree. Vedi «Dividere main.py» qui sotto per il modello e l'ordine.
 2. **Widget: 1155 righe in un file.** I testi sono usciti in `chat-i18n.js` (con i primi test
    Node del plugin), il resto no. Senza bundler nel plugin, la strada praticabile è più file
    enqueued con dipendenze, come già fatto per l'i18n.
@@ -252,8 +252,33 @@ tranne quel pezzo di costi.
 > quella che `AiResponseLog` ha registrato. Attenzione: Cloudflare fattura in USD e i piani sono
 > in EUR — finché le due valute non coincidono il margine è segnalato come non contabile.
 
-**C. Dividere `main.py` in router.** Nessuna feature visibile, ma vedi il debito 1: ogni blocco
-successivo costa di più finché non è fatto.
+**C. Dividere `main.py` in router** — in corso, una fase per blocco. Vedi sotto.
+
+### Dividere main.py: modello e fasi
+
+Fatto (fase 1): `deps.py` con le dipendenze condivise, `routers/commercial.py` con billing e le
+viste commerciali del superadmin, `tests/test_routes.py` a fare da rete.
+
+Il modello, da ripetere per ogni area:
+
+1. Elencare le funzioni dell'area e **verificare le dipendenze nei due sensi**: cosa serve
+   all'area *e* cosa il resto di `main.py` prende **da** lei. Saltare il secondo controllo è
+   esattamente ciò che ha rotto `/signup` nella fase 1 — `_stripe_price_for_interval` è finito
+   nel router mentre il signup lo usava ancora.
+2. Un helper usato da più aree non va nel router: sale in `billing.py`, `deps.py` o dove
+   appartiene per dominio. Nessun modulo deve importare da `routers/`.
+3. Spostare le funzioni **senza toccarne il corpo**, cambiando solo `@app.` in `@router.`.
+4. Aggiungere i path a `COMMERCIAL_ROUTES`/equivalente in `tests/test_routes.py` e far girare
+   la suite completa: è la prova che nulla di osservabile è cambiato.
+
+> Attenzione a come si verifica: questa versione di FastAPI tiene un router incluso come **una
+> sola voce lazy** in `app.routes`, non come N rotte. Chi ispeziona `app.routes` ingenuamente
+> conclude che le rotte sono sparite mentre vengono servite benissimo. `_iter_routes()` in
+> `tests/test_routes.py` attraversa i router inclusi: usare quello.
+
+Ordine consigliato per le fasi successive, dalla più isolata alla più intrecciata: API pubblica
+`/v1` e webhook → canali (`/channels`, email/WhatsApp/Meta) → analytics e gap KB → automazioni
+(workflow, proattivi, lead) → help desk e inbox → widget e chat → admin residuo.
 
 Il filone **P3 — Voice** resta separato e non va iniziato prima del go/no-go sul PoC di latenza
 descritto in [`voice-roadmap.md`](voice-roadmap.md).

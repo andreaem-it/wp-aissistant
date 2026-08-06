@@ -12,6 +12,7 @@ import os
 from datetime import datetime, timedelta
 
 import stripe
+from fastapi import HTTPException
 from sqlmodel import Session, select
 
 from . import email as email_service
@@ -41,6 +42,19 @@ _STATUS_MAP = {
     "canceled": "canceled",
     "incomplete_expired": "canceled",
 }
+
+
+def price_for_interval(plan: "Plan", billing_interval: str) -> str:
+    """The Stripe price id for a plan on a given interval.
+
+    Shared by signup, checkout and the superadmin plan change, so it lives here rather than in
+    any one caller: the router that used to own it is not something main.py should import.
+    """
+    if billing_interval == "month":
+        return plan.stripe_price_id
+    if billing_interval == "year":
+        return plan.stripe_yearly_price_id
+    raise HTTPException(400, "billing_interval must be 'month' or 'year'")
 
 
 def enabled() -> bool:
