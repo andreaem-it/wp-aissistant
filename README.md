@@ -306,6 +306,15 @@ piani a pagamento):
   convertiti: la risposta segnala `mixed_currencies` e omette la percentuale di margine. È inoltre
   **solo costo di inferenza** — embedding, storage, email e canali non sono registrati per turno —
   quindi il margine è un tetto, non il dato finale.
+- **Attivazione e clienti a rischio** (`GET /admin/activation?days=90`, `GET /admin/at-risk?days=14`):
+  il funnel conta gli account della coorte lungo cinque passi — creato, plugin collegato, prima
+  conversazione, **prima risposta utile**, primo pagamento — con il tempo mediano fino
+  all'attivazione e l'elenco di chi è rimasto bloccato. Una chat a cui l'AI non ha mai risposto
+  non è un'attivazione. I clienti senza data di registrazione (creati prima della migrazione
+  `0049`) sono esclusi dalla coorte e contati a parte, non conteggiati come mancate attivazioni.
+  Il rischio è un **elenco di motivi** — insoluto, disdetta programmata, calo d'uso, silenzio,
+  mai usato, CSAT basso — non un punteggio opaco, e il calo è misurato sul periodo precedente
+  dello stesso cliente, non rispetto agli altri tenant.
 - **Azioni commerciali del superadmin** (`/admin/clients/{id}/subscription/*`): proroga della
   prova contata da oggi, applicazione e rimozione di un coupon Stripe, sospensione e ripresa
   degli addebiti, disdetta e revoca della disdetta. Tutte agiscono **su Stripe** e non scrivono

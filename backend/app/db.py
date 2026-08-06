@@ -80,6 +80,12 @@ class Client(SQLModel, table=True):
     # when the paid subscription actually ended; the only trace we keep of churn, since we
     # store no historical snapshots of the customer base.
     subscription_canceled_at: Optional[datetime] = None
+    # account age, without which no activation funnel can be measured. Nullable: rows created
+    # before migration 0049 are backfilled from their oldest operator, and anything older than
+    # that stays unknown rather than being given an invented date.
+    created_at: Optional[datetime] = Field(default_factory=datetime.utcnow)
+    # first invoice Stripe actually collected — the moment a trial became revenue.
+    first_paid_at: Optional[datetime] = None
 
 
 class Chunk(SQLModel, table=True):

@@ -58,6 +58,8 @@ export const adminApi = {
   stats: () => call("/admin/stats"),
   revenue: (days = 30) => call(`/admin/revenue?days=${days}`),
   costs: (days = 30) => call(`/admin/costs?days=${days}`),
+  activation: (days = 90) => call(`/admin/activation?days=${days}`),
+  atRisk: (days = 14) => call(`/admin/at-risk?days=${days}`),
   modelPrices: () => call("/admin/model-prices"),
   setModelPrice: (price) => call("/admin/model-prices", { method: "PUT", body: price }),
   deleteModelPrice: (id) => call(`/admin/model-prices/${id}`, { method: "DELETE" }),

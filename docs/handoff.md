@@ -238,9 +238,10 @@ prima di tutto il resto, perché è l'unica cosa che non dipende da noi.
 > e va portato sul canale WhatsApp, come passo intermedio verso l'Embedded Signup di Meta.
 
 **B. Completare la parte commerciale.** Fatti: portale Stripe per il cliente con avvisi via email,
-viste **Ricavi** e **Costi e margine**, e le **azioni commerciali** del superadmin. Restano: azioni
-costi di embedding, storage e canali per chiudere il margine (debito 4); funnel di attivazione
-e clienti a rischio. Le azioni commerciali su Stripe sono fatte.
+viste **Ricavi**, **Costi e margine** e **Crescita**, e le **azioni commerciali**. Restano: azioni
+costi di embedding, storage e canali per chiudere il margine (debito 4). Azioni commerciali su
+Stripe, funnel di attivazione e clienti a rischio sono fatti: la parte commerciale è coperta
+tranne quel pezzo di costi.
 
 > Il listino modelli parte **vuoto**: finché il superadmin non lo compila da *Costi e margine*,
 > ogni modello usato compare fra quelli senza prezzo e i costi restano a zero. È voluto — un

@@ -185,6 +185,19 @@ def handle_event(session: Session, event) -> None:
         trial_end = _period_end(obj.get("trial_end"))
         _notify(session, client, lambda to: email_service.send_trial_ending(to, trial_end))
 
+    elif etype == "invoice.payment_succeeded":
+        client = (
+            _client_by_subscription(session, obj.get("subscription"))
+            or _client_by_id(session, metadata.get("client_id"))
+        )
+        # only the *first* collected invoice is recorded: it marks the moment a trial became
+        # revenue, and later renewals must not keep pushing that date forward. A zero-amount
+        # invoice (a fully discounted trial) is not a payment.
+        if client and client.first_paid_at is None and int(obj.get("amount_paid") or 0) > 0:
+            client.first_paid_at = datetime.utcnow()
+            session.add(client)
+            session.commit()
+
     elif etype == "invoice.payment_failed":
         client = (
             _client_by_subscription(session, obj.get("subscription"))

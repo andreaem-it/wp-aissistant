@@ -874,6 +874,145 @@ function CostsView() {
   );
 }
 
+function GrowthView({ onOpenClient }) {
+  const [funnel, setFunnel] = useState(null);
+  const [risk, setRisk] = useState(null);
+  const [days, setDays] = useState(90);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    setError("");
+    adminApi.activation(days).then(setFunnel).catch(() => setError("Impossibile caricare l'attivazione."));
+  }, [days]);
+  useEffect(() => { adminApi.atRisk(14).then(setRisk).catch(() => setRisk(null)); }, []);
+
+  if (error) return <div><h2 style={{ marginTop: 0 }}>Crescita</h2><p className="wpai-error">{error}</p></div>;
+  if (!funnel) return <p style={{ color: "var(--text-muted)" }}>Caricamento…</p>;
+
+  const day = (v) => (v ? new Date(v).toLocaleDateString("it-IT") : "—");
+  const reachedLabel = { created: "Solo registrato", installed: "Plugin collegato", chatted: "Ha chattato" };
+
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+        <h2 style={{ marginTop: 0, marginBottom: 0 }}>Crescita</h2>
+        <label style={{ fontSize: 13, display: "flex", alignItems: "center", gap: 8 }}>
+          Coorte
+          <select value={days} onChange={(e) => setDays(Number(e.target.value))} aria-label="Periodo della coorte">
+            <option value={30}>30 giorni</option>
+            <option value={90}>90 giorni</option>
+            <option value={365}>365 giorni</option>
+          </select>
+        </label>
+      </div>
+
+      {funnel.undated_clients > 0 && (
+        <div className="wpai-callout" role="status" style={{ marginTop: 12 }}>
+          <div>
+            {funnel.undated_clients} client{funnel.undated_clients === 1 ? "e" : "i"} senza data di
+            registrazione (creati prima che il campo esistesse): esclusi dalla coorte invece di
+            essere contati come mancate attivazioni.
+          </div>
+        </div>
+      )}
+
+      <div className="wpai-card" style={{ marginTop: 12 }}>
+        <div className="wpai-card-title">
+          Funnel di attivazione
+          <span style={{ color: "var(--text-muted)", fontWeight: 500 }}> — {funnel.cohort} account</span>
+        </div>
+        {funnel.cohort === 0 ? (
+          <p style={{ color: "var(--text-muted)", fontSize: 13, margin: "8px 0 0" }}>
+            Nessun account registrato nel periodo.
+          </p>
+        ) : (
+          <div style={{ display: "grid", gap: 10, marginTop: 12 }}>
+            {funnel.steps.map((s) => (
+              <div key={s.key}>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 4 }}>
+                  <span>{s.label}</span>
+                  <span><b>{s.clients}</b> <span style={{ color: "var(--text-muted)" }}>({s.pct}%)</span></span>
+                </div>
+                <div className="wpai-breakdown-track">
+                  <div className="wpai-breakdown-fill" style={{ width: `${s.pct}%` }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        {funnel.median_hours_to_activation !== null && (
+          <p style={{ color: "var(--text-muted)", fontSize: 12.5, margin: "12px 0 0" }}>
+            Tempo mediano dalla registrazione alla prima risposta utile:{" "}
+            <b>{funnel.median_hours_to_activation} ore</b>. Una conversazione a cui l'AI non ha mai
+            risposto non conta come attivazione.
+          </p>
+        )}
+      </div>
+
+      <div className="wpai-card" style={{ marginTop: 16 }}>
+        <div className="wpai-card-title">
+          Bloccati nel funnel <span style={{ color: "var(--text-muted)", fontWeight: 500 }}>({funnel.stuck.length})</span>
+        </div>
+        {funnel.stuck.length === 0 ? (
+          <p style={{ color: "var(--text-muted)", fontSize: 13, margin: "8px 0 0" }}>Nessuno: tutti attivati.</p>
+        ) : (
+          <table className="wpai-table">
+            <thead><tr><th>Cliente</th><th>Registrato</th><th>È arrivato a</th></tr></thead>
+            <tbody>
+              {funnel.stuck.map((r) => (
+                <tr key={r.client_id}>
+                  <td>
+                    <button className="wpai-link-btn" onClick={() => onOpenClient(r.client_id)}>{r.name}</button>
+                  </td>
+                  <td style={{ whiteSpace: "nowrap", color: "var(--text-muted)" }}>{day(r.created_at)}</td>
+                  <td>{reachedLabel[r.reached] || r.reached}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      <div className="wpai-card" style={{ marginTop: 16 }}>
+        <div className="wpai-card-title">
+          Clienti a rischio
+          <span style={{ color: "var(--text-muted)", fontWeight: 500 }}> — ultimi {risk?.window_days ?? 14} giorni ({risk?.clients?.length ?? 0})</span>
+        </div>
+        {!risk ? (
+          <p style={{ color: "var(--text-muted)", fontSize: 13, margin: "8px 0 0" }}>Caricamento…</p>
+        ) : risk.clients.length === 0 ? (
+          <p style={{ color: "var(--text-muted)", fontSize: 13, margin: "8px 0 0" }}>Nessun segnale di rischio.</p>
+        ) : (
+          <table className="wpai-table">
+            <thead><tr><th>Cliente</th><th>Piano</th><th>Conv. (prima → ora)</th><th>Ultima attività</th><th>Motivi</th></tr></thead>
+            <tbody>
+              {risk.clients.map((r) => (
+                <tr key={r.client_id}>
+                  <td>
+                    <button className="wpai-link-btn" onClick={() => onOpenClient(r.client_id)}>{r.name}</button>
+                  </td>
+                  <td>{r.plan || "—"}</td>
+                  <td style={{ whiteSpace: "nowrap" }}>{r.conversations_before} → {r.conversations_now}</td>
+                  <td style={{ whiteSpace: "nowrap", color: "var(--text-muted)" }}>{day(r.last_seen)}</td>
+                  <td>
+                    {r.reasons.map((reason) => (
+                      <span key={reason} className="wpai-badge warn" style={{ marginRight: 4, display: "inline-block" }}>{reason}</span>
+                    ))}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+        <p style={{ color: "var(--text-muted)", fontSize: 12, margin: "10px 0 0" }}>
+          I motivi sono espliciti e non un punteggio: il calo d'uso è misurato sul periodo
+          precedente <em>dello stesso cliente</em>, non rispetto agli altri.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 function HealthView() {
   const [h, setH] = useState(null);
   const [emailResult, setEmailResult] = useState(null);
@@ -1190,11 +1329,16 @@ function Dashboard() {
   const [clients, setClients] = useState(null);
   const [plans, setPlans] = useState(null);
   const [selected, setSelected] = useState(null);
-  const [view, setView] = useState("overview"); // overview | revenue | costs | clients | plans | health | audit | problematic | debug
+  const [view, setView] = useState("overview"); // overview | revenue | growth | costs | clients | plans | health | audit | problematic | debug
   const [debugId, setDebugId] = useState(null);
   const [reembedResult, setReembedResult] = useState(null);
 
   const openDebug = (convId) => { setDebugId(convId); setView("debug"); };
+  // the growth tables are worklists: clicking a name has to land on that client's detail
+  const openClient = (clientId) => {
+    const found = (clients || []).find((c) => c.id === clientId);
+    if (found) { setSelected(found); setView("clients"); }
+  };
 
   const load = useCallback(() => adminApi.clients().then((list) => {
     setClients(list);
@@ -1229,6 +1373,9 @@ function Dashboard() {
           </button>
           <button className={"wpai-nav-item" + (view === "revenue" ? " active" : "")} onClick={() => setView("revenue")}>
             <TrendingUp size={16} strokeWidth={2.25} /> Ricavi
+          </button>
+          <button className={"wpai-nav-item" + (view === "growth" ? " active" : "")} onClick={() => setView("growth")}>
+            <Users size={16} strokeWidth={2.25} /> Crescita
           </button>
           <button className={"wpai-nav-item" + (view === "costs" ? " active" : "")} onClick={() => setView("costs")}>
             <Sparkles size={16} strokeWidth={2.25} /> Costi e margine
@@ -1278,6 +1425,7 @@ function Dashboard() {
           />
         )}
         {view === "revenue" && <RevenueView />}
+        {view === "growth" && <GrowthView onOpenClient={openClient} />}
         {view === "costs" && <CostsView />}
         {view === "plans" && <PlansView plans={plans} onChanged={loadPlans} />}
         {view === "problematic" && <ProblematicView onOpenDebug={openDebug} />}

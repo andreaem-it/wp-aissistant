@@ -22,6 +22,7 @@ from sqlmodel import Session, select
 
 from . import billing
 from . import costs as costs_service
+from . import growth
 
 from .db import (
     AiResponseLog,
@@ -6858,6 +6859,27 @@ def admin_revenue(days: int = 30, session: Session = Depends(get_session)):
     if days < 1 or days > 365:
         raise HTTPException(400, "days must be between 1 and 365")
     return billing.revenue_summary(session, days=days)
+
+
+@app.get("/admin/activation", dependencies=[Depends(require_admin)])
+def admin_activation(days: int = 90, session: Session = Depends(get_session)):
+    """How far the accounts created in the window got: plugin, prima chat, risposta utile, pagamento.
+
+    Clients created before migration 0049 with no operator to backfill from have no known date;
+    they are excluded from the cohort and counted in `undated_clients` instead of dragging the
+    conversion rates down. See app/growth.py.
+    """
+    if days < 1 or days > 365:
+        raise HTTPException(400, "days must be between 1 and 365")
+    return growth.activation_funnel(session, days=days)
+
+
+@app.get("/admin/at-risk", dependencies=[Depends(require_admin)])
+def admin_at_risk(days: int = 14, session: Session = Depends(get_session)):
+    """Clients with a concrete reason for concern, each spelled out rather than scored."""
+    if days < 1 or days > 180:
+        raise HTTPException(400, "days must be between 1 and 180")
+    return growth.at_risk_clients(session, days=days)
 
 
 @app.get("/admin/costs", dependencies=[Depends(require_admin)])
