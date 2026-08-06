@@ -43,6 +43,17 @@ export const adminApi = {
   plans: () => call("/admin/plans"),
   createPlan: (plan) => call("/admin/plans", { method: "POST", body: plan }),
   setClientPlan: (clientId, plan_id) => call(`/admin/clients/${clientId}/plan`, { method: "POST", body: { plan_id } }),
+  // commercial actions: these change the subscription at Stripe; our rows follow via webhook
+  extendTrial: (clientId, days) =>
+    call(`/admin/clients/${clientId}/subscription/trial`, { method: "POST", body: { days } }),
+  applyDiscount: (clientId, coupon) =>
+    call(`/admin/clients/${clientId}/subscription/discount`, { method: "POST", body: { coupon } }),
+  removeDiscount: (clientId) =>
+    call(`/admin/clients/${clientId}/subscription/discount`, { method: "DELETE" }),
+  pauseSubscription: (clientId, paused) =>
+    call(`/admin/clients/${clientId}/subscription/pause`, { method: "POST", body: { paused } }),
+  cancelSubscription: (clientId, cancel) =>
+    call(`/admin/clients/${clientId}/subscription/cancel`, { method: "POST", body: { cancel } }),
   // observability (Fase 3b/3c)
   stats: () => call("/admin/stats"),
   revenue: (days = 30) => call(`/admin/revenue?days=${days}`),

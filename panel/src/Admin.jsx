@@ -160,6 +160,103 @@ function PlanPicker({ client, plans, onChanged }) {
   );
 }
 
+function CommercialActions({ client }) {
+  const [days, setDays] = useState("7");
+  const [coupon, setCoupon] = useState("");
+  const [busy, setBusy] = useState("");
+  const [result, setResult] = useState(null);
+
+  // every action lands at Stripe; our row only changes when the webhook arrives, so the
+  // feedback says "richiesto", never "fatto"
+  const run = async (name, fn) => {
+    setBusy(name);
+    setResult(null);
+    try {
+      await fn();
+      setResult({ ok: true, text: "Richiesta inviata a Stripe. Lo stato si aggiorna appena arriva il webhook." });
+    } catch (e) {
+      setResult({
+        ok: false,
+        text: e?.status === 409
+          ? "Stripe ha rifiutato l'operazione: verifica che il cliente abbia un abbonamento e che il codice esista."
+          : e?.status === 503
+            ? "Billing non configurato su questo ambiente."
+            : `Operazione non riuscita${e?.status ? ` (errore ${e.status})` : ""}.`,
+      });
+    } finally {
+      setBusy("");
+    }
+  };
+
+  if (!client.billing_status || client.billing_status === "canceled") {
+    return (
+      <div className="wpai-card" style={{ marginTop: 16 }}>
+        <div className="wpai-card-title" style={{ marginBottom: 8 }}><CreditCard size={15} /> Azioni commerciali</div>
+        <p style={{ color: "var(--text-muted)", fontSize: 13, margin: 0 }}>
+          Nessun abbonamento attivo su cui agire.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="wpai-card" style={{ marginTop: 16 }}>
+      <div className="wpai-card-title" style={{ marginBottom: 10 }}><CreditCard size={15} /> Azioni commerciali</div>
+      {result && <p className={result.ok ? "wpai-success" : "wpai-error"}>{result.text}</p>}
+
+      <div style={{ display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap", marginBottom: 12 }}>
+        <label style={{ display: "grid", gap: 4, fontSize: 12.5, flex: "0 1 130px" }}>
+          Proroga prova (giorni)
+          <input type="number" min="1" max="90" value={days} onChange={(e) => setDays(e.target.value)} />
+        </label>
+        <button className="wpai-btn ghost" disabled={busy === "trial"}
+                onClick={() => run("trial", () => adminApi.extendTrial(client.id, Number(days) || 0))}>
+          {busy === "trial" ? "Invio…" : "Prolunga"}
+        </button>
+      </div>
+
+      <div style={{ display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap", marginBottom: 12 }}>
+        <label style={{ display: "grid", gap: 4, fontSize: 12.5, flex: "1 1 160px" }}>
+          Codice sconto Stripe
+          <input value={coupon} onChange={(e) => setCoupon(e.target.value)} placeholder="NATALE20" />
+        </label>
+        <button className="wpai-btn ghost" disabled={busy === "discount" || !coupon.trim()}
+                onClick={() => run("discount", () => adminApi.applyDiscount(client.id, coupon.trim()))}>
+          {busy === "discount" ? "Invio…" : "Applica"}
+        </button>
+        <button className="wpai-btn ghost" disabled={busy === "undiscount"}
+                onClick={() => run("undiscount", () => adminApi.removeDiscount(client.id))}>
+          Rimuovi sconto
+        </button>
+      </div>
+
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <button className="wpai-btn ghost" disabled={busy === "pause"}
+                onClick={() => run("pause", () => adminApi.pauseSubscription(client.id, true))}>
+          Sospendi addebiti
+        </button>
+        <button className="wpai-btn ghost" disabled={busy === "resume"}
+                onClick={() => run("resume", () => adminApi.pauseSubscription(client.id, false))}>
+          Riattiva addebiti
+        </button>
+        <button className="wpai-btn danger" disabled={busy === "cancel"}
+                onClick={() => run("cancel", () => adminApi.cancelSubscription(client.id, true))}>
+          Disdici a fine periodo
+        </button>
+        <button className="wpai-btn ghost" disabled={busy === "uncancel"}
+                onClick={() => run("uncancel", () => adminApi.cancelSubscription(client.id, false))}>
+          Annulla disdetta
+        </button>
+      </div>
+
+      <p style={{ color: "var(--text-muted)", fontSize: 12, margin: "10px 0 0" }}>
+        I codici sconto si creano nella dashboard Stripe. La disdetta è sempre a fine periodo
+        pagato, mai immediata. La sospensione ferma gli addebiti senza togliere il piano.
+      </p>
+    </div>
+  );
+}
+
 function ClientDetail({ client, plans, onChanged }) {
   const [origins, setOrigins] = useState(client.allowed_origins || "");
   const [savingOrigins, setSavingOrigins] = useState(false);
@@ -267,6 +364,7 @@ function ClientDetail({ client, plans, onChanged }) {
       </div>
 
       <PlanPicker client={client} plans={plans} onChanged={onChanged} />
+      <CommercialActions client={client} />
       <OperatorsPanel clientId={client.id} />
     </div>
   );

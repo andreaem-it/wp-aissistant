@@ -53,6 +53,15 @@ scarica le fatture, cambia piano e disdice, senza passare dal supporto.
 > Finché il portale non è configurato in dashboard, `/billing/portal` risponde `502`: il panel
 > mostra "portale non raggiungibile" invece di una schermata rotta.
 
+## 5-bis. Coupon per le azioni commerciali
+
+Il superadmin può applicare uno sconto a un abbonamento dalla scheda cliente, ma **il coupon va
+creato prima in Stripe** (Product catalog → Coupons): il codice inserito nel panel deve esistere
+già, altrimenti Stripe rifiuta e il panel lo riporta senza fingere che sia andata a buon fine.
+
+La politica commerciale resta così in un posto solo — la dashboard Stripe — invece di essere
+metà lì e metà nel nostro database.
+
 ## 6. Env var su Railway (dashboard → Variables)
 
 | Variabile | Valore |

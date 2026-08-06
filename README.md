@@ -306,6 +306,14 @@ piani a pagamento):
   convertiti: la risposta segnala `mixed_currencies` e omette la percentuale di margine. È inoltre
   **solo costo di inferenza** — embedding, storage, email e canali non sono registrati per turno —
   quindi il margine è un tetto, non il dato finale.
+- **Azioni commerciali del superadmin** (`/admin/clients/{id}/subscription/*`): proroga della
+  prova contata da oggi, applicazione e rimozione di un coupon Stripe, sospensione e ripresa
+  degli addebiti, disdetta e revoca della disdetta. Tutte agiscono **su Stripe** e non scrivono
+  nulla nel database: è il webhook a farlo, quindi non esiste un istante in cui le due parti
+  dicono cose diverse. La disdetta è sempre a fine periodo pagato, mai immediata. Anche
+  `POST /admin/clients/{id}/plan` passa da Stripe quando il cliente ha un abbonamento —
+  restituisce `pending_plan_id` finché il webhook non conferma — e resta una scrittura diretta
+  solo per i clienti senza abbonamento.
 - **Ricavi per il superadmin** (`GET /admin/revenue?days=30`): MRR/ARR, ricavo medio e clienti
   paganti, ripartizione per piano, insoluti, prove in scadenza e disdette (programmate e del
   periodo). Gli abbonamenti annuali sono normalizzati a un dodicesimo, quindi serve

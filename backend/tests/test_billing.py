@@ -661,3 +661,194 @@ def test_cancellation_is_timestamped_and_cleared_on_resubscribe(client, tenant, 
     with Session(db.engine) as session:
         # a live subscription is not churn: the timestamp must not linger
         assert session.get(db.Client, tenant["cid"]).subscription_canceled_at is None
+
+
+# ---- Commercial actions ---------------------------------------------------------------------
+
+
+def _capture_modify(monkeypatch):
+    """Record what would be sent to Stripe instead of sending it."""
+    calls = []
+
+    def fake_modify(subscription_id, **kwargs):
+        calls.append({"id": subscription_id, **kwargs})
+        return types.SimpleNamespace(id=subscription_id)
+
+    monkeypatch.setattr("stripe.Subscription.modify", fake_modify)
+    return calls
+
+
+def test_trial_extension_counts_from_today(client, tenant, monkeypatch):
+    """Extending an expired trial by 3 days must mean 3 days from now, not from a past date."""
+    _attach_customer(tenant["cid"], subscription="sub_trial_ext")
+    calls = _capture_modify(monkeypatch)
+
+    response = client.post(f"/admin/clients/{tenant['cid']}/subscription/trial",
+                           headers=ADMIN, json={"days": 3})
+
+    assert response.status_code == 200
+    expected = datetime.utcnow() + timedelta(days=3)
+    assert abs(calls[0]["trial_end"] - int(expected.timestamp())) < 120
+    assert calls[0]["proration_behavior"] == "none"
+
+
+def test_trial_extension_is_bounded(client, tenant, monkeypatch):
+    _attach_customer(tenant["cid"], subscription="sub_bounds")
+    _capture_modify(monkeypatch)
+
+    for days in (0, -5, 400):
+        response = client.post(f"/admin/clients/{tenant['cid']}/subscription/trial",
+                               headers=ADMIN, json={"days": days})
+        assert response.status_code == 409
+
+
+def test_actions_require_a_subscription(client, tenant, monkeypatch):
+    """A client that never checked out has nothing to act on: say so, don't pretend."""
+    _capture_modify(monkeypatch)
+
+    response = client.post(f"/admin/clients/{tenant['cid']}/subscription/trial",
+                           headers=ADMIN, json={"days": 7})
+
+    assert response.status_code == 409
+    assert "abbonamento" in response.json()["detail"].lower()
+
+
+def test_discount_is_applied_and_removed(client, tenant, monkeypatch):
+    _attach_customer(tenant["cid"], subscription="sub_disc")
+    calls = _capture_modify(monkeypatch)
+
+    client.post(f"/admin/clients/{tenant['cid']}/subscription/discount",
+                headers=ADMIN, json={"coupon": "NATALE20"})
+    client.delete(f"/admin/clients/{tenant['cid']}/subscription/discount", headers=ADMIN)
+
+    assert calls[0]["coupon"] == "NATALE20"
+    assert calls[1]["coupon"] == ""  # emptying the field is how Stripe removes a discount
+
+
+def test_pause_and_resume_collection(client, tenant, monkeypatch):
+    _attach_customer(tenant["cid"], subscription="sub_pause")
+    calls = _capture_modify(monkeypatch)
+
+    client.post(f"/admin/clients/{tenant['cid']}/subscription/pause", headers=ADMIN, json={"paused": True})
+    client.post(f"/admin/clients/{tenant['cid']}/subscription/pause", headers=ADMIN, json={"paused": False})
+
+    assert calls[0]["pause_collection"] == {"behavior": "void"}
+    assert calls[1]["pause_collection"] == ""
+
+
+def test_cancellation_is_scheduled_never_immediate(client, tenant, monkeypatch):
+    """The customer paid through the period: taking the service away early invites a dispute."""
+    _attach_customer(tenant["cid"], subscription="sub_cancel_admin")
+    calls = _capture_modify(monkeypatch)
+
+    client.post(f"/admin/clients/{tenant['cid']}/subscription/cancel", headers=ADMIN, json={"cancel": True})
+
+    assert calls[0]["cancel_at_period_end"] is True
+    assert "cancel_now" not in calls[0] and "invoice_now" not in calls[0]
+
+
+def test_cancellation_can_be_revoked(client, tenant, monkeypatch):
+    _attach_customer(tenant["cid"], subscription="sub_revoke")
+    calls = _capture_modify(monkeypatch)
+
+    client.post(f"/admin/clients/{tenant['cid']}/subscription/cancel", headers=ADMIN, json={"cancel": False})
+
+    assert calls[0]["cancel_at_period_end"] is False
+
+
+def test_actions_do_not_write_billing_state_directly(client, tenant, monkeypatch):
+    """The webhook is the only writer: an action must leave the row untouched."""
+    _attach_customer(tenant["cid"], subscription="sub_nowrite")
+    _capture_modify(monkeypatch)
+    with Session(db.engine) as session:
+        before = session.get(db.Client, tenant["cid"]).billing_status
+
+    client.post(f"/admin/clients/{tenant['cid']}/subscription/cancel", headers=ADMIN, json={"cancel": True})
+
+    with Session(db.engine) as session:
+        row = session.get(db.Client, tenant["cid"])
+        assert row.billing_status == before
+        assert row.subscription_cancel_at_period_end is False  # only the webhook may set this
+
+
+def test_a_stripe_refusal_is_reported(client, tenant, monkeypatch):
+    _attach_customer(tenant["cid"], subscription="sub_refused")
+
+    def refuse(subscription_id, **kwargs):
+        raise RuntimeError("coupon does not exist")
+
+    monkeypatch.setattr("stripe.Subscription.modify", refuse)
+
+    response = client.post(f"/admin/clients/{tenant['cid']}/subscription/discount",
+                           headers=ADMIN, json={"coupon": "INESISTENTE"})
+
+    assert response.status_code == 409  # no optimistic "done" when Stripe said no
+
+
+def test_commercial_actions_are_audited(client, tenant, monkeypatch):
+    _attach_customer(tenant["cid"], subscription="sub_audited")
+    _capture_modify(monkeypatch)
+
+    client.post(f"/admin/clients/{tenant['cid']}/subscription/trial", headers=ADMIN, json={"days": 5})
+
+    actions = [row["action"] for row in client.get("/admin/audit", headers=ADMIN).json()]
+    assert "subscription.trial_extended" in actions
+
+
+def test_commercial_actions_require_the_admin_key(client, tenant):
+    for path, method in (
+        (f"/admin/clients/{tenant['cid']}/subscription/trial", "post"),
+        (f"/admin/clients/{tenant['cid']}/subscription/discount", "post"),
+        (f"/admin/clients/{tenant['cid']}/subscription/cancel", "post"),
+    ):
+        response = getattr(client, method)(path, headers=tenant["op"], json={"days": 1, "coupon": "X"})
+        assert response.status_code in (401, 403)
+
+
+# ---- Plan change goes through Stripe ----------------------------------------------------------
+
+
+def test_plan_change_routes_through_stripe_when_subscribed(client, tenant, monkeypatch):
+    """The old behaviour wrote plan_id straight to the row, leaving Stripe billing the old plan."""
+    plan_id = _make_paid_plan(client, price_id="price_target")
+    _attach_customer(tenant["cid"], subscription="sub_planchange")
+    calls = _capture_modify(monkeypatch)
+    monkeypatch.setattr(
+        "stripe.Subscription.retrieve",
+        lambda sid: {"items": {"data": [{"id": "si_1"}]}},
+    )
+
+    response = client.post(f"/admin/clients/{tenant['cid']}/plan", headers=ADMIN, json={"plan_id": plan_id})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["via"] == "stripe"
+    assert body["pending_plan_id"] == plan_id
+    assert calls[0]["items"] == [{"id": "si_1", "price": "price_target"}]
+    with Session(db.engine) as session:
+        # untouched until the webhook confirms it
+        assert session.get(db.Client, tenant["cid"]).plan_id != plan_id
+
+
+def test_plan_change_replaces_the_line_instead_of_adding_one(client, tenant, monkeypatch):
+    """Without the existing item id Stripe would add a second line and bill the customer twice."""
+    plan_id = _make_paid_plan(client, price_id="price_second")
+    _attach_customer(tenant["cid"], subscription="sub_line")
+    calls = _capture_modify(monkeypatch)
+    monkeypatch.setattr("stripe.Subscription.retrieve", lambda sid: {"items": {"data": [{"id": "si_existing"}]}})
+
+    client.post(f"/admin/clients/{tenant['cid']}/plan", headers=ADMIN, json={"plan_id": plan_id})
+
+    assert calls[0]["items"][0]["id"] == "si_existing"
+    assert len(calls[0]["items"]) == 1
+
+
+def test_plan_change_stays_direct_without_a_subscription(client, tenant):
+    """Free and manually provisioned clients have nothing to sync: the direct write remains."""
+    plan_id = _make_paid_plan(client, price_id="price_direct")
+
+    response = client.post(f"/admin/clients/{tenant['cid']}/plan", headers=ADMIN, json={"plan_id": plan_id})
+
+    assert response.json()["via"] == "direct"
+    with Session(db.engine) as session:
+        assert session.get(db.Client, tenant["cid"]).plan_id == plan_id

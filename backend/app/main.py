@@ -7097,17 +7097,109 @@ def list_clients(session: Session = Depends(get_session)):
 
 
 @app.post("/admin/clients/{client_id}/plan", dependencies=[Depends(require_admin)])
-def set_client_plan(client_id: int, plan_id: int = Body(..., embed=True), session: Session = Depends(get_session)):
+def set_client_plan(
+    client_id: int,
+    plan_id: int = Body(..., embed=True),
+    billing_interval: str = Body("month", embed=True),
+    session: Session = Depends(get_session),
+):
+    """Move a client onto another plan.
+
+    With a live Stripe subscription the change goes **through Stripe** and the row is left to
+    the webhook: writing `plan_id` here directly used to leave the database claiming one plan
+    while Stripe billed another, until the next event silently overwrote it. Clients without a
+    subscription (free, manually provisioned) are still set directly — there is nothing to sync.
+    """
     client = session.get(Client, client_id)
     if not client:
         raise HTTPException(404, "client not found")
-    if not session.get(Plan, plan_id):
+    plan = session.get(Plan, plan_id)
+    if not plan:
         raise HTTPException(404, "plan not found")
+
+    if client.stripe_subscription_id and billing.enabled():
+        price_id = _stripe_price_for_interval(plan, billing_interval)
+        if not price_id:
+            raise HTTPException(400, f"plan has no {billing_interval}ly Stripe price")
+        try:
+            billing.change_plan(client, price_id)
+        except billing.BillingActionError as exc:
+            raise HTTPException(502, str(exc))
+        _audit(session, "admin", "admin", "client.set_plan", target=f"client:{client_id}",
+               client_id=client_id, detail={"plan_id": plan_id, "via": "stripe"})
+        # the row still shows the old plan until the webhook lands; say so instead of implying
+        # the change is already reflected here
+        return {"id": client.id, "plan_id": client.plan_id, "pending_plan_id": plan_id, "via": "stripe"}
+
     client.plan_id = plan_id
     session.add(client)
     session.commit()
-    _audit(session, "admin", "admin", "client.set_plan", target=f"client:{client_id}", client_id=client_id, detail={"plan_id": plan_id})
-    return {"id": client.id, "plan_id": client.plan_id}
+    _audit(session, "admin", "admin", "client.set_plan", target=f"client:{client_id}", client_id=client_id, detail={"plan_id": plan_id, "via": "direct"})
+    return {"id": client.id, "plan_id": client.plan_id, "via": "direct"}
+
+
+def _subscription_action(client_id: int, session: Session, action, *, name: str, detail: dict | None = None):
+    """Run one Stripe-side action on a client's subscription and record it.
+
+    Nothing is written to the client row: the subscription.* webhook is the only thing that
+    updates billing state, so there is never a moment when we and Stripe disagree.
+    """
+    if not billing.enabled():
+        raise HTTPException(503, "billing not configured")
+    client = session.get(Client, client_id)
+    if not client:
+        raise HTTPException(404, "client not found")
+    try:
+        action(client)
+    except billing.BillingActionError as exc:
+        raise HTTPException(409, str(exc))
+    _audit(session, "admin", "admin", f"subscription.{name}", target=f"client:{client_id}",
+           client_id=client_id, detail=detail or {})
+    return {"ok": True, "applied": name, "note": "Lo stato si aggiorna quando arriva il webhook Stripe."}
+
+
+@app.post("/admin/clients/{client_id}/subscription/trial", dependencies=[Depends(require_admin)])
+def extend_client_trial(client_id: int, days: int = Body(..., embed=True), session: Session = Depends(get_session)):
+    """Extend the free trial by `days` counted from today (see billing.extend_trial)."""
+    return _subscription_action(
+        client_id, session, lambda c: billing.extend_trial(c, days),
+        name="trial_extended", detail={"days": days},
+    )
+
+
+@app.post("/admin/clients/{client_id}/subscription/discount", dependencies=[Depends(require_admin)])
+def apply_client_discount(client_id: int, coupon: str = Body(..., embed=True), session: Session = Depends(get_session)):
+    """Attach an existing Stripe coupon; coupons are created in the Stripe dashboard."""
+    return _subscription_action(
+        client_id, session, lambda c: billing.apply_discount(c, coupon),
+        name="discount_applied", detail={"coupon": (coupon or "").strip()[:100]},
+    )
+
+
+@app.delete("/admin/clients/{client_id}/subscription/discount", dependencies=[Depends(require_admin)])
+def remove_client_discount(client_id: int, session: Session = Depends(get_session)):
+    return _subscription_action(
+        client_id, session, billing.remove_discount, name="discount_removed",
+    )
+
+
+@app.post("/admin/clients/{client_id}/subscription/pause", dependencies=[Depends(require_admin)])
+def pause_client_subscription(client_id: int, paused: bool = Body(..., embed=True), session: Session = Depends(get_session)):
+    """Stop or resume collection without cancelling: the plan stays, the charges stop."""
+    return _subscription_action(
+        client_id, session,
+        billing.pause_collection if paused else billing.resume_collection,
+        name="paused" if paused else "resumed",
+    )
+
+
+@app.post("/admin/clients/{client_id}/subscription/cancel", dependencies=[Depends(require_admin)])
+def cancel_client_subscription(client_id: int, cancel: bool = Body(True, embed=True), session: Session = Depends(get_session)):
+    """Schedule, or call off, a cancellation at the end of the paid period — never immediate."""
+    return _subscription_action(
+        client_id, session, lambda c: billing.set_cancellation(c, cancel),
+        name="cancellation_scheduled" if cancel else "cancellation_revoked",
+    )
 
 
 @app.get("/admin/conversations/{conversation_id}/debug", dependencies=[Depends(require_admin)])

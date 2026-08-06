@@ -296,3 +296,94 @@ def revenue_summary(session: Session, days: int = 30) -> dict:
             recent_cancellations, key=lambda r: r["canceled_at"], reverse=True
         ),
     }
+
+
+# ---- Commercial actions ---------------------------------------------------------------------
+#
+# All of these change the subscription **at Stripe** and return without touching the database.
+# The resulting subscription.* webhook is what updates our rows, so there is exactly one path
+# by which billing state changes and no window in which the two disagree.
+
+
+class BillingActionError(RuntimeError):
+    """A commercial action could not be carried out; the message is safe to show an admin."""
+
+
+def _subscription_id(client: "Client") -> str:
+    if not client.stripe_subscription_id:
+        raise BillingActionError("Il cliente non ha un abbonamento Stripe attivo")
+    return client.stripe_subscription_id
+
+
+def _modify(subscription_id: str, **changes):
+    try:
+        return stripe.Subscription.modify(subscription_id, **changes)
+    except Exception as exc:  # noqa: BLE001 — Stripe rejects for many reasons; report, never crash
+        log(logger, logging.WARNING, "billing.action_failed", subscription=subscription_id,
+            error=type(exc).__name__)
+        raise BillingActionError("Stripe ha rifiutato l'operazione") from exc
+
+
+def extend_trial(client: "Client", days: int, now: "datetime | None" = None):
+    """Push the trial end out by `days` from today.
+
+    Counted from now rather than from the current trial end: extending an *expired* trial by
+    three days has to mean three days from today, not three days from a date already past.
+    """
+    if days < 1 or days > 90:
+        raise BillingActionError("La proroga deve essere fra 1 e 90 giorni")
+    until = (now or datetime.utcnow()) + timedelta(days=days)
+    return _modify(_subscription_id(client), trial_end=int(until.timestamp()), proration_behavior="none")
+
+
+def apply_discount(client: "Client", coupon: str):
+    """Attach an existing Stripe coupon. The coupon itself is created in the Stripe dashboard:
+    inventing discount rules here would put the commercial policy in two places."""
+    code = (coupon or "").strip()
+    if not code:
+        raise BillingActionError("Codice sconto mancante")
+    return _modify(_subscription_id(client), coupon=code)
+
+
+def remove_discount(client: "Client"):
+    return _modify(_subscription_id(client), coupon="")
+
+
+def pause_collection(client: "Client"):
+    """Stop charging without cancelling: the customer keeps the plan, Stripe stops collecting."""
+    return _modify(_subscription_id(client), pause_collection={"behavior": "void"})
+
+
+def resume_collection(client: "Client"):
+    return _modify(_subscription_id(client), pause_collection="")
+
+
+def set_cancellation(client: "Client", cancel: bool):
+    """Schedule (or call off) a cancellation at the end of the paid period.
+
+    Never cancels immediately: the customer has paid through the period, and taking the service
+    away early would be a refundable dispute waiting to happen.
+    """
+    return _modify(_subscription_id(client), cancel_at_period_end=bool(cancel))
+
+
+def change_plan(client: "Client", price_id: str):
+    """Swap the subscription onto another price, prorating the difference.
+
+    Reads the current item id first: replacing `items` without it would add a second line
+    instead of moving the existing one, and the customer would be billed twice.
+    """
+    subscription_id = _subscription_id(client)
+    try:
+        current = stripe.Subscription.retrieve(subscription_id)
+        items = (current.get("items") or {}).get("data") or []
+        item_id = items[0]["id"] if items else None
+    except Exception as exc:  # noqa: BLE001
+        raise BillingActionError("Abbonamento non leggibile da Stripe") from exc
+    if not item_id:
+        raise BillingActionError("L'abbonamento non ha una linea da aggiornare")
+    return _modify(
+        subscription_id,
+        items=[{"id": item_id, "price": price_id}],
+        proration_behavior="create_prorations",
+    )

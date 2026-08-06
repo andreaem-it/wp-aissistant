@@ -218,10 +218,9 @@ Convenzioni utili viste nella suite:
    DELETE, rendendole invisibilmente inutilizzabili dal browser: il server rispondeva `204` al
    preflight e nei log non compariva nulla. Ora c'è `test_cors.py` che confronta i metodi
    annunciati con la tabella di routing, ma la lista resta duplicata.
-6. **`set_client_plan` (`/admin/clients/{id}/plan`) scrive `plan_id` senza toccare Stripe.** Su
-   un cliente con abbonamento attivo crea disallineamento fra database e Stripe, e il primo
-   webhook utile può sovrascrivere la modifica. Le azioni commerciali vanno fatte via API
-   Stripe, lasciando che sia il webhook ad aggiornare il database.
+6. ~~`set_client_plan` scrive `plan_id` senza toccare Stripe.~~ **Risolto**: con un abbonamento
+   attivo il cambio piano passa da Stripe e la riga la aggiorna il webhook. La regola vale ora
+   per tutte le azioni commerciali — chi agisce chiama Stripe, chi scrive è solo il webhook.
 
 ## 9. Cosa fare dopo
 
@@ -239,9 +238,9 @@ prima di tutto il resto, perché è l'unica cosa che non dipende da noi.
 > e va portato sul canale WhatsApp, come passo intermedio verso l'Embedded Signup di Meta.
 
 **B. Completare la parte commerciale.** Fatti: portale Stripe per il cliente con avvisi via email,
-vista **Ricavi** e vista **Costi e margine** nel superadmin. Restano, in ordine di valore: azioni
-commerciali via API Stripe (trial, coupon, sospensione — vedi debito 6); costi di embedding,
-storage e canali per chiudere il margine (debito 4); funnel di attivazione e clienti a rischio.
+viste **Ricavi** e **Costi e margine**, e le **azioni commerciali** del superadmin. Restano: azioni
+costi di embedding, storage e canali per chiudere il margine (debito 4); funnel di attivazione
+e clienti a rischio. Le azioni commerciali su Stripe sono fatte.
 
 > Il listino modelli parte **vuoto**: finché il superadmin non lo compila da *Costi e margine*,
 > ogni modello usato compare fra quelli senza prezzo e i costi restano a zero. È voluto — un
