@@ -19,15 +19,17 @@ import re
 import unicodedata
 from datetime import datetime, timedelta
 
-from sqlalchemy import and_, func, or_
+from sqlalchemy import and_, column, func, or_
 from sqlmodel import Session, select
 
 from .db import (
     AiResponseLog,
     Conversation,
     ConversationRating,
+    ConversationTag,
     KnowledgeGapReview,
     Message,
+    Tag,
 )
 from .logging_config import log
 
@@ -429,3 +431,228 @@ def review_gap(
     session.refresh(review)
     log(logger, logging.INFO, "analytics.gap_reviewed", client_id=client_id, status=status)
     return review
+
+
+# ---- Aggregated statistics -------------------------------------------------------------------
+#
+# One client (operator view) or the whole system (client_id=None, admin view). Moved here from
+# main.py: the numbers are analytics, and both the panel and the public API ask for them.
+
+
+def _status_counts(session: Session, client_id: int | None) -> dict:
+    q = select(Conversation.status, func.count()).group_by(Conversation.status)
+    if client_id is not None:
+        q = q.where(Conversation.client_id == client_id)
+    return {status: int(n) for status, n in session.exec(q).all()}
+
+
+def _ai_outcomes(session: Session, client_id: int | None) -> dict:
+    q = select(AiResponseLog.outcome, func.count()).group_by(AiResponseLog.outcome)
+    if client_id is not None:
+        q = q.where(AiResponseLog.client_id == client_id)
+    return {outcome: int(n) for outcome, n in session.exec(q).all()}
+
+
+def _avg_latency_ms(session: Session, client_id: int | None) -> int:
+    q = select(func.avg(AiResponseLog.latency_ms)).where(
+        AiResponseLog.outcome == "answered", AiResponseLog.latency_ms > 0
+    )
+    if client_id is not None:
+        q = q.where(AiResponseLog.client_id == client_id)
+    val = session.exec(q).one()
+    return int(val) if val is not None else 0
+
+
+def _feedback_counts(session: Session, client_id: int | None) -> dict:
+    q = select(Message.feedback, func.count()).where(Message.feedback.is_not(None))
+    if client_id is not None:
+        q = q.join(Conversation, Message.conversation_id == Conversation.id).where(
+            Conversation.client_id == client_id
+        )
+    rows = session.exec(q.group_by(Message.feedback)).all()
+    counts = {int(val): int(n) for val, n in rows}
+    return {"positive": counts.get(1, 0), "negative": counts.get(-1, 0)}
+
+
+def _daily_volume(session: Session, client_id: int | None, days: int = 14) -> list[dict]:
+    since = datetime.utcnow() - timedelta(days=days)
+    day = func.date(Conversation.created_at)
+    q = select(day, func.count()).where(Conversation.created_at >= since)
+    if client_id is not None:
+        q = q.where(Conversation.client_id == client_id)
+    rows = session.exec(q.group_by(day).order_by(day)).all()
+    return [{"date": str(d), "conversations": int(n)} for d, n in rows]
+
+
+def sla_warning_clause(now: datetime):
+    """SQL predicate: at least one target is still pending and inside its warning window."""
+    first = and_(
+        Conversation.first_response_at.is_(None),
+        Conversation.first_response_warn_at.is_not(None),
+        Conversation.first_response_warn_at <= now,
+        Conversation.first_response_due_at >= now,
+    )
+    resolution = and_(
+        Conversation.closed_at.is_(None),
+        Conversation.resolution_warn_at.is_not(None),
+        Conversation.resolution_warn_at <= now,
+        Conversation.resolution_due_at >= now,
+    )
+    return or_(first, resolution)
+
+
+def sla_breached_clause(now: datetime):
+    """SQL predicate: at least one target is past its deadline (missed, or met late)."""
+    first = and_(
+        Conversation.first_response_due_at.is_not(None),
+        or_(
+            and_(Conversation.first_response_at.is_(None), Conversation.first_response_due_at < now),
+            and_(
+                Conversation.first_response_at.is_not(None),
+                Conversation.first_response_at > Conversation.first_response_due_at,
+            ),
+        ),
+    )
+    resolution = and_(
+        Conversation.resolution_due_at.is_not(None),
+        or_(
+            and_(Conversation.closed_at.is_(None), Conversation.resolution_due_at < now),
+            and_(Conversation.closed_at.is_not(None), Conversation.closed_at > Conversation.resolution_due_at),
+        ),
+    )
+    return or_(first, resolution)
+
+
+def _sla_stats(session: Session, client_id: int | None) -> dict:
+    """SLA health: how many conversations are running an SLA, how many are at risk or already
+    breached, how many met their targets, and the average first-response delay in minutes."""
+    now = datetime.utcnow()
+
+    def _count(*clauses) -> int:
+        q = select(func.count()).select_from(Conversation).where(Conversation.sla_started_at.is_not(None), *clauses)
+        if client_id is not None:
+            q = q.where(Conversation.client_id == client_id)
+        return int(session.exec(q).one())
+
+    tracked = _count()
+    breached = _count(sla_breached_clause(now))
+    at_risk = _count(~sla_breached_clause(now), sla_warning_clause(now))
+    avg_q = select(
+        func.avg(
+            func.extract("epoch", Conversation.first_response_at - Conversation.sla_started_at) / 60.0
+        )
+    ).where(Conversation.sla_started_at.is_not(None), Conversation.first_response_at.is_not(None))
+    if client_id is not None:
+        avg_q = avg_q.where(Conversation.client_id == client_id)
+    avg_first_response = session.exec(avg_q).one()
+    return {
+        "tracked": tracked,
+        "at_risk": at_risk,
+        "breached": breached,
+        "met": max(tracked - breached - at_risk, 0),
+        # share of tracked conversations still within their targets (null with no data yet)
+        "compliance_rate": round((tracked - breached) / tracked, 3) if tracked else None,
+        "avg_first_response_minutes": round(float(avg_first_response), 1) if avg_first_response is not None else None,
+    }
+
+
+def _tag_stats(session: Session, client_id: int | None, limit: int = 8) -> list[dict]:
+    """Most used tags, manual and AI together — the entry point for "di cosa ci scrivono"."""
+    q = (
+        select(Tag.name, ConversationTag.source, func.count())
+        .join(ConversationTag, ConversationTag.tag_id == Tag.id)
+        .group_by(Tag.name, ConversationTag.source)
+        .order_by(func.count().desc())
+        .limit(limit)
+    )
+    if client_id is not None:
+        q = q.where(ConversationTag.client_id == client_id)
+    return [{"name": name, "source": source, "conversations": int(n)} for name, source, n in session.exec(q).all()]
+
+
+def _classification_stats(session: Session, client_id: int | None) -> dict:
+    """Split of the AI classification by intent and urgency (classified conversations only)."""
+
+    def _grouped(column) -> dict:
+        q = select(column, func.count()).where(column != "", Conversation.ai_classified_at.is_not(None))
+        if client_id is not None:
+            q = q.where(Conversation.client_id == client_id)
+        return {value: int(n) for value, n in session.exec(q.group_by(column)).all()}
+
+    return {"by_intent": _grouped(Conversation.ai_intent), "by_urgency": _grouped(Conversation.ai_urgency)}
+
+
+def _language_stats(session: Session, client_id: int | None) -> dict:
+    """How many conversations in each language — the signal that says whether translating the
+    knowledge base is worth it."""
+    q = select(Conversation.language, func.count()).group_by(Conversation.language)
+    if client_id is not None:
+        q = q.where(Conversation.client_id == client_id)
+    return {code: int(n) for code, n in session.exec(q).all() if code}
+
+
+def csat_summary(session: Session, client_id: int | None, since: datetime | None = None) -> dict:
+    """CSAT headline numbers: how many visitors answered, the average score and the share of
+    ratings at 4–5 (the usual "satisfied" cut)."""
+    q = select(func.count(), func.avg(ConversationRating.score))
+    if client_id is not None:
+        q = q.where(ConversationRating.client_id == client_id)
+    if since is not None:
+        q = q.where(ConversationRating.created_at >= since)
+    responses, average = session.exec(q).one()
+    responses = int(responses or 0)
+    positive_q = select(func.count()).select_from(ConversationRating).where(ConversationRating.score >= 4)
+    if client_id is not None:
+        positive_q = positive_q.where(ConversationRating.client_id == client_id)
+    if since is not None:
+        positive_q = positive_q.where(ConversationRating.created_at >= since)
+    positive = int(session.exec(positive_q).one() or 0)
+    distribution_q = select(ConversationRating.score, func.count()).group_by(ConversationRating.score)
+    if client_id is not None:
+        distribution_q = distribution_q.where(ConversationRating.client_id == client_id)
+    if since is not None:
+        distribution_q = distribution_q.where(ConversationRating.created_at >= since)
+    distribution = {str(score): int(n) for score, n in session.exec(distribution_q).all()}
+    return {
+        "responses": responses,
+        "average": round(float(average), 2) if average is not None else None,
+        "satisfied_rate": round(positive / responses, 3) if responses else None,
+        "distribution": {str(k): distribution.get(str(k), 0) for k in range(1, 6)},
+    }
+
+
+def build_stats(session: Session, client_id: int | None) -> dict:
+    """Aggregated analytics for one client (operator view) or the whole system (client_id=None,
+    admin view): conversation status split, AI resolution vs escalation, escalation triggers,
+    average answer latency, and a 14-day conversation-volume series."""
+    status = _status_counts(session, client_id)
+    outcomes = _ai_outcomes(session, client_id)
+    answered = outcomes.get("answered", 0)
+    esc_kw = outcomes.get("escalated_keyword", 0)
+    esc_model = outcomes.get("escalated_model", 0)
+    esc_down = outcomes.get("escalated_llm_down", 0)
+    ai_escalated = esc_kw + esc_model + esc_down
+    total_ai = answered + ai_escalated
+    return {
+        "conversations": {
+            "total": sum(status.values()),
+            "open": status.get("open", 0),
+            "escalated": status.get("escalated", 0),
+            "closed": status.get("closed", 0),
+        },
+        "ai": {
+            "answered": answered,
+            "escalated": ai_escalated,
+            # share of AI turns resolved without a human (null when there's no data yet)
+            "resolution_rate": round(answered / total_ai, 3) if total_ai else None,
+            "avg_latency_ms": _avg_latency_ms(session, client_id),
+        },
+        "escalations_by_trigger": {"keyword": esc_kw, "model": esc_model, "llm_down": esc_down},
+        "feedback": _feedback_counts(session, client_id),
+        "sla": _sla_stats(session, client_id),
+        "tags": _tag_stats(session, client_id),
+        "classification": _classification_stats(session, client_id),
+        "csat": csat_summary(session, client_id),
+        "languages": _language_stats(session, client_id),
+        "volume_daily": _daily_volume(session, client_id),
+    }
