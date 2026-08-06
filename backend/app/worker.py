@@ -158,3 +158,18 @@ def run_worker(stop: threading.Event) -> None:
                     log(logger, logging.ERROR, "ingest.job_failed", job_id=job_id, kind=job.kind, client_id=job.client_id, error=str(exc)[:500])
         except Exception:  # noqa: BLE001 — DB hiccup etc.; back off and retry
             stop.wait(POLL_INTERVAL)
+
+
+def enqueue(session: "Session", client_id: int, kind: str, payload: dict) -> "IngestJob":
+    """Put one ingest job on the queue. Lives with the worker that drains it, so the shape of a
+    job is defined in one place."""
+    job = IngestJob(
+        client_id=client_id,
+        kind=kind,
+        payload=json.dumps(payload),
+        max_attempts=int(os.getenv("INGEST_MAX_ATTEMPTS", "3")),
+    )
+    session.add(job)
+    session.commit()
+    session.refresh(job)
+    return job

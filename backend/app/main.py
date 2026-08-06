@@ -29,6 +29,16 @@ from .analytics import (
     sla_breached_clause as _sla_breached_clause,
     sla_warning_clause as _sla_warning_clause,
 )
+from .worker import enqueue as _enqueue
+from .conversations import (
+    SLA_STATES,
+    notify_visitor_reply as _notify_visitor_reply,
+    rating_payload as _rating_payload,
+    sla_view as _sla_view,
+    target_state as _target_state,
+    require_conversation as _require_conversation,
+    whatsapp_channel_status as _whatsapp_channel_status,
+)
 from .apikeys import API_SCOPES, generate as _generate_api_key, scopes_of as _api_key_scopes
 from .deps import (
     hash_api_key as _hash_api_key,
@@ -437,19 +447,6 @@ async def dynamic_cors(request: Request, call_next):
     if allowed:
         response.headers.update(_cors_headers(origin))
     return response
-
-
-def _enqueue(session: Session, client_id: int, kind: str, payload: dict) -> IngestJob:
-    job = IngestJob(
-        client_id=client_id,
-        kind=kind,
-        payload=json.dumps(payload),
-        max_attempts=int(os.getenv("INGEST_MAX_ATTEMPTS", "3")),
-    )
-    session.add(job)
-    session.commit()
-    session.refresh(job)
-    return job
 
 
 def _plan_limit(session: Session, client: Client, attr: str, fallback: int) -> int:
@@ -1539,17 +1536,6 @@ def chat_rating(
     return {"ok": True}
 
 
-def _rating_payload(rating: ConversationRating | None) -> dict | None:
-    if rating is None:
-        return None
-    return {
-        "score": rating.score,
-        "comment": rating.comment,
-        "resolved_by": rating.resolved_by,
-        "created_at": _iso(rating.created_at),
-    }
-
-
 # transient "operator is typing" state: {conversation_id: (operator_name, monotonic_ts)}.
 # In-memory (ephemeral, fine to lose on restart). ponytail: per-process — with multiple workers a
 # typing ping and the widget's poll can land on different workers; back with Redis if we scale out.
@@ -1569,7 +1555,6 @@ def _operator_name(operator: Operator) -> str:
 # deadline and a warning threshold, so the inbox can show ok / in scadenza / violato.
 
 PRIORITIES = ("low", "normal", "high", "urgent")
-SLA_STATES = ("ok", "in_scadenza", "violato")
 ROUTING_MODES = ("off", "round_robin")
 # share of the window after which a still-pending target is flagged "in scadenza"
 SLA_WARN_RATIO = min(max(float(os.getenv("SLA_WARN_RATIO", "0.8")), 0.0), 1.0)
@@ -1641,53 +1626,6 @@ def _apply_sla(session: Session, conv: Conversation, *, start: bool = False) -> 
         conv.first_response_breach_notified = False
     if conv.resolution_due_at is None or conv.resolution_due_at > now:
         conv.resolution_breach_notified = False
-
-
-def _target_state(due_at, warn_at, met_at, now) -> str | None:
-    """ok | in_scadenza | violato for one SLA target, or None when the target isn't set."""
-    if due_at is None:
-        return None
-    if met_at is not None:
-        return "violato" if met_at > due_at else "ok"
-    if now > due_at:
-        return "violato"
-    if warn_at is not None and now >= warn_at:
-        return "in_scadenza"
-    return "ok"
-
-
-def _worst_sla_state(*states: str | None) -> str | None:
-    for level in SLA_STATES[::-1]:  # violato, in_scadenza, ok
-        if level in states:
-            return level
-    return None
-
-
-def _sla_view(conv: Conversation, now: datetime | None = None) -> dict | None:
-    """Serializable SLA summary for the inbox: per-target deadline, when it was met and the
-    state, plus the worst of the two. None when no SLA is running on this conversation."""
-    if conv.sla_started_at is None:
-        return None
-    if conv.first_response_due_at is None and conv.resolution_due_at is None:
-        return None
-    now = now or datetime.utcnow()
-    first = _target_state(conv.first_response_due_at, conv.first_response_warn_at, conv.first_response_at, now)
-    resolution = _target_state(conv.resolution_due_at, conv.resolution_warn_at, conv.closed_at, now)
-    return {
-        "started_at": _iso(conv.sla_started_at),
-        "policy_id": conv.sla_policy_id,
-        "state": _worst_sla_state(first, resolution),
-        "first_response": {
-            "due_at": _iso(conv.first_response_due_at),
-            "met_at": _iso(conv.first_response_at),
-            "state": first,
-        },
-        "resolution": {
-            "due_at": _iso(conv.resolution_due_at),
-            "met_at": _iso(conv.closed_at),
-            "state": resolution,
-        },
-    }
 
 
 def _filter_by_sla_state(query, state: str, now: datetime):
@@ -1845,13 +1783,6 @@ PRESENCE_TTL = float(os.getenv("PRESENCE_TTL_SECONDS", "20"))
 # With several uvicorn workers each process sees its own heartbeats, so collision detection is
 # best-effort — it warns, it never blocks a reply.
 _conversation_presence: dict[int, dict[int, tuple[str, float, bool]]] = {}
-
-
-def _require_conversation(session: Session, client_id: int, conversation_id: int) -> Conversation:
-    conv = session.get(Conversation, conversation_id)
-    if not conv or conv.client_id != client_id:
-        raise HTTPException(404, "conversation not found")
-    return conv
 
 
 # conversations tracked at once before a full sweep runs; presence entries are tiny, this only
@@ -3316,96 +3247,6 @@ def reply_ticket(ticket_id: int, reply: str, operator: Operator = Depends(requir
     _audit(session, "operator", operator.email, "ticket.reply", target=f"ticket:{ticket_id}", client_id=operator.client_id)
     delivered = _notify_visitor_reply(session, operator.client_id, conv)
     return {"ok": True, "delivered": delivered}
-
-
-def _notify_visitor_reply(session, client_id, conv):
-    """Best-effort visitor email notification on an operator reply (never blocks the reply)."""
-    if conv.channel == "whatsapp" and conv.contact_id:
-        contact = session.get(Contact, conv.contact_id)
-        last_inbound = session.exec(
-            select(Message)
-            .where(Message.conversation_id == conv.id, Message.role == "user")
-            .order_by(Message.created_at.desc())
-            .limit(1)
-        ).first()
-        if not contact or not last_inbound or last_inbound.created_at < datetime.utcnow() - timedelta(hours=24):
-            return False
-        latest_operator = session.exec(
-            select(Message)
-            .where(Message.conversation_id == conv.id, Message.role == "operator")
-            .order_by(Message.id.desc())
-            .limit(1)
-        ).first()
-        return bool(latest_operator) and whatsapp_service.send_message(
-            client_id=client_id,
-            to=contact.external_id,
-            body=latest_operator.content,
-            reply_to_message_id=last_inbound.external_id or "",
-        )
-    if conv.channel in {"messenger", "instagram"} and conv.contact_id:
-        contact = session.get(Contact, conv.contact_id)
-        last_inbound = session.exec(
-            select(Message)
-            .where(Message.conversation_id == conv.id, Message.role == "user")
-            .order_by(Message.created_at.desc())
-            .limit(1)
-        ).first()
-        latest_operator = session.exec(
-            select(Message)
-            .where(Message.conversation_id == conv.id, Message.role == "operator")
-            .order_by(Message.id.desc())
-            .limit(1)
-        ).first()
-        return bool(contact and latest_operator) and meta_messaging_service.send_message(
-            client_id=client_id,
-            platform=conv.channel,
-            recipient_id=contact.external_id,
-            body=latest_operator.content,
-            reply_to_message_id=last_inbound.external_id if last_inbound else "",
-        )
-    if conv.visitor_email:
-        client = session.get(Client, client_id)
-        client_name = client.name if client else "il supporto"
-        if conv.channel == "email":
-            messages = session.exec(
-                select(Message)
-                .where(Message.conversation_id == conv.id, Message.role == "operator")
-                .order_by(Message.id.desc())
-                .limit(1)
-            ).all()
-            if messages:
-                return email_service.send_channel_reply(
-                    conv.visitor_email,
-                    client_name,
-                    conv.channel_subject,
-                    messages[0].content,
-                    conv.external_thread_id,
-                )
-        else:
-            return email_service.send_visitor_reply(conv.visitor_email, client_name, conv.visitor_url)
-    return True
-
-
-def _whatsapp_channel_status(session: Session, conv: Conversation) -> dict:
-    last_inbound = session.exec(
-        select(Message)
-        .where(Message.conversation_id == conv.id, Message.role == "user")
-        .order_by(Message.created_at.desc())
-        .limit(1)
-    ).first()
-    window_expires_at = last_inbound.created_at + timedelta(hours=24) if last_inbound else None
-    consent = session.exec(
-        select(WhatsAppConsent).where(
-            WhatsAppConsent.client_id == conv.client_id,
-            WhatsAppConsent.contact_id == conv.contact_id,
-        )
-    ).first() if conv.contact_id else None
-    return {
-        "window_open": bool(window_expires_at and window_expires_at > datetime.utcnow()),
-        "window_expires_at": _iso(window_expires_at),
-        "consent_granted": bool(consent and consent.granted),
-        "consent_source": consent.source if consent and consent.granted else "",
-    }
 
 
 @app.get("/conversations/{conversation_id}/whatsapp/status")
