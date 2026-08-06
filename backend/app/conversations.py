@@ -18,6 +18,8 @@ from .db import Client, Contact, Conversation, ConversationRating, Message, What
 from .util import iso as _iso
 
 # the closed vocabulary of SLA states, shared by the inbox filters and every conversation view
+# the closed vocabularies a conversation is described with, shared by every area that shows one
+PRIORITIES = ("low", "normal", "high", "urgent")
 SLA_STATES = ("ok", "in_scadenza", "violato")
 
 

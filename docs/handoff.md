@@ -201,7 +201,7 @@ Convenzioni utili viste nella suite:
 
 ## 8. Debito noto (non bloccante, ma reale)
 
-1. **`backend/app/main.py`: 7192 righe, 156 endpoint.** La divisione è **in corso**: due aree
+1. **`backend/app/main.py`: 6590 righe, 149 endpoint.** La divisione è **in corso**: tre aree
    estratte su nove, da 8016 righe iniziali. Vedi «Dividere main.py» qui sotto.
 2. **Widget: 1155 righe in un file.** I testi sono usciti in `chat-i18n.js` (con i primi test
    Node del plugin), il resto no. Senza bundler nel plugin, la strada praticabile è più file
@@ -261,7 +261,12 @@ Fatto:
   viste commerciali), `tests/test_routes.py` a fare da rete.
 - **Fase 2** — `routers/developers.py` (chiavi API e webhook). Le utility condivise sono salite
   dove appartengono: `util.py` (`iso`, `bounded_limit`), `deps.py` (`hash_api_key`) e
-  `apikeys.py` (scope e formato delle chiavi, condivisi con `/v1` che è rimasto).
+  `apikeys.py` (scope e formato delle chiavi).
+- **Fase 3** — `routers/public_api.py` (`/v1`). Il grosso del lavoro è stato liberare gli helper
+  condivisi che la bloccavano: la catena delle statistiche in `analytics.py`, le operazioni sulla
+  conversazione in `conversations.py` (accesso, stato canale, consegna della risposta, viste SLA
+  e voto, vocabolari `PRIORITIES`/`SLA_STATES`), `enqueue` in `worker.py` e i limiti d'ingresso
+  in `limits.py`.
 
 Il modello, da ripetere per ogni area:
 
@@ -284,10 +289,15 @@ Ordine per le fasi successive, dalla più isolata alla più intrecciata: **API p
 → canali (`/channels`, email/WhatsApp/Meta) → analytics e gap KB → automazioni (workflow,
 proattivi, lead) → help desk e inbox → widget e chat → admin residuo.
 
-`/v1` è il prossimo ma non è gratis: dipende ancora da `_build_stats`, `_require_conversation`,
-`_notify_visitor_reply`, `_enqueue` e `_whatsapp_channel_status`, tutti condivisi con il resto.
-Vanno fatti salire **prima**, un modulo di dominio alla volta, altrimenti il router finirebbe
-per importare `main.py`.
+Due trappole viste sul campo, oltre a quelle già elencate:
+
+- **La chiusura transitiva va calcolata prima di muovere, e include le costanti di modulo.**
+  Spostare una funzione e scoprirne le dipendenze dai test è lento e le trova una alla volta:
+  nella fase 3 è successo tre volte di fila, e `SLA_STATES` non compariva perché non è una
+  funzione.
+- **Un oggetto sostituito dai test va aggiornato dove vive ora.** `api_limiter` è passato al
+  router e `conftest.py` lo rimpiazzava ancora su `main`: senza la correzione il limite sarebbe
+  rimasto condiviso fra i test, con 429 sporadici e difficili da attribuire.
 
 Il filone **P3 — Voice** resta separato e non va iniziato prima del go/no-go sul PoC di latenza
 descritto in [`voice-roadmap.md`](voice-roadmap.md).
