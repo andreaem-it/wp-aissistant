@@ -1,6 +1,8 @@
+import logging
 import math
 import os
 import re
+from datetime import datetime
 from io import BytesIO
 
 from pypdf import PdfReader
@@ -10,8 +12,12 @@ from sqlmodel import Session, select
 from sqlalchemy import text as sql_text
 
 from . import i18n
-from .db import Chunk, Product
+
+from .db import Chunk, EmbeddingUsage, Product
 from .llm import embed
+from .logging_config import log
+
+logger = logging.getLogger("wpai.rag")
 
 CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", "800"))  # chars, soft cap per chunk
 CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", "150"))  # chars carried into the next chunk
@@ -87,10 +93,49 @@ def chunk_text(text: str, size: int = CHUNK_SIZE, overlap: int = CHUNK_OVERLAP) 
     return chunks
 
 
+
+
+def record_embedding(session: Session, client_id: int, chars: int, *, kind: str) -> None:
+    """Add today's embedded volume to the tenant's rollup.
+
+    Called where the embedding actually happens, so nothing can be embedded without being
+    counted. `kind` separates "ingest" (grows with the knowledge base) from "query" (grows with
+    traffic): a single total would hide which of the two is driving the bill.
+
+    Best-effort by design: a failure here must never abort an ingest or a visitor's answer, so
+    it is logged and swallowed. Under-reporting a cost is bad; refusing to answer is worse.
+    """
+    if chars <= 0:
+        return
+    column = "ingest_chars" if kind == "ingest" else "query_chars"
+    try:
+        today = datetime.utcnow().date()
+        row = session.exec(
+            select(EmbeddingUsage).where(
+                EmbeddingUsage.client_id == client_id,
+                EmbeddingUsage.model == EMBED_MODEL,
+                EmbeddingUsage.day == today,
+            )
+        ).first()
+        if row is None:
+            row = EmbeddingUsage(client_id=client_id, model=EMBED_MODEL, day=today)
+        setattr(row, column, getattr(row, column) + chars)
+        row.requests += 1
+        row.updated_at = datetime.utcnow()
+        session.add(row)
+        session.commit()
+    except Exception:  # noqa: BLE001 — measuring must never break what it measures
+        session.rollback()
+        log(logger, logging.WARNING, "embedding.usage_not_recorded", client_id=client_id)
+
+
 def ingest(session: Session, client_id: int, source: str, source_ref: str, text: str):
+    embedded_chars = 0
     for piece in chunk_text(text):
         session.add(Chunk(client_id=client_id, source=source, source_ref=source_ref, text=piece, embedding=embed(piece)))
+        embedded_chars += len(piece)
     session.commit()
+    record_embedding(session, client_id, embedded_chars, kind="ingest")
 
 
 def retrieve_with_meta(session: Session, client_id: int, query: str, k: int = 5) -> tuple[list[str], list[dict]]:
@@ -101,6 +146,7 @@ def retrieve_with_meta(session: Session, client_id: int, query: str, k: int = 5)
     sees); meta is the full candidate list ordered by distance, each entry
     {chunk_id, source, source_ref, distance, selected}."""
     qvec = embed(query)
+    record_embedding(session, client_id, len(query or ""), kind="query")
     distance = Chunk.embedding.cosine_distance(qvec)
     rows = session.exec(
         select(Chunk.id, Chunk.source, Chunk.source_ref, Chunk.text, Chunk.embedding, distance.label("distance"))
@@ -142,6 +188,7 @@ def ingest_product(session: Session, client_id: int, product_url: str, title: st
         select(Product).where(Product.client_id == client_id, Product.product_url == product_url)
     ).first()
     embedding = embed(text)
+    record_embedding(session, client_id, len(text or ""), kind="ingest")
     if existing:
         existing.title, existing.price, existing.image_url, existing.embedding = title, price, image_url, embedding
         session.add(existing)
@@ -152,6 +199,7 @@ def ingest_product(session: Session, client_id: int, product_url: str, title: st
 
 def retrieve_products(session: Session, client_id: int, query: str, k: int = 3) -> list[dict]:
     qvec = embed(query)
+    record_embedding(session, client_id, len(query or ""), kind="query")
     distance = Product.embedding.cosine_distance(qvec)
     rows = session.exec(
         select(Product, distance.label("distance"))

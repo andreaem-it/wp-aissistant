@@ -317,3 +317,169 @@ def test_costs_report_a_single_currency_when_they_agree(client):
     assert data["mixed_currencies"] is False
     assert data["currency"] == "eur"
     assert data["margin_pct"] == 99.0
+
+
+# ---- Embedding and storage --------------------------------------------------------------------
+
+
+def _embedded(client_id, model, *, ingest_chars=0, query_chars=0, tokens=0, age_days=1):
+    """Write the daily rollup directly: the fake embedder in tests measures nothing."""
+    from datetime import date
+    with Session(db.engine) as session:
+        day = (datetime.utcnow() - timedelta(days=age_days)).date()
+        row = db.EmbeddingUsage(
+            client_id=client_id, model=model, day=day,
+            ingest_chars=ingest_chars, query_chars=query_chars, tokens=tokens, requests=1,
+        )
+        session.add(row)
+        session.commit()
+    assert isinstance(day, date)
+
+
+def _attachment(client_id, size_bytes, key=""):
+    # size_bytes is a 32-bit column, which is fine in production because uploads are capped at
+    # MAX_UPLOAD_BYTES (10 MB); only the SUM across a tenant can be large, and Postgres returns
+    # that as a bigint. Tests therefore build totals from several realistic rows.
+    with Session(db.engine) as session:
+        conv = db.Conversation(client_id=client_id, visitor_id="v")
+        session.add(conv)
+        session.commit()
+        session.refresh(conv)
+        msg = db.Message(conversation_id=conv.id, role="user", content="x")
+        session.add(msg)
+        session.commit()
+        session.refresh(msg)
+        session.add(db.Attachment(
+            client_id=client_id, conversation_id=conv.id, message_id=msg.id,
+            object_key=f"k{client_id}-{size_bytes}-{key}", filename="a.pdf",
+            content_type="application/pdf", size_bytes=size_bytes,
+        ))
+        session.commit()
+
+
+def test_embedding_cost_is_counted(client):
+    plan_id = _plan(client, "Pro", price_cents=10_000)
+    cid = _tenant(client, "Acme", plan_id)
+    _price(client, "bge", input_cents=100)  # 1 EUR per million tokens
+    # 4M chars / 4 chars-per-token = 1M tokens = 100 cents
+    _embedded(cid, "bge", ingest_chars=3_000_000, query_chars=1_000_000)
+
+    row = client.get("/admin/costs", headers=ADMIN).json()["clients"][0]
+
+    assert row["embedding_cost_cents"] == 100.0
+    assert row["embedding_chars"] == 4_000_000
+    assert row["cost_cents"] == 100.0  # nessun turno di chat: è tutto embedding
+
+
+def test_reported_tokens_beat_the_estimate(client):
+    """When the provider tells us the tokens we use them: the ratio is only a fallback."""
+    plan_id = _plan(client, "Pro", price_cents=10_000)
+    cid = _tenant(client, "Esatto", plan_id)
+    _price(client, "bge", input_cents=100)
+    # chars would estimate 1M tokens, but the provider reported half that
+    _embedded(cid, "bge", ingest_chars=4_000_000, tokens=500_000)
+
+    data = client.get("/admin/costs", headers=ADMIN).json()
+
+    assert data["clients"][0]["embedding_cost_cents"] == 50.0
+    assert data["clients"][0]["embedding_estimated"] is False
+    assert data["embedding_estimated"] is False
+
+
+def test_an_estimated_cost_says_so(client):
+    plan_id = _plan(client, "Pro", price_cents=10_000)
+    cid = _tenant(client, "Stimato", plan_id)
+    _price(client, "bge", input_cents=100)
+    _embedded(cid, "bge", ingest_chars=4_000_000)  # nessun token riportato
+
+    data = client.get("/admin/costs", headers=ADMIN).json()
+
+    assert data["clients"][0]["embedding_estimated"] is True
+    assert data["embedding_estimated"] is True
+    assert data["chars_per_token"] == 4.0
+
+
+def test_an_unpriced_embedding_model_is_reported(client):
+    plan_id = _plan(client, "Pro", price_cents=10_000)
+    cid = _tenant(client, "Ignoto", plan_id)
+    _embedded(cid, "modello-senza-listino", ingest_chars=1_000_000)
+
+    data = client.get("/admin/costs", headers=ADMIN).json()
+
+    assert "modello-senza-listino" in data["unpriced_models"]
+    assert data["clients"][0]["fully_priced"] is False
+    assert data["monthly_cost_cents"] == 0.0
+
+
+def test_embedding_respects_the_window(client):
+    plan_id = _plan(client, "Pro", price_cents=10_000)
+    cid = _tenant(client, "Vecchio", plan_id)
+    _price(client, "bge", input_cents=100)
+    _embedded(cid, "bge", ingest_chars=4_000_000, age_days=60)
+
+    narrow = client.get("/admin/costs", headers=ADMIN, params={"days": 30}).json()
+    wide = client.get("/admin/costs", headers=ADMIN, params={"days": 90}).json()
+
+    assert narrow["clients"] == []
+    assert wide["clients"][0]["embedding_cost_cents"] == 100.0
+
+
+def test_storage_is_unpriced_until_configured(client, monkeypatch):
+    """No price means unknown, not free: the field is null and the total stays without it."""
+    from app import costs
+    monkeypatch.setattr(costs, "STORAGE_MILLICENTS_PER_GB_MONTH", None)
+    plan_id = _plan(client, "Pro", price_cents=10_000)
+    cid = _tenant(client, "Archivio", plan_id)
+    _attachment(cid, 1024 ** 3)
+
+    data = client.get("/admin/costs", headers=ADMIN).json()
+    row = next(r for r in data["clients"] if r["client_id"] == cid)
+
+    assert data["storage_priced"] is False
+    assert row["storage_cost_cents"] is None
+    assert row["storage_bytes"] == 1024 ** 3
+
+
+def test_storage_is_priced_per_gb_month(client, monkeypatch):
+    from app import costs
+    # 1500 millicents = 1.5 cents per GB-month
+    monkeypatch.setattr(costs, "STORAGE_MILLICENTS_PER_GB_MONTH", 1500)
+    plan_id = _plan(client, "Pro", price_cents=10_000)
+    cid = _tenant(client, "Archivio", plan_id)
+    _attachment(cid, 1024 ** 3, key="a")
+    _attachment(cid, 1024 ** 3, key="b")
+
+    data = client.get("/admin/costs", headers=ADMIN).json()
+    row = next(r for r in data["clients"] if r["client_id"] == cid)
+
+    assert data["storage_priced"] is True
+    assert row["storage_cost_cents"] == 3.0  # 2 GB x 1.5 centesimi
+    assert data["storage_bytes"] == 2 * 1024 ** 3
+
+
+def test_storage_is_not_scaled_by_the_window(client, monkeypatch):
+    """Storage is a stock already expressed per month: scaling it like a flow would triple it."""
+    from app import costs
+    monkeypatch.setattr(costs, "STORAGE_MILLICENTS_PER_GB_MONTH", 1000)
+    plan_id = _plan(client, "Pro", price_cents=10_000)
+    cid = _tenant(client, "Stock", plan_id)
+    _attachment(cid, 1024 ** 3)
+
+    thirty = client.get("/admin/costs", headers=ADMIN, params={"days": 30}).json()
+    ninety = client.get("/admin/costs", headers=ADMIN, params={"days": 90}).json()
+
+    assert thirty["clients"][0]["monthly_cost_cents"] == 1.0
+    assert ninety["clients"][0]["monthly_cost_cents"] == 1.0
+
+
+def test_ingest_and_query_embeddings_are_both_counted(client):
+    """The chat embeds every question: leaving queries out would understate a busy tenant."""
+    plan_id = _plan(client, "Pro", price_cents=10_000)
+    cid = _tenant(client, "Traffico", plan_id)
+    _price(client, "bge", input_cents=100)
+    _embedded(cid, "bge", ingest_chars=2_000_000, query_chars=2_000_000)
+
+    row = client.get("/admin/costs", headers=ADMIN).json()["clients"][0]
+
+    assert row["embedding_chars"] == 4_000_000
+    assert row["embedding_cost_cents"] == 100.0

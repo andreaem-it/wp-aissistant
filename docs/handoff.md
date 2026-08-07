@@ -212,9 +212,10 @@ Convenzioni utili viste nella suite:
 3. **Le automazioni immediate girano sincrone** dentro la richiesta che emette l'evento. Le
    azioni **ritardate** sono invece già su coda (`WorkflowScheduledAction`, servita dal worker):
    il debito residuo riguarda solo le azioni immediate lente.
-4. **Il margine copre solo l'inferenza.** `/admin/costs` prezza i token di `AiResponseLog`, ma
-   embedding (ingest), storage R2, email e canali non sono registrati per turno: il margine
-   mostrato è un **tetto**. Per chiuderlo serve tracciare anche quei consumi per tenant.
+4. **Il margine non conta ancora email e canali.** Inferenza, embedding e storage ci sono
+   (`EmbeddingUsage` + somma degli allegati); restano fuori le email transazionali e i messaggi
+   sui canali. Nota: i token di embedding sono **stimati dai caratteri** perché Cloudflare
+   restituisce solo il vettore — la stima è dichiarata nell'API e nel panel, non nascosta.
 5. **Le intestazioni CORS sono scritte a mano** in `cors.headers()`, non derivate dalle rotte.
    Hanno già annunciato solo `GET, POST, OPTIONS` mentre l'app instradava 36 rotte PUT/PATCH/
    DELETE, rendendole invisibilmente inutilizzabili dal browser: il server rispondeva `204` al

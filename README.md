@@ -303,9 +303,11 @@ piani a pagamento):
   centesimo, così `$0,012/M` non viene arrotondato a un centesimo. Un modello senza prezzo **non
   vale zero**: finisce in `unpriced_models` ed è escluso dai totali, così il numero appare
   incompleto e non piccolo. Se listino e piani usano **valute diverse** gli importi non vengono
-  convertiti: la risposta segnala `mixed_currencies` e omette la percentuale di margine. È inoltre
-  **solo costo di inferenza** — embedding, storage, email e canali non sono registrati per turno —
-  quindi il margine è un tetto, non il dato finale.
+  convertiti: la risposta segnala `mixed_currencies` e omette la percentuale di margine.
+  Il calcolo comprende **inferenza, embedding e storage**: gli embedding sono contati sia
+  sull'ingest sia su ogni domanda in chat (rollup giornaliero in `EmbeddingUsage`), e lo storage
+  è la somma degli allegati per tenant, già mensile e quindi non riscalato sulla finestra.
+  Restano fuori email e canali, quindi il margine è ancora un tetto.
 - **Attivazione e clienti a rischio** (`GET /admin/activation?days=90`, `GET /admin/at-risk?days=14`):
   il funnel conta gli account della coorte lungo cinque passi — creato, plugin collegato, prima
   conversazione, **prima risposta utile**, primo pagamento — con il tempo mediano fino
@@ -429,6 +431,8 @@ Per collegare CRM e automazioni ci sono due strade complementari, documentate in
 | `STRICT_PRODUCTION_CONFIG` | `false` | Se `true`, impedisce l'avvio con secret deboli, CORS aperto o dipendenze production mancanti |
 | `INGEST_WORKER_ENABLED` | `true` | Avvia il worker di ingest nel processo dell'app (coda condivisa via Postgres) |
 | `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` | *(non impostati)* | Abilitano `/billing/*`; se assenti il billing è disattivato — setup in [`deploy/STRIPE.md`](deploy/STRIPE.md) |
+| `EMBEDDING_CHARS_PER_TOKEN` | `4` | Caratteri per token usati a **stimare** i token di embedding quando il provider non li riporta (Cloudflare restituisce solo il vettore); il costo derivato è segnalato come stima |
+| `STORAGE_PRICE_PER_GB_MONTH_MILLICENTS` | *(non impostato)* | Prezzo dello storage allegati in millesimi di centesimo per GB-mese. Senza, lo storage è **non prezzato** — escluso dal totale e segnalato, mai contato come gratis |
 | `BILLING_PORTAL_RETURN_URL` | *(usa `BILLING_SUCCESS_URL`)* | Dove Stripe riporta il cliente quando chiude il portale di fatturazione |
 | `DOCS_ENABLED` | `false` | Espone `/docs`, `/redoc`, `/openapi.json` (off di default in prod) |
 | `METRICS_TOKEN` | *(non impostato)* | Se assente `/metrics` è disabilitato; se impostato richiede `Bearer <token>` |

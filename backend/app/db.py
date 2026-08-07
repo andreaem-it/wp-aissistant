@@ -1,5 +1,5 @@
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, date, timedelta
 from typing import Optional
 
 from pgvector.sqlalchemy import Vector
@@ -268,6 +268,32 @@ class AiResponseLog(SQLModel, table=True):
     tokens_completion: int = 0
     retrieved: str = ""  # JSON
     created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class EmbeddingUsage(SQLModel, table=True):
+    """Daily rollup of what a tenant sent to the embedding model.
+
+    One row per client, model and day rather than one per chunk: a single site ingest embeds
+    thousands of pieces, and cost reporting never needs that granularity.
+
+    `chars` is the exact measure — the text we sent. `tokens` is filled only when the provider
+    reports it: Cloudflare Workers AI returns just the vector, so for that provider it stays
+    zero and the cost is derived from chars with a declared ratio. Recording the two separately
+    keeps "measured" and "estimated" distinguishable instead of blurring them into one number.
+    """
+    __table_args__ = (UniqueConstraint("client_id", "model", "day", name="uq_embedding_usage_day"),)
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    client_id: int = Field(index=True, foreign_key="client.id")
+    model: str = Field(index=True)
+    day: date = Field(index=True)
+    # "ingest" grows with the knowledge base, "query" with traffic: they behave differently
+    # enough that a single total would hide which one is driving the bill.
+    ingest_chars: int = 0
+    query_chars: int = 0
+    tokens: int = 0
+    requests: int = 0
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
 
 
 class AuditLog(SQLModel, table=True):
