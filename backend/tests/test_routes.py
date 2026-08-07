@@ -50,6 +50,17 @@ PUBLIC_API_ROUTES = {
 }
 
 
+CHANNEL_ROUTES = {
+    "/channels/email/inbound": {"POST"},
+    "/channels/whatsapp/inbound": {"POST"},
+    "/channels/meta/inbound": {"POST"},
+    "/conversations/{conversation_id}/whatsapp/status": {"GET"},
+    "/conversations/{conversation_id}/whatsapp/template": {"POST"},
+    "/conversations/{conversation_id}/attachments": {"POST"},
+    "/attachments/{attachment_id}": {"GET", "DELETE"},
+}
+
+
 def _iter_routes(routes):
     """Walk the routing table, expanding included routers.
 
@@ -78,18 +89,19 @@ def _table() -> dict[str, set[str]]:
 def test_extracted_area_is_still_served():
     """Every path moved into app/routers/commercial.py must still answer on the same method."""
     table = _table()
-    expected = {**COMMERCIAL_ROUTES, **DEVELOPER_ROUTES, **PUBLIC_API_ROUTES}
+    expected = {**COMMERCIAL_ROUTES, **DEVELOPER_ROUTES, **PUBLIC_API_ROUTES, **CHANNEL_ROUTES}
     missing = {p: m for p, m in expected.items() if not m <= table.get(p, set())}
     assert not missing, f"rotte perse nello spostamento: {missing}"
 
 
 def test_extracted_area_comes_from_the_router():
     """Guards against a path being quietly re-added to main.py, leaving two definitions."""
-    from app.routers import commercial, developers, public_api
+    from app.routers import channels, commercial, developers, public_api
 
     assert set(COMMERCIAL_ROUTES) == {r.path for r in commercial.router.routes}
     assert set(DEVELOPER_ROUTES) == {r.path for r in developers.router.routes}
     assert set(PUBLIC_API_ROUTES) == {r.path for r in public_api.router.routes}
+    assert set(CHANNEL_ROUTES) == {r.path for r in channels.router.routes}
 
 
 def test_no_path_is_registered_twice_with_the_same_method():
