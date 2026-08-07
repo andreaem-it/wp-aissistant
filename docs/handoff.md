@@ -79,6 +79,7 @@ con un vincolo di progetto preciso da rispettare se lo modifichi:
 | `billing.py` | Stripe: piani, stato, portale, avvisi | Il webhook è l'**unica** fonte di verità sullo stato dell'abbonamento; un'email fallita non deve far ritentare l'evento a Stripe |
 | `deps.py` | Dipendenze condivise: chi chiama, per quale tenant, e l'audit | Non deve conoscere nessuna feature: se un helper serve a una sola area, va con quell'area. È ciò che permette a un router di uscire da `main.py` senza importarlo |
 | `routers/` | Un modulo per area dell'API | Uno spostamento **non cambia nulla di osservabile**: stessi path, metodi e risposte. `tests/test_routes.py` blocca i path già spostati |
+| `woocommerce.py` | Impostazioni del negozio rese in testo per la knowledge base | Esce **solo** ciò che un visitatore vede al checkout: nessuna chiave né credenziale. Una sezione senza contenuto non viene emessa: un'intestazione vuota è un invito a riempirla, ed è la cosa che il modulo esiste per evitare |
 | `rag.py`, `llm.py`, `security.py`, `ratelimit.py`, `notify.py`, `metrics.py`, `production_config.py` | Preesistenti | — |
 
 ### Thread in background (avviati nel `lifespan` di `main.py`)

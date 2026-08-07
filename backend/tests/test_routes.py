@@ -200,8 +200,10 @@ KNOWLEDGE_ROUTES = {
     "/ingest/site-page": {"POST"},
     "/ingest/product": {"POST"},
     "/ingest/jobs/{job_id}": {"GET"},
+    "/ingest/woocommerce": {"POST"},
     "/knowledge/teach": {"POST"},
-    "/knowledge-base": {"GET"},
+    "/knowledge-base": {"GET", "DELETE"},
+    "/plugin/knowledge-base": {"DELETE"},
 }
 
 

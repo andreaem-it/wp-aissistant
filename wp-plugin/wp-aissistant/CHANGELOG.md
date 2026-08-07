@@ -2,6 +2,14 @@
 
 Tutte le modifiche rilevanti del plugin WP AIssistant.
 
+## [1.3.0] - 2026-08-08
+
+- Le impostazioni WooCommerce di spedizione e pagamento entrano nella knowledge base: erano
+  la risposta autorevole a due domande frequenti e non stavano su nessuna pagina, quindi
+  l'assistente rispondeva da conoscenza generale e inventava corrieri e prezzi.
+- Si aggiornano da sole quando le modifichi in WooCommerce.
+- Nuovo pulsante per svuotare la knowledge base e ricostruirla da zero, con conferma.
+
 ## [1.2.3] - 2026-08-07
 
 - Regole di orario e messaggi proattivi spostate in `chat-rules.js`, con 15 test automatici.

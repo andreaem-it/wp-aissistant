@@ -46,6 +46,8 @@ function TeachCard({ onTaught }) {
 
 function sourceLabel(source, ref) {
   if (source === "document") return ref;
+  // le impostazioni del negozio non hanno una URL da mostrare
+  if (source === "woocommerce") return "Spedizioni e pagamenti (WooCommerce)";
   try {
     const url = new URL(ref);
     return url.pathname === "/" || url.hash === "#site-info" ? url.hostname : url.pathname;

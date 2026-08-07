@@ -65,6 +65,24 @@ Componenti indipendenti, collegati da API autenticate:
    conversazione, che rientra in stato `open` e ferma la scadenza di prima risposta. Il widget fa
    polling per riceverlo. La chiusura della conversazione ferma la scadenza di risoluzione.
 
+### Impostazioni WooCommerce nella knowledge base
+
+Metodi di spedizione e gateway di pagamento **non stanno su una pagina**: vivono nelle
+impostazioni di WooCommerce. Il plugin le legge (zone, metodi, costi, gateway abilitati, valuta)
+e le invia strutturate a `POST /ingest/woocommerce`; il backend le rende in testo
+(`app/woocommerce.py`) e le indicizza con sorgente `woocommerce`, sostituendo la versione
+precedente a ogni sincronizzazione — un metodo tolto in WooCommerce sparisce dalle risposte.
+
+La resa sta lato server di proposito: la formulazione si migliora senza che ogni sito aggiorni
+il plugin. Escono solo i dati che un visitatore vede già al checkout: nessuna chiave, nessuna
+credenziale di gateway, nessun identificativo interno.
+
+Il plugin le ri-sincronizza da sé quando le impostazioni cambiano, ed espone un pulsante per
+**svuotare la knowledge base** (`DELETE /plugin/knowledge-base`, autenticato con l'installazione
+verificata — mai con la `api_key`, che sta in ogni pagina pubblica). L'equivalente per gli
+operatori è `DELETE /knowledge-base`; entrambi richiedono la parola di conferma `svuota` e
+finiscono nell'audit.
+
 ## Help desk: assegnazione, reparti e SLA
 
 - **Reparti** — code di supporto del tenant (Vendite, Ordini, Resi…). Gli operatori assegnati a

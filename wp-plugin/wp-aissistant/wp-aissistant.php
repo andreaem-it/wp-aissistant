@@ -2,13 +2,13 @@
 /**
  * Plugin Name: WP AIssistant
  * Description: Floating AI chat widget backed by a RAG backend, with automatic site content sync.
- * Version: 1.2.3
+ * Version: 1.3.0
  */
 
 if (!defined('ABSPATH')) exit;
 
 define('WPAI_OPTION', 'wpai_settings');
-define('WPAI_VERSION', '1.2.3'); // keep in sync with the "Version:" header above
+define('WPAI_VERSION', '1.3.0'); // keep in sync with the "Version:" header above
 
 // The backend is a single hosted service (not something each site owner runs), so its URL
 // isn't a setting — it's hardcoded here. Override only for local/staging testing by defining
@@ -446,6 +446,12 @@ function wpai_sync_page() {
         <?php else : ?>
             <div class="wpai-sync-actions"><button class="button button-primary" id="wpai-sync-start"><i class="fa-solid fa-rotate"></i> Sincronizza ora</button><span id="wpai-sync-progress" aria-live="polite">Pronto per iniziare</span></div>
             <div id="wpai-sync-list" class="wpai-sync-list"></div>
+        </section>
+
+        <section class="wpai-admin-card">
+            <div class="wpai-card-heading"><span class="wpai-step"><i class="fa-solid fa-broom"></i></span><div><h2>Ricostruire da zero</h2><p>Svuota la conoscenza dell'assistente e riparti con una sincronizzazione pulita.</p></div></div>
+            <p style="margin:0 0 12px">Serve quando la knowledge base contiene contenuti che non corrispondono più al sito: una nuova sincronizzazione <strong>sostituisce</strong> ciò che rinvia, ma non toglie ciò che hai cancellato dal sito. <strong>Fino alla sincronizzazione successiva l'assistente non avrà nulla da cui rispondere</strong> e passerà le domande a un operatore.</p>
+            <div class="wpai-sync-actions"><button class="button button-link-delete" id="wpai-kb-clear"><i class="fa-solid fa-trash-can"></i> Svuota knowledge base</button><span id="wpai-kb-clear-status" aria-live="polite"></span></div>
         <?php endif; ?>
         </section>
     </div>
@@ -649,6 +655,71 @@ function wpai_backend_post($path, $payload, $blocking = false) {
     return json_decode(wp_remote_retrieve_body($res), true);
 }
 
+/**
+ * Impostazioni WooCommerce di spedizione e pagamento.
+ *
+ * Sono la risposta autorevole a due delle domande più frequenti, e non stanno su nessuna
+ * pagina: vivono nelle impostazioni. Senza questo, la knowledge base non le aveva e
+ * l'assistente rispondeva da conoscenza generale, inventando corrieri e prezzi.
+ *
+ * Escono solo i dati che un visitatore può già vedere al checkout: nessuna chiave API,
+ * nessuna credenziale di gateway, nessun identificativo interno.
+ */
+function wpai_woocommerce_settings() {
+    if (!function_exists('WC')) return null;
+
+    $zones = [];
+    if (class_exists('WC_Shipping_Zones')) {
+        $all = WC_Shipping_Zones::get_zones();
+        $all[] = ['zone_name' => '', 'id' => 0]; // "Resto del mondo", non incluso da get_zones()
+        foreach ($all as $zone_data) {
+            $zone = WC_Shipping_Zones::get_zone(isset($zone_data['id']) ? (int) $zone_data['id'] : 0);
+            if (!$zone) continue;
+            $methods = [];
+            foreach ($zone->get_shipping_methods(true) as $method) {
+                $cost = isset($method->cost) ? trim((string) $method->cost) : '';
+                $methods[] = [
+                    'title' => $method->get_title(),
+                    'cost' => $cost,
+                    // free_shipping non ha un costo: dirlo a parole evita che "0" sembri un buco
+                    'free' => $method->id === 'free_shipping' || $cost === '0',
+                ];
+            }
+            if ($methods) {
+                $zones[] = ['name' => $zone->get_zone_name(), 'methods' => $methods];
+            }
+        }
+    }
+
+    $gateways = [];
+    if (WC()->payment_gateways()) {
+        foreach (WC()->payment_gateways()->get_available_payment_gateways() as $gateway) {
+            $gateways[] = [
+                'title' => $gateway->get_title(),
+                'description' => wp_strip_all_tags((string) $gateway->get_description()),
+            ];
+        }
+    }
+
+    return [
+        'currency' => function_exists('get_woocommerce_currency') ? get_woocommerce_currency() : '',
+        'shipping_zones' => $zones,
+        'payment_gateways' => $gateways,
+    ];
+}
+
+function wpai_push_woocommerce_settings($blocking = false) {
+    $settings = wpai_woocommerce_settings();
+    if ($settings === null) return null;
+    return wpai_backend_post('/ingest/woocommerce', ['settings' => $settings], $blocking);
+}
+
+// Le impostazioni cambiano di rado ma quando cambiano la chat deve saperlo subito: senza questo
+// un corriere sostituito resterebbe nelle risposte fino alla sincronizzazione successiva.
+add_action('woocommerce_settings_saved', function () { wpai_push_woocommerce_settings(false); });
+add_action('woocommerce_update_options_payment_gateways', function () { wpai_push_woocommerce_settings(false); });
+
+
 function wpai_push_content($url, $text, $blocking = false) {
     if (!trim($text)) return null;
     return wpai_backend_post('/ingest/site-page', ['url' => $url, 'text' => $text], $blocking);
@@ -690,6 +761,9 @@ function wpai_sync_check() {
 add_action('wp_ajax_wpai_sync_list', function () {
     wpai_sync_check();
     $items = [['type' => 'site-info', 'id' => 0, 'title' => 'Informazioni del sito']];
+    if (function_exists('WC')) {
+        $items[] = ['type' => 'woo-settings', 'id' => 0, 'title' => 'Spedizioni e pagamenti (WooCommerce)'];
+    }
 
     $post_types = ['post', 'page'];
     if (function_exists('WC')) $post_types[] = 'product';
@@ -708,6 +782,11 @@ add_action('wp_ajax_wpai_sync_item', function () {
     $type = sanitize_text_field(wp_unslash($_POST['type'] ?? ''));
     // phpcs:ignore WordPress.Security.NonceVerification.Missing
     $id = absint(wp_unslash($_POST['id'] ?? 0));
+
+    if ($type === 'woo-settings') {
+        $res = wpai_push_woocommerce_settings(true);
+        wp_send_json_success(['job_id' => $res['job_id'] ?? 0, 'indexed' => $res['indexed'] ?? false]);
+    }
 
     if ($type === 'site-info') {
         $res = wpai_push_content(home_url() . '/#site-info', wpai_build_site_info_content(), true);
@@ -728,6 +807,37 @@ add_action('wp_ajax_wpai_sync_item', function () {
 });
 
 // Proxy the backend job status (queued | processing | done | error).
+// Svuota la knowledge base del tenant. Usa il segreto dell'installazione verificata, non la
+// API key: quella sta in ogni pagina pubblica del sito e non deve poter cancellare nulla.
+add_action('wp_ajax_wpai_clear_kb', function () {
+    wpai_sync_check();
+    $key = wpai_opt('api_key');
+    $registration = get_option('wpai_plugin_registration', []);
+    $registered = $key && is_array($registration)
+        && hash_equals($registration['key_hash'] ?? '', hash('sha256', $key));
+    if (!$registered) {
+        wp_send_json_error(
+            'Installazione non ancora verificata dal backend: salva le impostazioni in Personalizzazione e riprova.',
+            400
+        );
+    }
+    $secret = wpai_install_secret();
+    $res = wp_remote_request(WPAI_BACKEND_URL . '/plugin/knowledge-base', [
+        'method' => 'DELETE',
+        'timeout' => 20,
+        'headers' => [
+            'Content-Type' => 'application/json',
+            'Authorization' => 'Bearer ' . $secret,
+        ],
+        'body' => wp_json_encode(['confirm' => 'svuota']),
+    ]);
+    if (is_wp_error($res)) wp_send_json_error($res->get_error_message(), 502);
+    $code = wp_remote_retrieve_response_code($res);
+    $body = json_decode(wp_remote_retrieve_body($res), true);
+    if ($code !== 200) wp_send_json_error('Il backend ha rifiutato la richiesta (HTTP ' . $code . ').', $code);
+    wp_send_json_success($body);
+});
+
 add_action('wp_ajax_wpai_job_status', function () {
     wpai_sync_check();
     // Nonce and capability are verified by wpai_sync_check() immediately above.

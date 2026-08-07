@@ -44,6 +44,18 @@ def _process(session: Session, job: IngestJob) -> None:
             session.delete(chunk)
         session.commit()
         ingest(session, job.client_id, "site", data["url"], data["text"])
+    elif job.kind == "woocommerce":
+        # one stable ref, so a re-sync replaces the settings instead of stacking a second copy:
+        # a shipping method removed in WooCommerce has to disappear from the answers too
+        old_chunks = session.exec(
+            select(Chunk).where(
+                Chunk.client_id == job.client_id, Chunk.source_ref == "woocommerce://settings"
+            )
+        ).all()
+        for chunk in old_chunks:
+            session.delete(chunk)
+        session.commit()
+        ingest(session, job.client_id, "woocommerce", "woocommerce://settings", data["text"])
     elif job.kind == "product":
         ingest_product(
             session, job.client_id, data["url"], data["title"],

@@ -100,8 +100,44 @@
     btn.disabled = false;
   }
 
+  // Svuotamento della knowledge base. Distruttivo e non annullabile: chiede conferma prima,
+  // e non dice "fatto" se il backend ha rifiutato — riporta il motivo.
+  async function clearKnowledgeBase(btn, statusEl) {
+    const ok = window.confirm(
+      "Svuotare la knowledge base?\n\n" +
+      "L'assistente resterà senza contenuti da cui rispondere finché non lanci una nuova " +
+      "sincronizzazione, e nel frattempo passerà le domande a un operatore.\n\n" +
+      "L'operazione non è annullabile."
+    );
+    if (!ok) return;
+
+    btn.disabled = true;
+    statusEl.textContent = "Svuotamento in corso…";
+    try {
+      const res = await ajax({ action: "wpai_clear_kb" });
+      if (!res || !res.success) {
+        statusEl.textContent = "Non riuscito: " + ((res && res.data) || "errore sconosciuto");
+        return;
+      }
+      const removed = res.data || {};
+      statusEl.textContent =
+        `Svuotata: ${removed.removed_chunks || 0} contenuti e ${removed.removed_products || 0} prodotti rimossi. ` +
+        "Lancia ora una sincronizzazione completa.";
+    } catch (e) {
+      statusEl.textContent = "Non riuscito: errore di rete.";
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
   document.addEventListener("DOMContentLoaded", function () {
     const btn = document.getElementById("wpai-sync-start");
     if (btn) btn.addEventListener("click", () => run(btn));
+
+    const clearBtn = document.getElementById("wpai-kb-clear");
+    const clearStatus = document.getElementById("wpai-kb-clear-status");
+    if (clearBtn && clearStatus) {
+      clearBtn.addEventListener("click", () => clearKnowledgeBase(clearBtn, clearStatus));
+    }
   });
 })();

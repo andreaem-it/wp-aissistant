@@ -17,7 +17,7 @@ from datetime import datetime
 from fastapi import Depends, Header, HTTPException, Request
 from sqlmodel import Session, or_, select
 
-from .db import ApiKey, AuditLog, Client, Operator, OperatorSession, Plan, get_session
+from .db import ApiKey, AuditLog, Client, Operator, OperatorSession, Plan, PluginInstallation, get_session
 from .ratelimit import make_limiter
 from .util import split_origins
 from .logging_config import log
@@ -147,6 +147,31 @@ def resolve_client_id(
     if client:
         return client.id
     raise HTTPException(401, "invalid credentials")
+
+
+# ---- Trusted WordPress installation ----------------------------------------------------------
+#
+# A verified installation, not the widget api_key: that key sits in every public page of the
+# site, so it must never authorise anything a stranger could regret. This credential is issued
+# once per site through a challenge and can act on the tenant's own content.
+
+
+def plugin_secret_hash(secret: str) -> str:
+    return hashlib.sha256(secret.encode()).hexdigest()
+
+
+def require_plugin_installation(
+    authorization: str = Header(None), session: Session = Depends(get_session),
+) -> PluginInstallation:
+    secret = bearer_token(authorization)
+    if len(secret) < 32 or len(secret) > 256:
+        raise HTTPException(401, "invalid plugin credential")
+    row = session.exec(select(PluginInstallation).where(
+        PluginInstallation.secret_hash == plugin_secret_hash(secret),
+    )).first()
+    if row is None:
+        raise HTTPException(401, "invalid plugin credential")
+    return row
 
 
 # ---- Audit -----------------------------------------------------------------------------------

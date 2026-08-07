@@ -47,7 +47,8 @@ from ..db import (
 )
 from ..deps import (
     audit as _audit, get_client, hash_conversation_token as _hash_conversation_token,
-    bearer_token as _bearer_token, rate_limit_chat, rate_limit_ingest, require_client,
+    bearer_token as _bearer_token, plugin_secret_hash as _plugin_secret_hash,
+    require_plugin_installation as _require_plugin_installation, rate_limit_chat, rate_limit_ingest, require_client,
     require_operator, resolve_client_id,
 )
 from ..leads import LEAD_TRIGGERS, MAX_LEAD_VALUE_CHARS, form_payload as _lead_form_payload
@@ -1014,10 +1015,6 @@ def list_team_operators(operator: Operator = Depends(require_operator), session:
     return [{"id": row.id, "name": _operator_name(row), "email": row.email} for row in rows]
 
 
-def _plugin_secret_hash(secret: str) -> str:
-    return hashlib.sha256(secret.encode()).hexdigest()
-
-
 def _trusted_plugin_proof_url(allowed_origins: str, value: str) -> str:
     """Accept a WordPress REST proof URL only on one of the tenant's allowlisted origins."""
     from urllib.parse import urlparse
@@ -1053,20 +1050,6 @@ def _verify_plugin_site(proof_url: str, secret: str) -> bool:
         return secrets.compare_digest(str(result.get("proof", "")), expected)
     except (ValueError, urllib.error.URLError, urllib.error.HTTPError, TimeoutError):
         return False
-
-
-def _require_plugin_installation(
-    authorization: str = Header(None), session: Session = Depends(get_session),
-) -> PluginInstallation:
-    secret = _bearer_token(authorization)
-    if len(secret) < 32 or len(secret) > 256:
-        raise HTTPException(401, "invalid plugin credential")
-    row = session.exec(select(PluginInstallation).where(
-        PluginInstallation.secret_hash == _plugin_secret_hash(secret),
-    )).first()
-    if row is None:
-        raise HTTPException(401, "invalid plugin credential")
-    return row
 
 
 @router.post("/plugin/register")
