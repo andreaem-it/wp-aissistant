@@ -182,7 +182,7 @@ def test_presence_detects_a_collision(client, tenant):
 
 
 def test_presence_expires(client, tenant, monkeypatch):
-    from app import main
+    from app.routers import inbox as main  # presence state moved with the inbox router
 
     colleague = _colleague(client, tenant)
     conv_id = _conversation(client, tenant)["conversation_id"]
@@ -231,7 +231,7 @@ def test_erasing_a_conversation_removes_its_notes(client, tenant):
 
 def test_presence_store_does_not_grow_unbounded(client, tenant, monkeypatch):
     """Conversations nobody pings again must not keep an entry forever."""
-    from app import main
+    from app.routers import inbox as main  # presence state moved with the inbox router
 
     monkeypatch.setattr(main, "PRESENCE_MAX_CONVERSATIONS", 0)  # sweep a ogni battito
     first = _conversation(client, tenant, visitor="p1")["conversation_id"]

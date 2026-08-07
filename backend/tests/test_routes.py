@@ -116,6 +116,34 @@ HELPDESK_CONFIG_ROUTES = {
 }
 
 
+INBOX_ROUTES = {
+    "/conversations": {"GET"},
+    "/conversations/{conversation_id}": {"DELETE"},
+    "/conversations/{conversation_id}/messages": {"GET"},
+    "/conversations/{conversation_id}/reply": {"POST"},
+    "/conversations/{conversation_id}/status": {"POST"},
+    "/conversations/{conversation_id}/routing": {"PATCH"},
+    "/conversations/{conversation_id}/typing": {"POST"},
+    "/conversations/{conversation_id}/presence": {"POST"},
+    "/conversations/{conversation_id}/activity": {"GET"},
+    "/conversations/{conversation_id}/classify": {"POST"},
+    "/conversations/{conversation_id}/tags": {"POST"},
+    "/conversations/{conversation_id}/tags/{tag_id}": {"DELETE"},
+    "/conversations/{conversation_id}/notes": {"GET", "POST"},
+    "/conversations/{conversation_id}/notes/{note_id}": {"DELETE"},
+    "/tickets": {"GET"},
+    "/tickets/{ticket_id}/reply": {"POST"},
+    "/tags": {"GET", "POST"},
+    "/tags/{tag_id}": {"DELETE"},
+    "/mentions": {"GET"},
+    "/mentions/read": {"POST"},
+    "/saved-views": {"GET", "POST"},
+    "/saved-views/{view_id}": {"PATCH", "DELETE"},
+    "/gdpr/erase": {"POST"},
+    "/gdpr/export": {"POST"},
+}
+
+
 def _iter_routes(routes):
     """Walk the routing table, expanding included routers.
 
@@ -144,7 +172,7 @@ def _table() -> dict[str, set[str]]:
 def test_extracted_area_is_still_served():
     """Every path moved into app/routers/commercial.py must still answer on the same method."""
     table = _table()
-    expected = {**COMMERCIAL_ROUTES, **DEVELOPER_ROUTES, **PUBLIC_API_ROUTES, **CHANNEL_ROUTES, **INSIGHT_ROUTES, **AUTOMATION_ROUTES, **HELPDESK_CONFIG_ROUTES}
+    expected = {**COMMERCIAL_ROUTES, **DEVELOPER_ROUTES, **PUBLIC_API_ROUTES, **CHANNEL_ROUTES, **INSIGHT_ROUTES, **AUTOMATION_ROUTES, **HELPDESK_CONFIG_ROUTES, **INBOX_ROUTES}
     missing = {p: m for p, m in expected.items() if not m <= table.get(p, set())}
     assert not missing, f"rotte perse nello spostamento: {missing}"
 
@@ -152,7 +180,8 @@ def test_extracted_area_is_still_served():
 def test_extracted_area_comes_from_the_router():
     """Guards against a path being quietly re-added to main.py, leaving two definitions."""
     from app.routers import (
-        automations, channels, commercial, developers, helpdesk_config, insights, public_api,
+        automations, channels, commercial, developers, helpdesk_config, inbox, insights,
+        public_api,
     )
 
     assert set(COMMERCIAL_ROUTES) == {r.path for r in commercial.router.routes}
@@ -162,6 +191,7 @@ def test_extracted_area_comes_from_the_router():
     assert set(INSIGHT_ROUTES) == {r.path for r in insights.router.routes}
     assert set(AUTOMATION_ROUTES) == {r.path for r in automations.router.routes}
     assert set(HELPDESK_CONFIG_ROUTES) == {r.path for r in helpdesk_config.router.routes}
+    assert set(INBOX_ROUTES) == {r.path for r in inbox.router.routes}
 
 
 def test_no_path_is_registered_twice_with_the_same_method():
