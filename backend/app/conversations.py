@@ -15,7 +15,7 @@ from . import email as email_service
 from . import events
 from . import meta_messaging as meta_messaging_service
 from . import whatsapp as whatsapp_service
-from .db import Client, Contact, Conversation, ConversationRating, Message, WhatsAppConsent
+from .db import Client, Operator, Contact, Conversation, ConversationRating, Message, WhatsAppConsent
 from .util import iso as _iso
 
 # the closed vocabulary of SLA states, shared by the inbox filters and every conversation view
@@ -230,3 +230,7 @@ def emit_visitor_message(session: Session, conv: Conversation, message: Message)
         "channel": conv.channel or "web",
         "role": "user",
     }, conv=conv)
+
+
+def operator_name(operator: Operator) -> str:
+    return operator.name or operator.email

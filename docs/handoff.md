@@ -201,7 +201,7 @@ Convenzioni utili viste nella suite:
 
 ## 8. Debito noto (non bloccante, ma reale)
 
-1. **`backend/app/main.py`: 5788 righe, 141 endpoint.** La divisione è **in corso**: quattro aree
+1. **`backend/app/main.py`: 5552 righe, 133 endpoint.** La divisione è **in corso**: cinque aree
    estratte su nove, da 8016 righe iniziali. Vedi «Dividere main.py» qui sotto.
 2. **Widget: 1155 righe in un file.** I testi sono usciti in `chat-i18n.js` (con i primi test
    Node del plugin), il resto no. Senza bundler nel plugin, la strada praticabile è più file
@@ -262,6 +262,8 @@ Fatto:
 - **Fase 2** — `routers/developers.py` (chiavi API e webhook). Le utility condivise sono salite
   dove appartengono: `util.py` (`iso`, `bounded_limit`), `deps.py` (`hash_api_key`) e
   `apikeys.py` (scope e formato delle chiavi).
+- **Fase 5** — `routers/insights.py` (statistiche, CSAT, gap e bozze della knowledge base).
+  Area quasi isolata: bastava far salire `operator_name`.
 - **Fase 4** — `routers/channels.py` (canali in ingresso e allegati). Prima sono saliti
   assegnazione e SLA in `routing.py` e l'identità del contatto in `conversations.py`.
 - **Fase 3** — `routers/public_api.py` (`/v1`). Il grosso del lavoro è stato liberare gli helper
@@ -287,8 +289,8 @@ Il modello, da ripetere per ogni area:
 > conclude che le rotte sono sparite mentre vengono servite benissimo. `_iter_routes()` in
 > `tests/test_routes.py` attraversa i router inclusi: usare quello.
 
-Ordine per le fasi successive: **analytics e gap KB** → automazioni (workflow, proattivi,
-lead) → help desk e inbox → widget e chat → admin residuo.
+Ordine per le fasi successive: **automazioni** (workflow, proattivi, lead) → help desk e inbox
+→ widget e chat → admin residuo. Le ultime due sono le più intrecciate: vanno per ultime.
 
 Due trappole viste sul campo, oltre a quelle già elencate:
 
