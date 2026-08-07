@@ -483,3 +483,53 @@ def test_ingest_and_query_embeddings_are_both_counted(client):
 
     assert row["embedding_chars"] == 4_000_000
     assert row["embedding_cost_cents"] == 100.0
+
+
+def test_ingest_actually_records_usage(client, tenant, drain):
+    """Il percorso reale, non il rollup scritto a mano.
+
+    record_embedding è best-effort e inghiotte le eccezioni, così un errore al suo interno non
+    fa fallire un ingest o una risposta al visitatore. Il prezzo di quella scelta è che un bug
+    lì dentro non si vede: senza questo test la misurazione può smettere di funzionare in
+    silenzio, ed è esattamente quello che è successo la prima volta.
+    """
+    from sqlmodel import select
+    from app.llm import EMBED_MODEL
+
+    client.post(
+        "/ingest/site-page",
+        headers=tenant["key"],
+        json={"url": "https://sito.it/spedizioni", "text": "Le spedizioni partono in 24 ore. " * 20},
+    )
+    drain()
+
+    with Session(db.engine) as session:
+        rows = session.exec(
+            select(db.EmbeddingUsage).where(db.EmbeddingUsage.client_id == tenant["cid"])
+        ).all()
+
+    assert rows, "l'ingest non ha registrato alcun uso di embedding"
+    assert rows[0].model == EMBED_MODEL
+    assert rows[0].ingest_chars > 0
+    assert rows[0].query_chars == 0
+
+
+def test_a_chat_question_records_query_usage(client, tenant, drain):
+    """Anche la domanda del visitatore viene embeddata: se non risultasse, il costo di un
+    tenant con molto traffico sarebbe sistematicamente sottostimato."""
+    from sqlmodel import select
+
+    client.post(
+        "/ingest/site-page",
+        headers=tenant["key"],
+        json={"url": "https://sito.it/resi", "text": "I resi si accettano entro 30 giorni."},
+    )
+    drain()
+    client.post("/chat", headers=tenant["key"], json={"visitor_id": "v1", "message": "Come funzionano i resi?"})
+
+    with Session(db.engine) as session:
+        row = session.exec(
+            select(db.EmbeddingUsage).where(db.EmbeddingUsage.client_id == tenant["cid"])
+        ).first()
+
+    assert row.query_chars > 0

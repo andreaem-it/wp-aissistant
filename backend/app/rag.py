@@ -14,7 +14,7 @@ from sqlalchemy import text as sql_text
 from . import i18n
 
 from .db import Chunk, EmbeddingUsage, Product
-from .llm import embed
+from .llm import EMBED_MODEL, embed
 from .logging_config import log
 
 logger = logging.getLogger("wpai.rag")
