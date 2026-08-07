@@ -178,6 +178,28 @@ def _cart_instruction_reply(products: list[dict], language: str | None = None) -
     return i18n.t("cart.use_button" if products else "cart.no_product", language)
 
 
+def _matching_products(session, client_id: int, message: str) -> list[dict]:
+    """I prodotti a catalogo che corrispondono alla domanda, o nessuno.
+
+    Recuperati **prima** del guardiano di scope, per due motivi. Il primo è che un prodotto che
+    corrisponde è di per sé la prova che la domanda riguarda questo negozio: il guardiano legge
+    solo i chunk di testo, quindi «avete la felpa con zip?» finiva fuori ambito se le schede
+    prodotto non erano anche indicizzate come pagine — e quel percorso risponde senza card. La
+    soglia dei prodotti (0.45) è più severa di quella di scope (0.62), quindi ammettere una
+    corrispondenza di catalogo non allarga la porta, la apre dove era chiusa per omissione.
+
+    Il secondo è che il recupero avveniva comunque, solo dopo la risposta: spostarlo qui non
+    aggiunge una chiamata di embedding, la anticipa.
+
+    Se il fornitore di embedding è irraggiungibile non c'è motivo di perdere la risposta: si
+    resta senza card.
+    """
+    try:
+        return retrieve_products(session, client_id, message)
+    except LLMUnavailableError:
+        return []
+
+
 def _out_of_scope_reply(language: str | None = None) -> str:
     return i18n.t("scope.out_of_scope", language)
 
@@ -577,7 +599,8 @@ def chat_stream_endpoint(
             # mid-prefix.
             try:
                 context, retrieval_meta = retrieve_with_meta(s, client_id, message)
-                if not _is_small_talk(message) and not _retrieval_is_in_scope(retrieval_meta):
+                products = _matching_products(s, client_id, message)
+                if not _is_small_talk(message) and not products and not _retrieval_is_in_scope(retrieval_meta):
                     full = _out_of_scope_reply(conv.language)
                     reply_msg = Message(conversation_id=conv.id, role="assistant", content=full)
                     s.add(reply_msg)
@@ -668,10 +691,6 @@ def chat_stream_endpoint(
             s.commit()
             s.refresh(reply_msg)
             _log_ai_response(s, client_id, conv.id, "answered", retrieval_meta=retrieval_meta, llm_meta=meta, message_id=reply_msg.id)
-            try:
-                products = retrieve_products(s, client_id, message)
-            except LLMUnavailableError:
-                products = []
             yield _sse({"type": "done", "conversation_id": conv.id, "message_id": reply_msg.id, "products": products})
 
     return StreamingResponse(
@@ -759,7 +778,8 @@ def chat_endpoint(
     retrieval_meta: list[dict] = []
     try:
         context, retrieval_meta = retrieve_with_meta(session, client.id, message)
-        if not _is_small_talk(message) and not _retrieval_is_in_scope(retrieval_meta):
+        products = _matching_products(session, client.id, message)
+        if not _is_small_talk(message) and not products and not _retrieval_is_in_scope(retrieval_meta):
             reply_msg = Message(
                 conversation_id=conv.id,
                 role="assistant",
@@ -855,10 +875,6 @@ def chat_endpoint(
     session.commit()
     session.refresh(reply_msg)
     _log_ai_response(session, client.id, conv.id, "answered", retrieval_meta=retrieval_meta, llm_meta=result, message_id=reply_msg.id)
-    try:
-        products = retrieve_products(session, client.id, message)
-    except LLMUnavailableError:
-        products = []  # reply already succeeded; don't lose it over a second embedding call
     return {"conversation_id": conv.id, "conversation_token": access_token, "status": "open", "reply": result["reply"], "products": products, "message_id": reply_msg.id}
 
 
