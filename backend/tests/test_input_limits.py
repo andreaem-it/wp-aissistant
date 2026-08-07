@@ -2,6 +2,9 @@
 import io
 
 from app import main
+# the chat and its size cap moved with the widget router when main.py was split;
+# the document upload stayed in main.py, so this file needs both
+from app.routers import widget
 
 
 def test_chat_rejects_empty_and_oversized_messages(client, tenant, monkeypatch):
@@ -11,7 +14,7 @@ def test_chat_rejects_empty_and_oversized_messages(client, tenant, monkeypatch):
         json={"visitor_id": "v", "message": "   "},
     ).status_code == 400
 
-    monkeypatch.setattr(main, "MAX_CHAT_MESSAGE_CHARS", 8)
+    monkeypatch.setattr(widget, "MAX_CHAT_MESSAGE_CHARS", 8)
     assert client.post(
         "/chat",
         headers=tenant["key"],

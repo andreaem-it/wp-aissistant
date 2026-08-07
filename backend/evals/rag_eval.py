@@ -17,7 +17,10 @@ from sqlmodel import Session
 
 from app.db import engine
 from app.llm import LLMUnavailableError, chat
-from app.main import _build_system, _is_small_talk, _retrieval_is_in_scope
+from app.rag import (
+    build_system as _build_system, is_small_talk as _is_small_talk,
+    retrieval_is_in_scope as _retrieval_is_in_scope,
+)
 from app.rag import retrieve_with_meta
 
 

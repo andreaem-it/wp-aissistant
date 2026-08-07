@@ -1,6 +1,8 @@
 """Language detection, localized deterministic replies and cross-language knowledge base."""
 
-from app import i18n, language, main
+from app import i18n, language
+# the chat helpers moved with the widget router when main.py was split
+from app.routers import widget as main
 
 
 ADMIN = {"Authorization": "Bearer test-admin"}

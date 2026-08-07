@@ -4,7 +4,9 @@ import json
 
 from sqlmodel import Session, select
 
-from app import db, main
+from app import db
+# the chat stream moved with the widget router when main.py was split
+from app.routers import widget as main
 
 ADMIN = {"Authorization": "Bearer test-admin"}
 

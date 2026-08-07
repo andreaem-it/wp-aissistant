@@ -144,6 +144,24 @@ INBOX_ROUTES = {
 }
 
 
+WIDGET_ROUTES = {
+    "/chat": {"POST"},
+    "/chat/stream": {"POST"},
+    "/chat/feedback": {"POST"},
+    "/chat/contact": {"POST"},
+    "/chat/ticket": {"POST"},
+    "/chat/rating": {"POST"},
+    "/usage": {"GET"},
+    "/team/operators": {"GET"},
+    "/plugin/register": {"POST"},
+    "/plugin/support-schedule": {"PUT"},
+    "/widget/lead-form": {"GET"},
+    "/widget/leads": {"POST"},
+    "/widget/proactive": {"GET"},
+    "/widget/proactive/{rule_id}/event": {"POST"},
+}
+
+
 def _iter_routes(routes):
     """Walk the routing table, expanding included routers.
 
@@ -172,7 +190,7 @@ def _table() -> dict[str, set[str]]:
 def test_extracted_area_is_still_served():
     """Every path moved into app/routers/commercial.py must still answer on the same method."""
     table = _table()
-    expected = {**COMMERCIAL_ROUTES, **DEVELOPER_ROUTES, **PUBLIC_API_ROUTES, **CHANNEL_ROUTES, **INSIGHT_ROUTES, **AUTOMATION_ROUTES, **HELPDESK_CONFIG_ROUTES, **INBOX_ROUTES}
+    expected = {**COMMERCIAL_ROUTES, **DEVELOPER_ROUTES, **PUBLIC_API_ROUTES, **CHANNEL_ROUTES, **INSIGHT_ROUTES, **AUTOMATION_ROUTES, **HELPDESK_CONFIG_ROUTES, **INBOX_ROUTES, **WIDGET_ROUTES}
     missing = {p: m for p, m in expected.items() if not m <= table.get(p, set())}
     assert not missing, f"rotte perse nello spostamento: {missing}"
 
@@ -181,7 +199,7 @@ def test_extracted_area_comes_from_the_router():
     """Guards against a path being quietly re-added to main.py, leaving two definitions."""
     from app.routers import (
         automations, channels, commercial, developers, helpdesk_config, inbox, insights,
-        public_api,
+        public_api, widget,
     )
 
     assert set(COMMERCIAL_ROUTES) == {r.path for r in commercial.router.routes}
@@ -192,6 +210,7 @@ def test_extracted_area_comes_from_the_router():
     assert set(AUTOMATION_ROUTES) == {r.path for r in automations.router.routes}
     assert set(HELPDESK_CONFIG_ROUTES) == {r.path for r in helpdesk_config.router.routes}
     assert set(INBOX_ROUTES) == {r.path for r in inbox.router.routes}
+    assert set(WIDGET_ROUTES) == {r.path for r in widget.router.routes}
 
 
 def test_no_path_is_registered_twice_with_the_same_method():

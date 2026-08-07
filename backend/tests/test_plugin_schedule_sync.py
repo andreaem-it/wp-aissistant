@@ -4,7 +4,9 @@ import io
 
 from sqlmodel import Session, select
 
-from app import db, main
+from app import db
+# plugin verification moved with the widget router when main.py was split
+from app.routers import widget as main
 from test_leads import _other_tenant
 
 

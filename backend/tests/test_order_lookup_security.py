@@ -1,6 +1,7 @@
 """Security guard for the WooCommerce order-lookup callback: the backend must only call back
 an origin the client configured (allowed_origins), never a spoofed site_url (SSRF)."""
-from app import main
+# order-lookup helpers moved with the widget router when main.py was split
+from app.routers import widget as main
 
 
 class _Req:

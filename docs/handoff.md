@@ -201,8 +201,8 @@ Convenzioni utili viste nella suite:
 
 ## 8. Debito noto (non bloccante, ma reale)
 
-1. **`backend/app/main.py`: 2720 righe, 52 endpoint.** La divisione è **in corso**: otto aree
-   estratte, da 8016 righe iniziali. Vedi «Dividere main.py» qui sotto.
+1. **`backend/app/main.py`: 1479 righe, 38 endpoint.** La divisione è **quasi conclusa**: nove
+   aree estratte, da 8016 righe iniziali. Vedi «Dividere main.py» qui sotto.
 2. **Widget: 1155 righe in un file.** I testi sono usciti in `chat-i18n.js` (con i primi test
    Node del plugin), il resto no. Senza bundler nel plugin, la strada praticabile è più file
    enqueued con dipendenze, come già fatto per l'i18n.
@@ -262,6 +262,10 @@ Fatto:
 - **Fase 2** — `routers/developers.py` (chiavi API e webhook). Le utility condivise sono salite
   dove appartengono: `util.py` (`iso`, `bounded_limit`), `deps.py` (`hash_api_key`) e
   `apikeys.py` (scope e formato delle chiavi).
+- **Fase 9** — `routers/widget.py` (chat, streaming, escalation, carrello, lookup ordini, form e
+  proattivi del widget, registrazione plugin). La logica di prompt e scope è salita in `rag.py`,
+  perché la usa anche la suite di valutazione in `backend/evals`: un eval che importa da un
+  router è un cattivo segno. Origin e dipendenze di rate limit sono salite in `util.py` e `deps.py`.
 - **Fase 8** — `routers/inbox.py` (conversazioni, ticket, tag, note, menzioni, presenza, viste
   salvate, GDPR). Lo stato di presenza e digitazione è in-process e si è spostato col router:
   `test_collaboration.py` lo ispezionava su `main` ed è stato aggiornato.
@@ -297,8 +301,14 @@ Il modello, da ripetere per ogni area:
 > conclude che le rotte sono sparite mentre vengono servite benissimo. `_iter_routes()` in
 > `tests/test_routes.py` attraversa i router inclusi: usare quello.
 
-Ordine per le fasi successive: **widget e chat** → admin residuo. Restano le rotte del
-visitatore (chat, streaming, RAG, escalation, carrello e ordini) e la superficie `/admin`. Le prime due sono le più intrecciate — è lì che vivono la chat, il RAG e
+Resta la **fase finale**: la superficie `/admin`, l'autenticazione e gli account, l'ingest e le
+due rotte operative (`/health`, `/metrics`). Sono i 38 endpoint ancora in `main.py`.
+
+> Il costo maggiore di queste ultime fasi non è stato spostare gli endpoint ma **aggiornare i
+> test accoppiati alla posizione di uno stato o di una costante di modulo**: `api_limiter`, i
+> dizionari di presenza, i limitatori di chat/ingest, `MAX_CHAT_MESSAGE_CHARS`,
+> `SCOPE_MAX_DISTANCE`, l'LLM finto di `conftest`. Quando si sposta qualcosa che i test
+> sostituiscono, si cerca **chi lo sostituisce**, non solo chi lo usa. Le prime due sono le più intrecciate — è lì che vivono la chat, il RAG e
 l'escalation — e vanno affrontate con lo stesso schema: prima far salire ciò che condividono.
 
 > Nota pratica sui test: **non lanciare due `pytest` insieme** sullo stesso database. Si

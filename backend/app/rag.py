@@ -9,6 +9,7 @@ import pytesseract
 from sqlmodel import Session, select
 from sqlalchemy import text as sql_text
 
+from . import i18n
 from .db import Chunk, Product
 from .llm import embed
 
@@ -163,3 +164,48 @@ def retrieve_products(session: Session, client_id: int, query: str, k: int = 3) 
         for p, dist in rows
         if dist is not None and dist < PRODUCT_MAX_DISTANCE  # dist is NULL for not-yet-embedded rows
     ]
+
+
+# ---- Prompt and scope ------------------------------------------------------------------------
+#
+# Pure logic shared by the chat endpoint and the evaluation suite in backend/evals: how the
+# grounding instruction is built, what counts as small talk, and when the retrieved context is
+# too far from the question to be usable. Kept out of the router so an eval never imports one.
+
+
+SCOPE_MAX_DISTANCE = float(os.getenv("SCOPE_MAX_DISTANCE", "0.62"))
+
+
+def build_system(context: list[str], language: str | None = None) -> str:
+    return (
+        "You are a customer support assistant. Handle greetings and small talk yourself, "
+        "normally, without calling any tool. For substantive questions, answer only using "
+        "the context below. Call escalate_to_human ONLY when: the answer to a substantive "
+        "question isn't in the context, or the request needs human authority (refunds, "
+        "complaints, account changes). Do not escalate greetings or vague messages — ask "
+        "the user to clarify instead. You cannot modify the WooCommerce cart, place orders, "
+        "apply coupons, or calculate a new cart total. Never claim that you performed one of "
+        "these actions. When a visitor asks to add a product to the cart, tell them to use the "
+        "\"Aggiungi al carrello\" button on the product card; only the site can confirm that "
+        "the operation succeeded.\n\nContext:\n" + "\n---\n".join(context)
+        + i18n.prompt_language_instruction(language)
+    )
+
+
+_SMALL_TALK_RE = re.compile(
+    r"^\s*(?:ciao|salve|buongiorno|buonasera|hey|hello|hi|grazie|thanks|"
+    r"arrivederci|a presto|come stai|chi sei|cosa (?:sai|puoi) fare)[!?.\s]*$",
+    re.IGNORECASE,
+)
+
+
+def is_small_talk(message: str) -> bool:
+    return bool(_SMALL_TALK_RE.match(message or ""))
+
+
+def retrieval_is_in_scope(retrieval_meta: list[dict]) -> bool:
+    """Require semantic evidence from this tenant's own knowledge base."""
+    return any(
+        item.get("selected") and float(item.get("distance", 1.0)) <= SCOPE_MAX_DISTANCE
+        for item in retrieval_meta
+    )

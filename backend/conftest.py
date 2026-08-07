@@ -59,7 +59,9 @@ def client(monkeypatch):
     # no Ollama in tests: deterministic embeddings and a canned chat reply
     monkeypatch.setattr(rag, "embed", lambda text: [0.0] * db.EMBED_DIM)
     monkeypatch.setattr(main, "embed", lambda text: [0.0] * db.EMBED_DIM)  # used by /admin/reembed
-    monkeypatch.setattr(main, "llm_chat", lambda system, history, message: {"reply": "ok"})
+    # the chat moved to the widget router when main.py was split: patch the LLM where it is called
+    from app.routers import widget as widget_router
+    monkeypatch.setattr(widget_router, "llm_chat", lambda system, history, message: {"reply": "ok"})
 
     def _fake_stream(system, history, message):
         # mirror the ("delta", ...)* then ("meta", ...) protocol of llm.chat_stream
@@ -67,7 +69,7 @@ def client(monkeypatch):
             yield ("delta", tok)
         yield ("meta", {"model": "test", "latency_ms": 1, "tokens_prompt": 0, "tokens_completion": 0})
 
-    monkeypatch.setattr(main, "llm_chat_stream", _fake_stream)
+    monkeypatch.setattr(widget_router, "llm_chat_stream", _fake_stream)
 
     try:
         with db.engine.connect() as conn:
