@@ -38,3 +38,42 @@ def test_out_of_scope_reply_does_not_offer_escalation():
         assert not any(parola in reply for parola in promesse), code
     assert "cultura generale" in _out_of_scope_reply("it").lower()
     assert "general knowledge" in _out_of_scope_reply("en").lower()
+
+
+# ---- L'istruzione di grounding ------------------------------------------------------------
+
+from app.rag import build_system
+
+
+def test_the_prompt_names_no_tool():
+    """Il prompt diceva «call escalate_to_human», una funzione che qui non esiste: l'escalation
+    è un marcatore testuale. Istruito a usare un meccanismo che non ha, il modello rispondeva
+    comunque — è la causa che ha prodotto metodi di spedizione inventati."""
+    prompt = build_system(["Le spedizioni partono in 24 ore."])
+
+    assert "escalate_to_human" not in prompt
+    assert "call " not in prompt.lower() or "tool" not in prompt.lower()
+
+
+def test_the_prompt_forbids_inventing_the_specifics_that_get_invented():
+    """Non basta «rispondi dal contesto»: le cose che un modello piccolo inventa sono sempre le
+    stesse — prezzi, sconti, corrieri, tempi, nomi di pagina — e vanno nominate."""
+    prompt = build_system(["Le spedizioni partono in 24 ore."]).lower()
+
+    for forbidden in ["price", "discount", "delivery time", "payment", "url"]:
+        assert forbidden in prompt, f"il prompt non vieta esplicitamente di inventare: {forbidden}"
+
+
+def test_the_prompt_covers_partial_context():
+    """Il caso in cui l'invenzione avviene davvero: il contesto copre metà domanda."""
+    prompt = build_system(["Le spedizioni partono in 24 ore."]).lower()
+
+    assert "in part" in prompt or "only in part" in prompt
+
+
+def test_the_context_is_still_carried_verbatim():
+    """Il rafforzamento non deve aver perso il contesto, che è l'unica fonte ammessa."""
+    prompt = build_system(["Le spedizioni partono in 24 ore.", "I resi entro 30 giorni."])
+
+    assert "Le spedizioni partono in 24 ore." in prompt
+    assert "I resi entro 30 giorni." in prompt

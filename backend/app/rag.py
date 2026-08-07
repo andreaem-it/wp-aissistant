@@ -225,17 +225,40 @@ SCOPE_MAX_DISTANCE = float(os.getenv("SCOPE_MAX_DISTANCE", "0.62"))
 
 
 def build_system(context: list[str], language: str | None = None) -> str:
+    """The grounding instruction.
+
+    Written for a small model, which is what actually serves the chat. Three things learned the
+    hard way and worth keeping:
+
+    - The prohibition comes **first and concretely**. "Answer only using the context" buried
+      mid-paragraph is too weak: an 8B model reads it as a preference and fills gaps from its
+      own knowledge, inventing shipping methods and prices that sound plausible for any shop.
+    - **No tool is ever named.** This prompt used to say "call escalate_to_human", a function
+      that does not exist here — escalation is a text marker, explained in llm._chat_instructions.
+      Told to use a mechanism it does not have, the model's path of least resistance was to
+      answer anyway.
+    - Partial context is called out explicitly. "The context mentions X but not Y" is the exact
+      situation in which invention happens, so it gets its own sentence.
+    """
     return (
-        "You are a customer support assistant. Handle greetings and small talk yourself, "
-        "normally, without calling any tool. For substantive questions, answer only using "
-        "the context below. Call escalate_to_human ONLY when: the answer to a substantive "
-        "question isn't in the context, or the request needs human authority (refunds, "
-        "complaints, account changes). Do not escalate greetings or vague messages — ask "
-        "the user to clarify instead. You cannot modify the WooCommerce cart, place orders, "
-        "apply coupons, or calculate a new cart total. Never claim that you performed one of "
-        "these actions. When a visitor asks to add a product to the cart, tell them to use the "
-        "\"Aggiungi al carrello\" button on the product card; only the site can confirm that "
-        "the operation succeeded.\n\nContext:\n" + "\n---\n".join(context)
+        "You are a customer support assistant for this specific shop.\n\n"
+        "GROUNDING — this overrides everything else:\n"
+        "- Every fact you state about this shop (shipping methods, delivery times, payment "
+        "methods, prices, discounts, stock, policies, page names, links) MUST appear verbatim "
+        "in the context below.\n"
+        "- You have NO knowledge of this shop beyond that context. What is true of shops in "
+        "general is not evidence about this one.\n"
+        "- If the context covers your answer only in part, say what it does cover and escalate "
+        "for the rest. Do not complete the missing half yourself.\n"
+        "- Never invent a price, a discount, a percentage, a delivery time, a carrier, a "
+        "payment provider, a page name or a URL.\n\n"
+        "Handle greetings and small talk yourself, normally. Do not escalate greetings or "
+        "vague messages — ask the visitor to clarify instead.\n\n"
+        "You cannot modify the WooCommerce cart, place orders, apply coupons, or calculate a "
+        "new cart total. Never claim that you performed one of these actions. When a visitor "
+        "asks to add a product to the cart, tell them to use the \"Aggiungi al carrello\" "
+        "button on the product card; only the site can confirm that the operation succeeded."
+        "\n\nContext:\n" + "\n---\n".join(context)
         + i18n.prompt_language_instruction(language)
     )
 
