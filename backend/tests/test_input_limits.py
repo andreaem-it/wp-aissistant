@@ -1,7 +1,7 @@
 """Bound expensive public inputs and paginate growing operator collections."""
 import io
 
-from app import main
+from app.routers import knowledge
 # the chat and its size cap moved with the widget router when main.py was split;
 # the document upload stayed in main.py, so this file needs both
 from app.routers import widget
@@ -23,7 +23,7 @@ def test_chat_rejects_empty_and_oversized_messages(client, tenant, monkeypatch):
 
 
 def test_document_upload_is_bounded_before_extraction(client, tenant, monkeypatch):
-    monkeypatch.setattr(main, "MAX_UPLOAD_BYTES", 4)
+    monkeypatch.setattr(knowledge, "MAX_UPLOAD_BYTES", 4)
     response = client.post(
         "/ingest/document",
         headers=tenant["op"],

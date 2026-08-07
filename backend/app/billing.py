@@ -414,3 +414,15 @@ def change_plan(client: "Client", price_id: str):
         items=[{"id": item_id, "price": price_id}],
         proration_behavior="create_prorations",
     )
+
+
+def default_plan_id(session: Session) -> int:
+    """The oldest plan (seeded "Free" on fresh DBs via migration 0005). Auto-creates one
+    if missing entirely — e.g. DB_AUTO_CREATE dev setups that skip migrations."""
+    plan = session.exec(select(Plan).order_by(Plan.id)).first()
+    if not plan:
+        plan = Plan(name="Free", chat_rate_limit=30, ingest_rate_limit=60)
+        session.add(plan)
+        session.commit()
+        session.refresh(plan)
+    return plan.id

@@ -1,5 +1,6 @@
 """Public authentication endpoints share an abuse limiter."""
-from app import main
+# the auth limiter moved with the accounts router when main.py was split
+from app.routers import accounts as main
 from app.ratelimit import FixedWindowLimiter
 
 

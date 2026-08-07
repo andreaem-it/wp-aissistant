@@ -201,8 +201,9 @@ Convenzioni utili viste nella suite:
 
 ## 8. Debito noto (non bloccante, ma reale)
 
-1. **`backend/app/main.py`: 1479 righe, 38 endpoint.** La divisione è **quasi conclusa**: nove
-   aree estratte, da 8016 righe iniziali. Vedi «Dividere main.py» qui sotto.
+1. ~~**`backend/app/main.py`: 8016 righe, 182 endpoint.**~~ **Risolto.** Il file è a **567 righe e
+   2 endpoint** (`/health`, `/metrics`): creazione dell'app, middleware, lifespan e registrazione
+   dei dodici router. Vedi «Dividere main.py» qui sotto per il modello da seguire.
 2. **Widget: 1155 righe in un file.** I testi sono usciti in `chat-i18n.js` (con i primi test
    Node del plugin), il resto no. Senza bundler nel plugin, la strada praticabile è più file
    enqueued con dipendenze, come già fatto per l'i18n.
@@ -212,7 +213,7 @@ Convenzioni utili viste nella suite:
 4. **Il margine copre solo l'inferenza.** `/admin/costs` prezza i token di `AiResponseLog`, ma
    embedding (ingest), storage R2, email e canali non sono registrati per turno: il margine
    mostrato è un **tetto**. Per chiuderlo serve tracciare anche quei consumi per tenant.
-5. **Le intestazioni CORS sono scritte a mano** in `_cors_headers()`, non derivate dalle rotte.
+5. **Le intestazioni CORS sono scritte a mano** in `cors.headers()`, non derivate dalle rotte.
    Hanno già annunciato solo `GET, POST, OPTIONS` mentre l'app instradava 36 rotte PUT/PATCH/
    DELETE, rendendole invisibilmente inutilizzabili dal browser: il server rispondeva `204` al
    preflight e nei log non compariva nulla. Ora c'è `test_cors.py` che confronta i metodi
@@ -262,6 +263,8 @@ Fatto:
 - **Fase 2** — `routers/developers.py` (chiavi API e webhook). Le utility condivise sono salite
   dove appartengono: `util.py` (`iso`, `bounded_limit`), `deps.py` (`hash_api_key`) e
   `apikeys.py` (scope e formato delle chiavi).
+- **Fase finale** — `routers/admin.py`, `accounts.py`, `knowledge.py`. L'allowlist CORS è salita
+  in `cors.py` perché la condividono `main.py` e i router che cambiano gli origin.
 - **Fase 9** — `routers/widget.py` (chat, streaming, escalation, carrello, lookup ordini, form e
   proattivi del widget, registrazione plugin). La logica di prompt e scope è salita in `rag.py`,
   perché la usa anche la suite di valutazione in `backend/evals`: un eval che importa da un
@@ -301,8 +304,14 @@ Il modello, da ripetere per ogni area:
 > conclude che le rotte sono sparite mentre vengono servite benissimo. `_iter_routes()` in
 > `tests/test_routes.py` attraversa i router inclusi: usare quello.
 
-Resta la **fase finale**: la superficie `/admin`, l'autenticazione e gli account, l'ingest e le
-due rotte operative (`/health`, `/metrics`). Sono i 38 endpoint ancora in `main.py`.
+**La divisione è completa.** `main.py` è tornato a essere ciò che il nome promette: assembla
+l'app e registra i router. Dodici router in `app/routers/`, più i moduli di dominio nati lungo il
+percorso — `deps`, `util`, `limits`, `apikeys`, `conversations`, `routing`, `leads`, `proactive`,
+`cors` — oltre a quelli che già c'erano.
+
+Se aggiungi un'area nuova: un router in `app/routers/`, registrato in `main.py`, e i suoi path
+aggiunti a `tests/test_routes.py`. Un helper condiviso da due aree non va in un router: sale nel
+modulo di dominio a cui appartiene, e **nessun modulo importa da `routers/`**.
 
 > Il costo maggiore di queste ultime fasi non è stato spostare gli endpoint ma **aggiornare i
 > test accoppiati alla posizione di uno stato o di una costante di modulo**: `api_limiter`, i

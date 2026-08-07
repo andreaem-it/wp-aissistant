@@ -50,7 +50,10 @@ def client(monkeypatch):
     from app import deps
     monkeypatch.setattr(deps, "chat_limiter", FixedWindowLimiter(deps.chat_limiter.limit, 60))
     monkeypatch.setattr(deps, "ingest_limiter", FixedWindowLimiter(deps.ingest_limiter.limit, 60))
-    monkeypatch.setattr(main, "auth_limiter", FixedWindowLimiter(main.auth_limiter.limit, 60))
+    from app.routers import accounts as accounts_router
+    monkeypatch.setattr(
+        accounts_router, "auth_limiter", FixedWindowLimiter(accounts_router.auth_limiter.limit, 60)
+    )
     # api_limiter moved to the public API router when main.py was split; patch it where it
     # lives now, or the public API keeps a limiter shared across tests and 429s sporadically
     from app.routers import public_api
@@ -58,7 +61,8 @@ def client(monkeypatch):
 
     # no Ollama in tests: deterministic embeddings and a canned chat reply
     monkeypatch.setattr(rag, "embed", lambda text: [0.0] * db.EMBED_DIM)
-    monkeypatch.setattr(main, "embed", lambda text: [0.0] * db.EMBED_DIM)  # used by /admin/reembed
+    from app.routers import admin as admin_router
+    monkeypatch.setattr(admin_router, "embed", lambda text: [0.0] * db.EMBED_DIM)  # /admin/reembed
     # the chat moved to the widget router when main.py was split: patch the LLM where it is called
     from app.routers import widget as widget_router
     monkeypatch.setattr(widget_router, "llm_chat", lambda system, history, message: {"reply": "ok"})

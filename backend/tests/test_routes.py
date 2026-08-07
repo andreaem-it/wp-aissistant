@@ -162,6 +162,49 @@ WIDGET_ROUTES = {
 }
 
 
+ADMIN_ROUTES = {
+    "/admin/stats": {"GET"},
+    "/admin/health": {"GET"},
+    "/admin/test-email": {"POST"},
+    "/admin/problematic": {"GET"},
+    "/admin/clients": {"GET", "POST"},
+    "/admin/clients/{client_id}/operators": {"GET", "POST"},
+    "/admin/clients/{client_id}/origins": {"POST"},
+    "/admin/clients/{client_id}/rotate-key": {"POST"},
+    "/admin/operators/{operator_id}": {"DELETE"},
+    "/admin/conversations/{conversation_id}/debug": {"GET"},
+    "/admin/audit": {"GET"},
+    "/admin/plans": {"GET", "POST"},
+    "/admin/plans/{plan_id}": {"POST"},
+    "/admin/reembed": {"POST"},
+}
+
+ACCOUNT_ROUTES = {
+    "/public/plans": {"GET"},
+    "/signup": {"POST"},
+    "/me": {"GET"},
+    "/me/name": {"POST"},
+    "/me/password": {"POST"},
+    "/me/rotate-key": {"POST"},
+    "/onboarding/status": {"GET"},
+    "/auth/verify-email": {"POST"},
+    "/auth/resend-verification": {"POST"},
+    "/auth/forgot": {"POST"},
+    "/auth/reset": {"POST"},
+    "/operator/login": {"POST"},
+    "/operator/logout": {"POST"},
+}
+
+KNOWLEDGE_ROUTES = {
+    "/ingest/document": {"POST"},
+    "/ingest/site-page": {"POST"},
+    "/ingest/product": {"POST"},
+    "/ingest/jobs/{job_id}": {"GET"},
+    "/knowledge/teach": {"POST"},
+    "/knowledge-base": {"GET"},
+}
+
+
 def _iter_routes(routes):
     """Walk the routing table, expanding included routers.
 
@@ -190,7 +233,8 @@ def _table() -> dict[str, set[str]]:
 def test_extracted_area_is_still_served():
     """Every path moved into app/routers/commercial.py must still answer on the same method."""
     table = _table()
-    expected = {**COMMERCIAL_ROUTES, **DEVELOPER_ROUTES, **PUBLIC_API_ROUTES, **CHANNEL_ROUTES, **INSIGHT_ROUTES, **AUTOMATION_ROUTES, **HELPDESK_CONFIG_ROUTES, **INBOX_ROUTES, **WIDGET_ROUTES}
+    expected = {**COMMERCIAL_ROUTES, **DEVELOPER_ROUTES, **PUBLIC_API_ROUTES, **CHANNEL_ROUTES, **INSIGHT_ROUTES, **AUTOMATION_ROUTES, **HELPDESK_CONFIG_ROUTES, **INBOX_ROUTES, **WIDGET_ROUTES,
+        **ADMIN_ROUTES, **ACCOUNT_ROUTES, **KNOWLEDGE_ROUTES}
     missing = {p: m for p, m in expected.items() if not m <= table.get(p, set())}
     assert not missing, f"rotte perse nello spostamento: {missing}"
 
@@ -199,7 +243,7 @@ def test_extracted_area_comes_from_the_router():
     """Guards against a path being quietly re-added to main.py, leaving two definitions."""
     from app.routers import (
         automations, channels, commercial, developers, helpdesk_config, inbox, insights,
-        public_api, widget,
+        accounts, admin, public_api, knowledge, widget,
     )
 
     assert set(COMMERCIAL_ROUTES) == {r.path for r in commercial.router.routes}
@@ -211,6 +255,9 @@ def test_extracted_area_comes_from_the_router():
     assert set(HELPDESK_CONFIG_ROUTES) == {r.path for r in helpdesk_config.router.routes}
     assert set(INBOX_ROUTES) == {r.path for r in inbox.router.routes}
     assert set(WIDGET_ROUTES) == {r.path for r in widget.router.routes}
+    assert set(ADMIN_ROUTES) == {r.path for r in admin.router.routes}
+    assert set(ACCOUNT_ROUTES) == {r.path for r in accounts.router.routes}
+    assert set(KNOWLEDGE_ROUTES) == {r.path for r in knowledge.router.routes}
 
 
 def test_no_path_is_registered_twice_with_the_same_method():

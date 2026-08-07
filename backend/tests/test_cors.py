@@ -1,6 +1,7 @@
 """CORS preflight. These are browser-facing contracts: when they are wrong the request never
 reaches the server, so nothing shows up in the logs and the API looks perfectly healthy."""
-from app import main
+from app import cors
+from app.main import app
 
 PANEL_ORIGIN = "http://localhost:5173"
 PREFLIGHT = {
@@ -29,7 +30,7 @@ def test_advertised_methods_cover_the_routing_table(client):
     """Guards against the same drift returning: whatever the app routes must be advertised."""
     routed = {
         method
-        for route in main.app.routes
+        for route in app.routes
         for method in getattr(route, "methods", set())
         if method not in ("HEAD",)
     }
@@ -40,8 +41,8 @@ def test_advertised_methods_cover_the_routing_table(client):
 
 def test_preflight_still_refuses_an_unknown_origin(client, monkeypatch):
     """Widening the methods must not widen who may call them."""
-    monkeypatch.setattr(main, "CORS_ALLOW_ALL", False)
-    monkeypatch.setattr(main, "_ALLOWED_ORIGINS", {PANEL_ORIGIN})
+    monkeypatch.setattr(cors, "CORS_ALLOW_ALL", False)
+    monkeypatch.setattr(cors, "_ALLOWED_ORIGINS", {PANEL_ORIGIN})
 
     refused = client.options("/admin/model-prices", headers={**PREFLIGHT, "Origin": "https://evil.example"})
     accepted = client.options("/admin/model-prices", headers=PREFLIGHT)
