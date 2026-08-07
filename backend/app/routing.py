@@ -9,9 +9,11 @@ import logging
 import os
 from datetime import datetime, timedelta
 
+from fastapi import HTTPException
 from sqlmodel import Session, select
 
 from . import business_hours
+from .util import iso as _iso
 from .db import (
     Conversation, Department, DepartmentMember, Operator, RoutingSetting, SlaPolicy,
     SupportSchedule,
@@ -148,3 +150,88 @@ def apply_sla(session: Session, conv: Conversation, *, start: bool = False) -> N
         conv.first_response_breach_notified = False
     if conv.resolution_due_at is None or conv.resolution_due_at > now:
         conv.resolution_breach_notified = False
+
+
+ROUTING_MODES = ("off", "round_robin")
+
+
+def require_department(session: Session, client_id: int, department_id: int) -> Department:
+    department = session.get(Department, department_id)
+    if not department or department.client_id != client_id:
+        raise HTTPException(404, "department not found")
+    return department
+
+
+def support_schedule_payload(row: SupportSchedule | None) -> dict:
+    if row is None:
+        return {
+            "enabled": False, "weekdays": [1, 2, 3, 4, 5], "start_time": "09:00",
+            "end_time": "18:00", "timezone": "Europe/Rome", "source": "panel",
+            "closed_dates": [],
+            "include_italian_holidays": False,
+        }
+    return {
+        "enabled": row.enabled,
+        "weekdays": business_hours.parse_weekdays(row.weekdays),
+        "start_time": row.start_time,
+        "end_time": row.end_time,
+        "timezone": row.timezone,
+        "closed_dates": json.loads(row.closed_dates or "[]"),
+        "include_italian_holidays": row.include_italian_holidays,
+        "source": row.source,
+        "updated_at": _iso(row.updated_at),
+    }
+
+
+def validated_support_schedule(body: dict) -> dict:
+    try:
+        weekdays = business_hours.parse_weekdays(body.get("weekdays", []))
+        start_time = business_hours.parse_time(body.get("start_time", "")).strftime("%H:%M")
+        end_time = business_hours.parse_time(body.get("end_time", "")).strftime("%H:%M")
+        timezone_name = business_hours.validate_timezone(body.get("timezone", ""))
+        closed_dates = business_hours.parse_closed_dates(body.get("closed_dates", []))
+        if start_time == end_time:
+            raise ValueError("L’orario di apertura e chiusura non può coincidere")
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {
+        "enabled": bool(body.get("enabled", False)),
+        "weekdays": weekdays,
+        "start_time": start_time,
+        "end_time": end_time,
+        "timezone": timezone_name,
+        "closed_dates": [item.isoformat() for item in closed_dates],
+        "include_italian_holidays": bool(body.get("include_italian_holidays", False)),
+    }
+
+
+def save_support_schedule(session: Session, client_id: int, body: dict, source: str) -> SupportSchedule:
+    clean = validated_support_schedule(body)
+    row = session.exec(select(SupportSchedule).where(SupportSchedule.client_id == client_id)).first()
+    if row is None:
+        row = SupportSchedule(client_id=client_id)
+    row.enabled = clean["enabled"]
+    row.weekdays = ",".join(str(day) for day in clean["weekdays"])
+    row.start_time = clean["start_time"]
+    row.end_time = clean["end_time"]
+    row.timezone = clean["timezone"]
+    # WordPress owns weekly hours and timezone, while exceptional closures are managed in
+    # the panel. Older plugin payloads must never erase them during an automatic sync.
+    if "closed_dates" in body or row.id is None:
+        row.closed_dates = json.dumps(clean["closed_dates"])
+    if "include_italian_holidays" in body or row.id is None:
+        row.include_italian_holidays = clean["include_italian_holidays"]
+    row.source = source
+    row.updated_at = datetime.utcnow()
+    session.add(row)
+    session.commit()
+    for conversation in session.exec(select(Conversation).where(
+        Conversation.client_id == client_id,
+        Conversation.sla_started_at.is_not(None),
+        Conversation.closed_at.is_(None),
+    )).all():
+        apply_sla(session, conversation)
+        session.add(conversation)
+    session.commit()
+    session.refresh(row)
+    return row

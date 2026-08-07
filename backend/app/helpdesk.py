@@ -4,6 +4,8 @@ import os
 import urllib.error
 import urllib.request
 
+from .db import HelpdeskExport
+
 HELPDESK_ADAPTER_URL = os.getenv("HELPDESK_ADAPTER_URL", "").strip()
 HELPDESK_ADAPTER_TOKEN = os.getenv("HELPDESK_ADAPTER_TOKEN", "").strip()
 HELPDESK_ADAPTER_TIMEOUT = float(os.getenv("HELPDESK_ADAPTER_TIMEOUT", "10"))
@@ -38,3 +40,15 @@ def export_ticket(*, client_id: int, provider: str, external_account_id: str, ti
         return False, "", "", "Il sistema helpdesk ha rifiutato il ticket"
     except (urllib.error.URLError, TimeoutError, ValueError):
         return False, "", "", "Helpdesk temporaneamente non raggiungibile"
+
+
+HELPDESK_PROVIDERS = ("zendesk", "freshdesk")
+
+
+def export_payload(row: HelpdeskExport) -> dict:
+    return {
+        "status": row.status,
+        "external_id": row.external_id,
+        "external_url": row.external_url,
+        "error": row.error,
+    }

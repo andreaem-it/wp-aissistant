@@ -90,6 +90,32 @@ AUTOMATION_ROUTES = {
 }
 
 
+HELPDESK_CONFIG_ROUTES = {
+    "/routing-settings": {"GET", "PUT"},
+    "/departments": {"GET", "POST"},
+    "/departments/{department_id}": {"DELETE"},
+    "/departments/{department_id}/members": {"GET", "POST"},
+    "/departments/{department_id}/members/{operator_id}": {"DELETE"},
+    "/support-schedule": {"GET", "PUT"},
+    "/sla-policies": {"GET", "POST"},
+    "/sla-policies/{policy_id}": {"PATCH", "DELETE"},
+    "/canned-responses": {"GET", "POST"},
+    "/canned-responses/{canned_id}": {"DELETE"},
+    "/info-fields": {"GET", "POST"},
+    "/info-fields/{field_id}": {"DELETE"},
+    "/conversations/{conversation_id}/info": {"GET", "PUT"},
+    "/crm/connections": {"GET"},
+    "/crm/connections/{provider}": {"PUT", "DELETE"},
+    "/crm/connect/brevo": {"POST"},
+    "/helpdesk/connections": {"GET"},
+    "/helpdesk/connections/{provider}": {"PUT", "DELETE"},
+    "/tickets/{ticket_id}/helpdesk-export": {"POST"},
+    "/push/config": {"GET"},
+    "/push/subscriptions": {"POST", "DELETE"},
+    "/push/preferences": {"PATCH"},
+}
+
+
 def _iter_routes(routes):
     """Walk the routing table, expanding included routers.
 
@@ -118,14 +144,16 @@ def _table() -> dict[str, set[str]]:
 def test_extracted_area_is_still_served():
     """Every path moved into app/routers/commercial.py must still answer on the same method."""
     table = _table()
-    expected = {**COMMERCIAL_ROUTES, **DEVELOPER_ROUTES, **PUBLIC_API_ROUTES, **CHANNEL_ROUTES, **INSIGHT_ROUTES, **AUTOMATION_ROUTES}
+    expected = {**COMMERCIAL_ROUTES, **DEVELOPER_ROUTES, **PUBLIC_API_ROUTES, **CHANNEL_ROUTES, **INSIGHT_ROUTES, **AUTOMATION_ROUTES, **HELPDESK_CONFIG_ROUTES}
     missing = {p: m for p, m in expected.items() if not m <= table.get(p, set())}
     assert not missing, f"rotte perse nello spostamento: {missing}"
 
 
 def test_extracted_area_comes_from_the_router():
     """Guards against a path being quietly re-added to main.py, leaving two definitions."""
-    from app.routers import automations, channels, commercial, developers, insights, public_api
+    from app.routers import (
+        automations, channels, commercial, developers, helpdesk_config, insights, public_api,
+    )
 
     assert set(COMMERCIAL_ROUTES) == {r.path for r in commercial.router.routes}
     assert set(DEVELOPER_ROUTES) == {r.path for r in developers.router.routes}
@@ -133,6 +161,7 @@ def test_extracted_area_comes_from_the_router():
     assert set(CHANNEL_ROUTES) == {r.path for r in channels.router.routes}
     assert set(INSIGHT_ROUTES) == {r.path for r in insights.router.routes}
     assert set(AUTOMATION_ROUTES) == {r.path for r in automations.router.routes}
+    assert set(HELPDESK_CONFIG_ROUTES) == {r.path for r in helpdesk_config.router.routes}
 
 
 def test_no_path_is_registered_twice_with_the_same_method():

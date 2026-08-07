@@ -74,3 +74,6 @@ def sync_lead(*, client_id: int, provider: str, external_account_id: str, lead: 
             return False, "", "Il CRM ha rifiutato il lead"
     except (urllib.error.URLError, TimeoutError, ValueError):
         return False, "", "CRM temporaneamente non raggiungibile"
+
+
+CRM_PROVIDERS = ("brevo", "zoho", "pipedrive")

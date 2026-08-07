@@ -201,8 +201,8 @@ Convenzioni utili viste nella suite:
 
 ## 8. Debito noto (non bloccante, ma reale)
 
-1. **`backend/app/main.py`: 4777 righe, 114 endpoint.** La divisione è **in corso**: sei aree
-   estratte su nove, da 8016 righe iniziali. Vedi «Dividere main.py» qui sotto.
+1. **`backend/app/main.py`: 3872 righe, 80 endpoint.** La divisione è **in corso**: sette aree
+   estratte, da 8016 righe iniziali. Vedi «Dividere main.py» qui sotto.
 2. **Widget: 1155 righe in un file.** I testi sono usciti in `chat-i18n.js` (con i primi test
    Node del plugin), il resto no. Senza bundler nel plugin, la strada praticabile è più file
    enqueued con dipendenze, come già fatto per l'i18n.
@@ -262,6 +262,9 @@ Fatto:
 - **Fase 2** — `routers/developers.py` (chiavi API e webhook). Le utility condivise sono salite
   dove appartengono: `util.py` (`iso`, `bounded_limit`), `deps.py` (`hash_api_key`) e
   `apikeys.py` (scope e formato delle chiavi).
+- **Fase 7** — `routers/helpdesk_config.py` (reparti, SLA, instradamento, calendario, risposte
+  predefinite, campi informativi, CRM, help desk esterni, push). L'area help desk contava 62
+  endpoint: troppi per un router solo, quindi è divisa in due — l'inbox segue nella fase 8.
 - **Fase 6** — `routers/automations.py` (workflow, proattivi, lead). Prima sono saliti i
   vocabolari in `leads.py` e `proactive.py`, che affiancano `workflows.py`.
 - **Fase 5** — `routers/insights.py` (statistiche, CSAT, gap e bozze della knowledge base).
@@ -291,9 +294,13 @@ Il modello, da ripetere per ogni area:
 > conclude che le rotte sono sparite mentre vengono servite benissimo. `_iter_routes()` in
 > `tests/test_routes.py` attraversa i router inclusi: usare quello.
 
-Ordine per le fasi successive: **help desk e inbox** → widget e chat → admin residuo. Le prime
-due sono le più intrecciate — è lì che vivono la chat, il RAG e l'escalation — e vanno affrontate
-con lo stesso schema: prima far salire ciò che condividono, poi spostare gli endpoint.
+Ordine per le fasi successive: **inbox** (conversazioni, ticket, tag, note, menzioni) → widget e
+chat → admin residuo. Le prime due sono le più intrecciate — è lì che vivono la chat, il RAG e
+l'escalation — e vanno affrontate con lo stesso schema: prima far salire ciò che condividono.
+
+> Nota pratica sui test: **non lanciare due `pytest` insieme** sullo stesso database. Si
+> contendono lo schema, che viene ricreato a ogni test, e il risultato è una suite lentissima con
+> errori SQLAlchemy che sembrano regressioni e non lo sono.
 
 Due trappole viste sul campo, oltre a quelle già elencate:
 
