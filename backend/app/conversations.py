@@ -15,13 +15,21 @@ from . import email as email_service
 from . import events
 from . import meta_messaging as meta_messaging_service
 from . import whatsapp as whatsapp_service
-from .db import Client, Operator, Contact, Conversation, ConversationRating, Message, WhatsAppConsent
+from .db import AiResponseLog, Attachment, ConversationTag, CrmSync, InternalNote, Lead, NoteMention, Ticket, Client, Operator, Contact, Conversation, ConversationRating, Message, WhatsAppConsent
+import logging
+import secrets
+
+from . import attachments as attachment_service
+from .deps import hash_conversation_token
+from .logging_config import log
 from .util import iso as _iso
 
 # the closed vocabulary of SLA states, shared by the inbox filters and every conversation view
 # the closed vocabularies a conversation is described with, shared by every area that shows one
 PRIORITIES = ("low", "normal", "high", "urgent")
 SLA_STATES = ("ok", "in_scadenza", "violato")
+
+logger = logging.getLogger("wpai")
 
 
 def require_conversation(session: Session, client_id: int, conversation_id: int) -> Conversation:
@@ -234,3 +242,50 @@ def emit_visitor_message(session: Session, conv: Conversation, message: Message)
 
 def operator_name(operator: Operator) -> str:
     return operator.name or operator.email
+
+
+def require_conversation_token(conv: Conversation, token: str | None) -> None:
+    """Fail as not-found so callers cannot use the endpoint to enumerate conversations."""
+    if (
+        not conv.access_token_hash
+        or not token
+        or not secrets.compare_digest(hash_conversation_token(token), conv.access_token_hash)
+    ):
+        raise HTTPException(404, "conversation not found")
+
+
+def erase_conversation(session: Session, conv: Conversation) -> None:
+    """Hard-delete a conversation and everything hanging off it (messages, AI logs, tickets),
+    respecting FK order. Used by GDPR erasure and the retention purge."""
+    for lg in session.exec(select(AiResponseLog).where(AiResponseLog.conversation_id == conv.id)).all():
+        session.delete(lg)
+    for mention in session.exec(select(NoteMention).where(NoteMention.conversation_id == conv.id)).all():
+        session.delete(mention)
+    for link in session.exec(select(ConversationTag).where(ConversationTag.conversation_id == conv.id)).all():
+        session.delete(link)
+    for rating in session.exec(select(ConversationRating).where(ConversationRating.conversation_id == conv.id)).all():
+        session.delete(rating)
+    # a lead carries what the visitor typed about themselves: erasing the conversation must
+    # erase it too, otherwise the "right to be forgotten" would leave the best data behind
+    for lead in session.exec(select(Lead).where(Lead.conversation_id == conv.id)).all():
+        for crm_sync in session.exec(select(CrmSync).where(CrmSync.lead_id == lead.id)).all():
+            session.delete(crm_sync)
+        session.delete(lead)
+    session.flush()
+    for note in session.exec(select(InternalNote).where(InternalNote.conversation_id == conv.id)).all():
+        session.delete(note)
+    session.flush()
+    for attachment in session.exec(select(Attachment).where(Attachment.conversation_id == conv.id)).all():
+        if attachment_service.configured() and not attachment_service.delete(attachment.object_key):
+            log(
+                logger, logging.WARNING, "attachment.retention_delete_failed",
+                attachment_id=attachment.id, conversation_id=conv.id,
+            )
+        session.delete(attachment)
+    session.flush()
+    for m in session.exec(select(Message).where(Message.conversation_id == conv.id)).all():
+        session.delete(m)
+    for t in session.exec(select(Ticket).where(Ticket.conversation_id == conv.id)).all():
+        session.delete(t)
+    session.flush()
+    session.delete(conv)

@@ -58,6 +58,8 @@ from .proactive import (
 from .limits import MAX_CHAT_MESSAGE_CHARS, MAX_INGEST_TEXT_CHARS, MAX_UPLOAD_BYTES
 from .conversations import (
     PRIORITIES,
+    erase_conversation as _erase_conversation,
+    require_conversation_token as _require_conversation_token,
     operator_name as _operator_name,
     emit_visitor_message as _emit_visitor_message,
     get_or_create_contact as _get_or_create_contact,
@@ -531,16 +533,6 @@ def _create_conversation(session: Session, client_id: int, visitor_id: str) -> t
         "conversation_id": conv.id, "visitor_id": conv.visitor_id, "channel": conv.channel,
     }, conv=conv)
     return conv, token
-
-
-def _require_conversation_token(conv: Conversation, token: str | None) -> None:
-    """Fail as not-found so callers cannot use the endpoint to enumerate conversations."""
-    if (
-        not conv.access_token_hash
-        or not token
-        or not secrets.compare_digest(_hash_conversation_token(token), conv.access_token_hash)
-    ):
-        raise HTTPException(404, "conversation not found")
 
 
 @app.post("/ingest/document")
@@ -2622,43 +2614,6 @@ def set_conversation_status(
     if status == "closed":
         events.emit(session, operator.client_id, "conversation.closed", {"conversation_id": conv.id}, conv=conv)
     return {"ok": True, "status": status}
-
-
-def _erase_conversation(session: Session, conv: Conversation) -> None:
-    """Hard-delete a conversation and everything hanging off it (messages, AI logs, tickets),
-    respecting FK order. Used by GDPR erasure and the retention purge."""
-    for lg in session.exec(select(AiResponseLog).where(AiResponseLog.conversation_id == conv.id)).all():
-        session.delete(lg)
-    for mention in session.exec(select(NoteMention).where(NoteMention.conversation_id == conv.id)).all():
-        session.delete(mention)
-    for link in session.exec(select(ConversationTag).where(ConversationTag.conversation_id == conv.id)).all():
-        session.delete(link)
-    for rating in session.exec(select(ConversationRating).where(ConversationRating.conversation_id == conv.id)).all():
-        session.delete(rating)
-    # a lead carries what the visitor typed about themselves: erasing the conversation must
-    # erase it too, otherwise the "right to be forgotten" would leave the best data behind
-    for lead in session.exec(select(Lead).where(Lead.conversation_id == conv.id)).all():
-        for crm_sync in session.exec(select(CrmSync).where(CrmSync.lead_id == lead.id)).all():
-            session.delete(crm_sync)
-        session.delete(lead)
-    session.flush()
-    for note in session.exec(select(InternalNote).where(InternalNote.conversation_id == conv.id)).all():
-        session.delete(note)
-    session.flush()
-    for attachment in session.exec(select(Attachment).where(Attachment.conversation_id == conv.id)).all():
-        if attachment_service.configured() and not attachment_service.delete(attachment.object_key):
-            log(
-                logger, logging.WARNING, "attachment.retention_delete_failed",
-                attachment_id=attachment.id, conversation_id=conv.id,
-            )
-        session.delete(attachment)
-    session.flush()
-    for m in session.exec(select(Message).where(Message.conversation_id == conv.id)).all():
-        session.delete(m)
-    for t in session.exec(select(Ticket).where(Ticket.conversation_id == conv.id)).all():
-        session.delete(t)
-    session.flush()
-    session.delete(conv)
 
 
 @app.delete("/conversations/{conversation_id}")
