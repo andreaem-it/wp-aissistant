@@ -2,6 +2,12 @@
 
 Tutte le modifiche rilevanti del plugin WP AIssistant.
 
+## [1.3.1] - 2026-08-08
+
+- Le impostazioni WooCommerce nella knowledge base sono scritte come le direbbe un negozio,
+  non come le memorizza WooCommerce: l'assistente le cita, quindi il linguaggio amministrativo
+  usciva tale e quale nella risposta al visitatore.
+
 ## [1.3.0] - 2026-08-08
 
 - Le impostazioni WooCommerce di spedizione e pagamento entrano nella knowledge base: erano

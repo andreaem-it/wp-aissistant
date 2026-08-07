@@ -26,9 +26,13 @@ def _money(value: str, currency: str) -> str:
 def render_settings(settings: dict) -> str:
     """Turn the plugin's payload into the text that gets embedded.
 
-    Written as prose rather than a table because it is retrieved as free text and read by a
-    model: "Spedizione Italia: Corriere espresso, 7 EUR" survives chunking and quoting better
-    than a grid whose header ends up in a different chunk than its rows.
+    Written the way a shop would describe its own options, not the way WooCommerce stores them.
+    This text is the model's raw material: it quotes and paraphrases it, so administrative
+    wording ("metodi configurati in questo negozio") comes back out at the visitor as an
+    answer that reads like a settings dump. Phrasing here is customer-facing on purpose.
+
+    Prose rather than a table, because a grid whose header lands in a different chunk than its
+    rows loses its meaning on retrieval.
 
     Anything the shop has not configured is simply absent. An empty section would invite the
     model to fill it, which is the failure this whole feature exists to prevent.
@@ -38,7 +42,8 @@ def render_settings(settings: dict) -> str:
 
     zone_lines: list[str] = []
     for zone in settings.get("shipping_zones") or []:
-        name = (zone.get("name") or "").strip() or "Resto del mondo"
+        # the fallback reads inside the sentence below: "per il resto del mondo"
+        name = (zone.get("name") or "").strip() or "il resto del mondo"
         methods = [m for m in (zone.get("methods") or []) if (m.get("title") or "").strip()]
         if not methods:
             continue
@@ -46,34 +51,35 @@ def render_settings(settings: dict) -> str:
         for method in methods:
             title = method["title"].strip()
             cost = _money(method.get("cost", ""), currency)
-            # a free method says so in words: "0 EUR" reads like a missing value
+            # "senza costi di spedizione" rather than "gratuita": the adjective would have to
+            # agree with the method's name, whose gender we cannot know ("Ritiro" vs "Consegna")
             if method.get("free"):
-                rendered.append(f"{title} (gratuita)")
+                rendered.append(f"{title} senza costi di spedizione")
             elif cost:
-                rendered.append(f"{title} ({cost})")
+                rendered.append(f"{title} a {cost}")
             else:
                 rendered.append(title)
-        zone_lines.append(f"- Zona {name}: " + "; ".join(rendered))
+        zone_lines.append(f"Spedizioni disponibili per {name}: " + "; ".join(rendered) + ".")
 
-    # l'intestazione esce solo se sotto c'è davvero qualcosa: una sezione vuota è un invito a
-    # riempirla, ed è la cosa che questo modulo esiste per evitare
+    # niente intestazioni di sezione: ogni riga è già una frase compiuta, così il modello può
+    # citarla o parafrasarla senza dover ricostruire il contesto da un titolo altrove
     if zone_lines:
-        lines.append("Metodi di spedizione configurati in questo negozio:")
         lines.extend(zone_lines)
 
     gateways = [g for g in (settings.get("payment_gateways") or []) if (g.get("title") or "").strip()]
     if gateways:
         if lines:
             lines.append("")
-        lines.append("Metodi di pagamento accettati in questo negozio:")
+        rendered_gateways = []
         for gateway in gateways:
             title = gateway["title"].strip()
             description = (gateway.get("description") or "").strip()
-            lines.append(f"- {title}" + (f": {description}" if description else ""))
+            rendered_gateways.append(f"{title} ({description})" if description else title)
+        lines.append("Pagamenti accettati: " + "; ".join(rendered_gateways) + ".")
 
     free_from = _money(settings.get("free_shipping_from", ""), currency)
     if free_from:
         lines.append("")
-        lines.append(f"La spedizione è gratuita a partire da {free_from} di spesa.")
+        lines.append(f"La spedizione è gratuita per ordini a partire da {free_from}.")
 
     return "\n".join(lines).strip()

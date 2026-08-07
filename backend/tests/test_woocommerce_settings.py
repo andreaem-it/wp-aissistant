@@ -31,26 +31,39 @@ SETTINGS = {
 def test_the_rendering_names_zones_methods_and_costs():
     text = render_settings(SETTINGS)
 
-    assert "Zona Italia" in text
-    assert "Corriere espresso (7 EUR)" in text
-    assert "Spedizione internazionale (19 EUR)" in text
-    assert "Carta di credito: Visa, Mastercard" in text
-    assert "Bonifico bancario" in text
-    assert "gratuita a partire da 50 EUR" in text
+    assert "Spedizioni disponibili per Italia: Corriere espresso a 7 EUR" in text
+    assert "Spedizione internazionale a 19 EUR" in text
+    assert "Pagamenti accettati: Carta di credito (Visa, Mastercard); Bonifico bancario." in text
+    assert "gratuita per ordini a partire da 50 EUR" in text
+
+
+def test_each_line_is_a_sentence_the_model_can_quote():
+    """Il testo è la materia prima del modello: se legge come un dump di configurazione, la
+    risposta al visitatore legge così. Niente intestazioni amministrative, niente elenchi
+    puntati che perdono senso staccati dal loro titolo."""
+    text = render_settings(SETTINGS)
+
+    assert "configurati in questo negozio" not in text
+    assert not any(line.startswith("- ") for line in text.split("\n"))
+    for line in [l for l in text.split("\n") if l.strip()]:
+        assert line.endswith("."), f"non è una frase compiuta: {line}"
 
 
 def test_a_free_method_says_so_in_words():
     """«0 EUR» si legge come un valore mancante; «gratuita» no."""
     text = render_settings(SETTINGS)
 
-    assert "Ritiro in negozio (gratuita)" in text
+    # non "gratuita": l'aggettivo dovrebbe accordarsi col nome del metodo, di cui non
+    # conosciamo il genere ("Ritiro" è maschile, "Consegna" femminile)
+    assert "Ritiro in negozio senza costi di spedizione" in text
     assert "Ritiro in negozio (0" not in text
 
 
 def test_a_zone_without_a_name_gets_one():
     text = render_settings({"shipping_zones": [{"methods": [{"title": "Standard"}]}]})
 
-    assert "Zona Resto del mondo" in text
+    # il ripiego è scritto per stare dentro la frase, articolo compreso
+    assert "Spedizioni disponibili per il resto del mondo" in text
 
 
 def test_nothing_configured_renders_nothing():
