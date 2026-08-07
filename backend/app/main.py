@@ -22,7 +22,7 @@ from sqlmodel import Session, select
 
 from . import billing
 from .routers import channels, commercial, developers, insights, public_api
-from .util import bounded_limit as _bounded_limit, iso as _iso
+from .util import bounded_limit as _bounded_limit, iso as _iso, slugify as _slugify
 from .analytics import (
     build_stats as _build_stats,
     csat_summary as _csat_summary,
@@ -37,6 +37,16 @@ from .routing import (
     auto_assign as _auto_assign,
     match_sla_policy as _match_sla_policy,
     routing_setting as _routing_setting,
+)
+from .leads import LEAD_FIELD_TYPES, LEAD_TRIGGERS, MAX_LEAD_FIELDS, MAX_LEAD_VALUE_CHARS, form_payload as _lead_form_payload
+from .proactive import (
+    MAX_PROACTIVE_MESSAGE_CHARS,
+    PROACTIVE_AB_MIN_IMPRESSIONS,
+    PROACTIVE_AB_Z_THRESHOLD,
+    PROACTIVE_FREQUENCIES,
+    PROACTIVE_TRIGGERS,
+    ab_result as _proactive_ab_result,
+    rule_payload as _proactive_payload,
 )
 from .limits import MAX_CHAT_MESSAGE_CHARS, MAX_INGEST_TEXT_CHARS, MAX_UPLOAD_BYTES
 from .conversations import (
@@ -3506,11 +3516,6 @@ def set_routing_settings(
     return _routing_payload(setting)
 
 
-def _slugify(text: str) -> str:
-    s = re.sub(r"[^a-z0-9]+", "_", (text or "").lower()).strip("_")
-    return s or "campo"
-
-
 @app.get("/canned-responses")
 def list_canned(operator: Operator = Depends(require_operator), session: Session = Depends(get_session)):
     rows = session.exec(
@@ -3654,12 +3659,6 @@ def list_knowledge_base(
 
 # ---- Lead capture ------------------------------------------------------------------------
 
-LEAD_FIELD_TYPES = ("text", "email", "tel", "select")
-LEAD_TRIGGERS = ("escalation", "chat_start")
-MAX_LEAD_FIELDS = 8
-MAX_LEAD_VALUE_CHARS = 500
-
-
 def _clean_lead_fields(raw) -> list[dict]:
     """A field is {key,label,type,required,points}. Points make the score explainable: it is
     the sum of the points of the fields the visitor actually filled, nothing hidden."""
@@ -3693,30 +3692,6 @@ def _clean_lead_fields(raw) -> list[dict]:
             "options": options,
         })
     return clean
-
-
-def _lead_form_payload(form: LeadForm, *, public: bool = False) -> dict:
-    fields = json.loads(form.fields or "[]")
-    if public:
-        # the visitor never sees the scoring weights
-        fields = [{k: v for k, v in field.items() if k != "points"} for field in fields]
-        return {
-            "id": form.id,
-            "intro": form.intro,
-            "consent_text": form.consent_text,
-            "fields": fields,
-            "trigger": form.trigger,
-        }
-    return {
-        "id": form.id,
-        "name": form.name,
-        "trigger": form.trigger,
-        "intro": form.intro,
-        "consent_text": form.consent_text,
-        "fields": fields,
-        "active": form.active,
-        "created_at": _iso(form.created_at),
-    }
 
 
 @app.get("/widget/lead-form")
@@ -4160,63 +4135,6 @@ def export_leads(
 # The rules are evaluated in the widget, so the public endpoint returns exactly what the
 # browser needs to decide — nothing more. Frequency capping and the visitor's opt-out live in
 # the browser too: they are a courtesy to that person, not a server-side quota.
-
-PROACTIVE_TRIGGERS = ("url", "time_on_page", "exit_intent", "cart")
-PROACTIVE_FREQUENCIES = ("once_per_session", "once_per_day", "always")
-MAX_PROACTIVE_MESSAGE_CHARS = 300
-PROACTIVE_AB_MIN_IMPRESSIONS = 30
-PROACTIVE_AB_Z_THRESHOLD = 1.96  # two-sided 95% confidence
-
-
-def _proactive_ab_result(rule: ProactiveRule) -> dict:
-    """Two-proportion z-test. Never declares a winner before both samples are useful."""
-    if not rule.message_b:
-        return {"status": "not_configured", "winner": None, "lift_percent": None}
-    if min(rule.impressions, rule.impressions_b) < PROACTIVE_AB_MIN_IMPRESSIONS:
-        remaining = max(
-            PROACTIVE_AB_MIN_IMPRESSIONS - rule.impressions,
-            PROACTIVE_AB_MIN_IMPRESSIONS - rule.impressions_b,
-        )
-        return {"status": "collecting", "winner": None, "lift_percent": None, "remaining": remaining}
-    rate_a = rule.engagements / rule.impressions
-    rate_b = rule.engagements_b / rule.impressions_b
-    pooled = (rule.engagements + rule.engagements_b) / (rule.impressions + rule.impressions_b)
-    error = math.sqrt(pooled * (1 - pooled) * (1 / rule.impressions + 1 / rule.impressions_b))
-    z_score = abs(rate_a - rate_b) / error if error else 0.0
-    if z_score < PROACTIVE_AB_Z_THRESHOLD:
-        return {"status": "inconclusive", "winner": None, "lift_percent": None, "z_score": round(z_score, 2)}
-    winner = "a" if rate_a > rate_b else "b"
-    winner_rate, loser_rate = (rate_a, rate_b) if winner == "a" else (rate_b, rate_a)
-    lift = round((winner_rate / loser_rate - 1) * 100, 1) if loser_rate else None
-    return {"status": "winner", "winner": winner, "lift_percent": lift, "z_score": round(z_score, 2)}
-
-
-def _proactive_payload(rule: ProactiveRule, *, public: bool = False) -> dict:
-    data = {
-        "id": rule.id,
-        "trigger_type": rule.trigger_type,
-        "url_pattern": rule.url_pattern,
-        "delay_seconds": rule.delay_seconds,
-        "message": rule.message,
-        "message_b": rule.message_b,
-        "frequency": rule.frequency,
-    }
-    if public:
-        return data
-    return {
-        **data,
-        "name": rule.name,
-        "active": rule.active,
-        "position": rule.position,
-        "impressions": rule.impressions,
-        "engagements": rule.engagements,
-        "engagement_rate": round(rule.engagements / rule.impressions, 3) if rule.impressions else None,
-        "impressions_b": rule.impressions_b,
-        "engagements_b": rule.engagements_b,
-        "engagement_rate_b": round(rule.engagements_b / rule.impressions_b, 3) if rule.impressions_b else None,
-        "ab_test": _proactive_ab_result(rule),
-    }
-
 
 def _proactive_experiment_payload(row: ProactiveExperiment) -> dict:
     return {
