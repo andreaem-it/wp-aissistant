@@ -8,6 +8,7 @@
   const TICKET_OFFER_KEY = "wpai_ticket_offer";
   const RATED_KEY = "wpai_conversation_rated";
   const LEAD_KEY = "wpai_lead_form_shown";
+  const RULES = window.WPAI_RULES;
   const PROACTIVE_KEY = "wpai_proactive_seen";
   const PROACTIVE_SESSION_KEY = "wpai_proactive_session_";
   const PROACTIVE_OPTOUT_KEY = "wpai_proactive_optout";
@@ -459,12 +460,13 @@
   }
 
   function proactiveAllowed(rule) {
-    if (localStorage.getItem(PROACTIVE_OPTOUT_KEY) === "1") return false;
-    if (rule.frequency === "always") return true;
-    if (rule.frequency === "once_per_session") {
-      return sessionStorage.getItem(PROACTIVE_SESSION_KEY + rule.id) !== "1";
-    }
-    return Date.now() - proactiveShownAt(rule.id) > 24 * 3600 * 1000; // once_per_day
+    // la decisione sta in chat-rules.js; qui si legge soltanto lo storage
+    return RULES.proactiveAllowed(rule, {
+      optedOut: localStorage.getItem(PROACTIVE_OPTOUT_KEY) === "1",
+      seenThisSession: sessionStorage.getItem(PROACTIVE_SESSION_KEY + rule.id) === "1",
+      lastShownAt: proactiveShownAt(rule.id),
+      now: Date.now(),
+    });
   }
 
   function cartHasItems() {
@@ -474,10 +476,7 @@
   }
 
   function proactiveMatches(rule) {
-    const url = window.location.href;
-    if (rule.url_pattern && !url.includes(rule.url_pattern)) return false;
-    if (rule.trigger_type === "cart") return cartHasItems();
-    return true;
+    return RULES.proactiveMatches(rule, window.location.href, cartHasItems() ? 1 : 0);
   }
 
   function proactiveVariant(rule) {
@@ -485,11 +484,12 @@
     try {
       const assignments = JSON.parse(localStorage.getItem(PROACTIVE_VARIANT_KEY) || "{}");
       const key = String(rule.id);
-      if (assignments[key] !== "a" && assignments[key] !== "b") {
-        assignments[key] = Math.random() < 0.5 ? "a" : "b";
+      const variant = RULES.proactiveVariant(rule, assignments[key]);
+      if (assignments[key] !== variant) {
+        assignments[key] = variant;
         localStorage.setItem(PROACTIVE_VARIANT_KEY, JSON.stringify(assignments));
       }
-      return assignments[key];
+      return variant;
     } catch (e) {
       return "a";
     }
@@ -605,33 +605,7 @@
   }
 
   function supportAvailable() {
-    const support = WPAI.support || {};
-    if (!support.enabled) return true;
-    try {
-      const parts = new Intl.DateTimeFormat("en-US", {
-        timeZone: support.timezone,
-        weekday: "short",
-        hour: "2-digit",
-        minute: "2-digit",
-        hourCycle: "h23",
-      }).formatToParts(new Date());
-      const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-      const dayMap = {Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6, Sun: 7};
-      const day = dayMap[values.weekday];
-      const minute = Number(values.hour) * 60 + Number(values.minute);
-      const toMinute = (value) => {
-        const [hour, min] = String(value).split(":").map(Number);
-        return hour * 60 + min;
-      };
-      const start = toMinute(support.start);
-      const end = toMinute(support.end);
-      const days = (support.days || []).map(Number);
-      if (start <= end) return days.includes(day) && minute >= start && minute < end;
-      const previousDay = day === 1 ? 7 : day - 1;
-      return (days.includes(day) && minute >= start) || (days.includes(previousDay) && minute < end);
-    } catch (error) {
-      return true;
-    }
+    return RULES.supportAvailable(WPAI.support, new Date());
   }
 
   function rememberTicketOffer(conversationId, reason) {

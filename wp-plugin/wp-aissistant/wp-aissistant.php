@@ -2,13 +2,13 @@
 /**
  * Plugin Name: WP AIssistant
  * Description: Floating AI chat widget backed by a RAG backend, with automatic site content sync.
- * Version: 1.2.2
+ * Version: 1.2.3
  */
 
 if (!defined('ABSPATH')) exit;
 
 define('WPAI_OPTION', 'wpai_settings');
-define('WPAI_VERSION', '1.2.2'); // keep in sync with the "Version:" header above
+define('WPAI_VERSION', '1.2.3'); // keep in sync with the "Version:" header above
 
 // The backend is a single hosted service (not something each site owner runs), so its URL
 // isn't a setting — it's hardcoded here. Override only for local/staging testing by defining
@@ -488,7 +488,9 @@ add_action('wp_enqueue_scripts', function () {
     wp_enqueue_style('wpai-chat', plugins_url('assets/chat-widget.css', __FILE__), [], WPAI_VERSION);
     // il catalogo dei testi è una dipendenza del widget: caricato prima, senza bundler
     wp_enqueue_script('wpai-chat-i18n', plugins_url('assets/chat-i18n.js', __FILE__), [], WPAI_VERSION, true);
-    wp_enqueue_script('wpai-chat', plugins_url('assets/chat-widget.js', __FILE__), ['wpai-chat-i18n'], WPAI_VERSION, true);
+    // le regole (orari, proattivi) devono essere caricate prima del widget che le usa
+    wp_enqueue_script('wpai-chat-rules', plugins_url('assets/chat-rules.js', __FILE__), [], WPAI_VERSION, true);
+    wp_enqueue_script('wpai-chat', plugins_url('assets/chat-widget.js', __FILE__), ['wpai-chat-i18n', 'wpai-chat-rules'], WPAI_VERSION, true);
     wp_localize_script('wpai-chat', 'WPAI', [
         'backendUrl' => rtrim(WPAI_BACKEND_URL, '/'),
         'apiKey' => wpai_opt('api_key'),

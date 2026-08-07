@@ -204,9 +204,11 @@ Convenzioni utili viste nella suite:
 1. ~~**`backend/app/main.py`: 8016 righe, 182 endpoint.**~~ **Risolto.** Il file è a **567 righe e
    2 endpoint** (`/health`, `/metrics`): creazione dell'app, middleware, lifespan e registrazione
    dei dodici router. Vedi «Dividere main.py» qui sotto per il modello da seguire.
-2. **Widget: 1155 righe in un file.** I testi sono usciti in `chat-i18n.js` (con i primi test
-   Node del plugin), il resto no. Senza bundler nel plugin, la strada praticabile è più file
-   enqueued con dipendenze, come già fatto per l'i18n.
+2. **Widget: 1130 righe in un file.** Sono usciti i testi (`chat-i18n.js`) e le regole di
+   business — orari del supporto, ammissibilità e variante dei proattivi — in `chat-rules.js`,
+   con 22 test Node in tutto. Resta dentro la parte che costruisce il DOM, che senza un ambiente
+   browser nei test si estrarrebbe senza guadagnarci verifica. Il criterio da seguire: esce ciò
+   che **decide**, resta ciò che **disegna**.
 3. **Le automazioni immediate girano sincrone** dentro la richiesta che emette l'evento. Le
    azioni **ritardate** sono invece già su coda (`WorkflowScheduledAction`, servita dal worker):
    il debito residuo riguarda solo le azioni immediate lente.

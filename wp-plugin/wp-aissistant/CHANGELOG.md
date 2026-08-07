@@ -2,6 +2,11 @@
 
 Tutte le modifiche rilevanti del plugin WP AIssistant.
 
+## [1.2.3] - 2026-08-07
+
+- Regole di orario e messaggi proattivi spostate in `chat-rules.js`, con 15 test automatici.
+  Nessun cambiamento visibile: la logica è la stessa, ora verificabile.
+
 ## [1.2.2] - 2026-08-04
 
 - Anteprima live estesa a ogni nuova opzione di Aspetto.
