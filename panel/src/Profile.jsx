@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Eye, EyeOff, Copy, Check, Circle, RefreshCw, KeyRound, CreditCard, User, Bell } from "lucide-react";
 import { api } from "./api.js";
+import Loading from "./Loading.jsx";
 
 function NameCard({ me }) {
   const [name, setName] = useState(me.name || "");
@@ -409,7 +410,7 @@ export default function Profile() {
     api.me().then(setMe);
   }, []);
 
-  if (!me) return <p style={{ color: "var(--text-muted)" }}>Caricamento…</p>;
+  if (!me) return <Loading />;
 
   return (
     <div style={{ maxWidth: 720 }}>

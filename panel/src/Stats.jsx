@@ -8,6 +8,7 @@ import { MiniBars, Breakdown } from "./Charts.jsx";
 import { INTENT_LABELS, LANGUAGE_LABELS } from "./inboxFilters.js";
 import AnalyticsOverview from "./AnalyticsOverview.jsx";
 import KnowledgeGaps from "./KnowledgeGaps.jsx";
+import Loading from "./Loading.jsx";
 
 function pct(x) {
   return x === null || x === undefined ? "—" : `${Math.round(x * 100)}%`;
@@ -36,7 +37,7 @@ function CsatSection() {
       </div>
 
       {error && <p style={{ fontSize: 12.5, color: "var(--red)" }}>{error}</p>}
-      {!report && !error && <p style={{ fontSize: 12.5, color: "var(--text-muted)" }}>Caricamento…</p>}
+      {!report && !error && <Loading inline />}
 
       {report && summary.responses === 0 && (
         <div className="wpai-card" style={{ fontSize: 12.5, color: "var(--text-muted)" }}>
@@ -175,7 +176,7 @@ export default function Stats() {
     api.stats().then(setStats);
   }, []);
 
-  if (!stats) return <p style={{ color: "var(--text-muted)" }}>Caricamento…</p>;
+  if (!stats) return <Loading />;
 
   const c = stats.conversations;
   const ai = stats.ai;

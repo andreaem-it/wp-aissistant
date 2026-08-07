@@ -656,6 +656,46 @@ button.wpai-btn:disabled { opacity: 0.5; cursor: default; }
 .wpai-dropzone .hint { font-size: 12px; }
 
 .wpai-spin { animation: wpai-spin 0.8s linear infinite; }
+
+/* ---- Loading ---- */
+
+.wpai-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* riempie l'area di contenuto (viewport meno il padding di .wpai-main) così lo spinner
+     cade al centro dello schermo, non subito sotto il titolo */
+  min-height: calc(100vh - 64px);
+  color: var(--text-faint);
+}
+
+.wpai-loading.inline {
+  min-height: 0;
+  padding: 14px 0;
+  justify-content: flex-start;
+  gap: 8px;
+}
+
+/* il testo resta per i lettori di schermo: nasconderlo del tutto toglierebbe l'informazione */
+.wpai-loading-label {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+
+/* senza animazioni un'icona ferma sembra un blocco: meglio tornare alla parola */
+@media (prefers-reduced-motion: reduce) {
+  .wpai-loading svg { display: none; }
+  .wpai-loading-label {
+    position: static;
+    width: auto; height: auto;
+    margin: 0; overflow: visible; clip: auto;
+    font-size: 13px;
+  }
+}
 @keyframes wpai-spin { to { transform: rotate(360deg); } }
 
 .wpai-status-line {

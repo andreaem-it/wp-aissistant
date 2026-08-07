@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { CheckCircle2, Mail, ExternalLink, LifeBuoy, Send, Trash2 } from "lucide-react";
 import { api } from "./api.js";
+import Loading from "./Loading.jsx";
 
 const ROLE_LABEL = { user: "Visitatore", assistant: "AI", operator: "Operatore" };
 
@@ -32,7 +33,7 @@ function TicketCard({ ticket, conversation, helpdeskExports = {}, connections, d
       )}
 
       <div className="wpai-ticket-thread">
-        {messages === null && <p className="dim">Caricamento conversazione…</p>}
+        {messages === null && <Loading inline label="Caricamento della conversazione…" />}
         {messages && messages.length === 0 && <p className="dim">Nessun messaggio nella conversazione.</p>}
         {messages && messages.map((m) => (
           <div key={m.id} className={"wpai-tmsg " + m.role}>

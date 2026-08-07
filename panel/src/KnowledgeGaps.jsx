@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { SearchX, GraduationCap, EyeOff, FilePenLine } from "lucide-react";
 import { api } from "./api.js";
 import { formatMoment } from "./activity.js";
+import Loading from "./Loading.jsx";
 
 /** Domande a cui la knowledge base non ha saputo rispondere, con il flusso "insegna la risposta". */
 export default function KnowledgeGaps({ days = 30 }) {
@@ -86,7 +87,7 @@ export default function KnowledgeGaps({ days = 30 }) {
   };
 
   if (error) return <p role="alert" style={{ fontSize: 12.5, color: "var(--red)" }}>{error}</p>;
-  if (!payload) return <p style={{ fontSize: 12.5, color: "var(--text-muted)" }}>Caricamento…</p>;
+  if (!payload) return <Loading />;
 
   return (
     <div className="wpai-card">

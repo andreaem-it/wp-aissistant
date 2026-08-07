@@ -8,6 +8,7 @@ import {
 import { getAdminKey, setAdminKey, clearAdminKey, adminApi } from "./adminApi.js";
 import { MiniBars, Breakdown } from "./Charts.jsx";
 import ThemeToggle from "./ThemeToggle.jsx";
+import Loading from "./Loading.jsx";
 
 function formatPrice(cents, currency) {
   if (!cents) return "Gratis";
@@ -454,7 +455,7 @@ function pct(x) {
 function OverviewView() {
   const [s, setS] = useState(null);
   useEffect(() => { adminApi.stats().then(setS); }, []);
-  if (!s) return <p style={{ color: "var(--text-muted)" }}>Caricamento…</p>;
+  if (!s) return <Loading />;
 
   const cards = [
     { label: "Clienti", value: s.clients.total, Icon: Building2 },
@@ -534,7 +535,7 @@ function RevenueView() {
   }, [days]);
 
   if (error) return <div><h2 style={{ marginTop: 0 }}>Ricavi</h2><p className="wpai-error">{error}</p></div>;
-  if (!data) return <p style={{ color: "var(--text-muted)" }}>Caricamento…</p>;
+  if (!data) return <Loading />;
 
   // with more than one currency in play no single total is meaningful, so amounts are shown
   // unformatted rather than labelled with a currency that would be wrong for some of them
@@ -764,7 +765,7 @@ function CostsView() {
   const reload = () => { load(); loadPrices(); };
 
   if (error) return <div><h2 style={{ marginTop: 0 }}>Costi e margine</h2><p className="wpai-error">{error}</p></div>;
-  if (!data) return <p style={{ color: "var(--text-muted)" }}>Caricamento…</p>;
+  if (!data) return <Loading />;
 
   // with a price list in one currency and plans in another, no symbol is right: show bare
   // numbers rather than label dollars as euros
@@ -913,7 +914,7 @@ function GrowthView({ onOpenClient }) {
   useEffect(() => { adminApi.atRisk(14).then(setRisk).catch(() => setRisk(null)); }, []);
 
   if (error) return <div><h2 style={{ marginTop: 0 }}>Crescita</h2><p className="wpai-error">{error}</p></div>;
-  if (!funnel) return <p style={{ color: "var(--text-muted)" }}>Caricamento…</p>;
+  if (!funnel) return <Loading />;
 
   const day = (v) => (v ? new Date(v).toLocaleDateString("it-IT") : "—");
   const reachedLabel = { created: "Solo registrato", installed: "Plugin collegato", chatted: "Ha chattato" };
@@ -1005,7 +1006,7 @@ function GrowthView({ onOpenClient }) {
           <span style={{ color: "var(--text-muted)", fontWeight: 500 }}> — ultimi {risk?.window_days ?? 14} giorni ({risk?.clients?.length ?? 0})</span>
         </div>
         {!risk ? (
-          <p style={{ color: "var(--text-muted)", fontSize: 13, margin: "8px 0 0" }}>Caricamento…</p>
+          <Loading inline />
         ) : risk.clients.length === 0 ? (
           <p style={{ color: "var(--text-muted)", fontSize: 13, margin: "8px 0 0" }}>Nessun segnale di rischio.</p>
         ) : (
@@ -1044,7 +1045,7 @@ function HealthView() {
   const [emailResult, setEmailResult] = useState(null);
   const load = () => adminApi.health().then(setH);
   useEffect(() => { load(); }, []);
-  if (!h) return <p style={{ color: "var(--text-muted)" }}>Caricamento…</p>;
+  if (!h) return <Loading />;
 
   const email = h.email || {};
   const rows = [
@@ -1117,7 +1118,7 @@ function HealthView() {
 function AuditView() {
   const [rows, setRows] = useState(null);
   useEffect(() => { adminApi.audit().then(setRows); }, []);
-  if (!rows) return <p style={{ color: "var(--text-muted)" }}>Caricamento…</p>;
+  if (!rows) return <Loading />;
   return (
     <div>
       <h2 style={{ marginTop: 0 }}>Log azioni</h2>
@@ -1285,7 +1286,7 @@ function ClientsView({ clients, plans, selected, onSelect, onReload, onReloadPla
     );
   }
 
-  if (!clients) return <p style={{ color: "var(--text-muted)" }}>Caricamento…</p>;
+  if (!clients) return <Loading />;
 
   const q = search.trim().toLowerCase();
   const filtered = clients.filter((c) => {

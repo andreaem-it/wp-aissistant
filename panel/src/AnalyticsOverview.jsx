@@ -1,5 +1,6 @@
 import { Bot, Clock, CheckCircle2, UserCheck } from "lucide-react";
 import { MiniBars, Breakdown } from "./Charts.jsx";
+import Loading from "./Loading.jsx";
 
 function minutes(value) {
   if (value === null || value === undefined) return "—";
@@ -15,7 +16,7 @@ function pct(value) {
 
 /** Metriche di esito sul periodo: deflection, tempi e volumi. */
 export default function AnalyticsOverview({ data }) {
-  if (!data) return <p style={{ fontSize: 12.5, color: "var(--text-muted)" }}>Caricamento…</p>;
+  if (!data) return <Loading />;
   if (data.conversations === 0) {
     return (
       <div className="wpai-card" style={{ fontSize: 12.5, color: "var(--text-muted)" }}>

@@ -2,6 +2,7 @@ import { Fragment, useCallback, useEffect, useState } from "react";
 import { KeyRound, Plus, Trash2, Webhook, Send, RefreshCw } from "lucide-react";
 import { api } from "./api.js";
 import { formatMoment } from "./activity.js";
+import Loading from "./Loading.jsx";
 
 const SCOPES = [
   { value: "conversations:read", label: "Leggere le conversazioni" },
@@ -75,7 +76,7 @@ function ApiKeys() {
         </div>
       )}
 
-      {state.loading && <p style={{ fontSize: 12.5, color: "var(--text-muted)" }}>Caricamento…</p>}
+      {state.loading && <Loading inline />}
       {state.error && <p role="alert" style={{ fontSize: 12.5, color: "var(--red)" }}>{state.error}</p>}
 
       {!state.loading && (
@@ -355,7 +356,7 @@ function Webhooks() {
         </div>
       )}
 
-      {loading && <p style={{ fontSize: 12.5, color: "var(--text-muted)" }}>Caricamento…</p>}
+      {loading && <Loading inline />}
       {error && <p role="alert" style={{ fontSize: 12.5, color: "var(--red)" }}>{error}</p>}
 
       <div style={{ display: "grid", gap: 12, marginBottom: 12 }}>

@@ -3,6 +3,7 @@ import {
   Download, Plus, Trash2, MessageSquareText, ListChecks, ShieldX, Timer, Shuffle, Tag as TagIcon, Clock3,
 } from "lucide-react";
 import { api } from "./api.js";
+import Loading from "./Loading.jsx";
 
 function GdprCard() {
   const [email, setEmail] = useState("");
@@ -263,7 +264,7 @@ function SupportScheduleManager() {
   const removeClosure = (date) => setForm((value) => ({
     ...value, closed_dates: value.closed_dates.filter((item) => item !== date),
   }));
-  if (!form) return <div className="wpai-card"><div className="wpai-card-title"><Clock3 size={15} /> Orari di supporto</div><p className="dim">Caricamento…</p></div>;
+  if (!form) return <div className="wpai-card"><div className="wpai-card-title"><Clock3 size={15} /> Orari di supporto</div><Loading inline /></div>;
   return <form className="wpai-card" onSubmit={save}>
     <div className="wpai-card-title"><Clock3 size={15} /> Orari di supporto</div>
     <p style={{ fontSize: 12.5, color: "var(--text-muted)", margin: "6px 0 12px" }}>
@@ -340,7 +341,7 @@ function SlaManager({ departments }) {
         Le scadenze partono quando la conversazione passa a un operatore. Vince la regola più
         specifica (reparto + priorità). <code>0</code> minuti disattiva quella scadenza.
       </p>
-      {state.loading && <p style={{ fontSize: 12.5, color: "var(--text-muted)" }}>Caricamento…</p>}
+      {state.loading && <Loading inline />}
       {state.error && <p style={{ fontSize: 12.5, color: "var(--red)" }}>{state.error}</p>}
       {!state.loading && !state.error && (
         <table className="wpai-table" style={{ marginBottom: 12 }}>
@@ -422,7 +423,7 @@ function RoutingManager({ departments }) {
     return (
       <div className="wpai-card">
         <div className="wpai-card-title"><Shuffle size={15} /> Instradamento automatico</div>
-        <p style={{ fontSize: 12.5, color: error ? "var(--red)" : "var(--text-muted)" }}>{error || "Caricamento…"}</p>
+        {error ? <p style={{ fontSize: 12.5, color: "var(--red)" }}>{error}</p> : <Loading inline />}
       </div>
     );
   }

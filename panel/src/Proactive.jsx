@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { History, MessageCircleMore, Plus, Trash2, Trophy } from "lucide-react";
 import { api } from "./api.js";
+import Loading from "./Loading.jsx";
 
 const TRIGGER_LABELS = {
   url: "Su una pagina specifica",
@@ -96,7 +97,7 @@ export default function Proactive() {
         mostrare più» non lo rivede.
       </p>
 
-      {loading && <p style={{ fontSize: 12.5, color: "var(--text-muted)" }}>Caricamento…</p>}
+      {loading && <Loading inline />}
       {error && <p role="alert" style={{ fontSize: 12.5, color: "var(--red)" }}>{error}</p>}
 
       <div style={{ display: "grid", gap: 10, marginBottom: 12 }}>

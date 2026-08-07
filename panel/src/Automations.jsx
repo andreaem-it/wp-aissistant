@@ -3,6 +3,7 @@ import { Workflow as WorkflowIcon, Plus, Trash2, Play, History } from "lucide-re
 import { api } from "./api.js";
 import { formatMoment } from "./activity.js";
 import Proactive from "./Proactive.jsx";
+import Loading from "./Loading.jsx";
 
 // Etichette italiane del vocabolario chiuso esposto dal backend in /workflows.catalog.
 const TRIGGER_LABELS = {
@@ -287,7 +288,7 @@ export default function Automations() {
         scattata o no.
       </p>
 
-      {loading && <p style={{ fontSize: 12.5, color: "var(--text-muted)" }}>Caricamento…</p>}
+      {loading && <Loading inline />}
       {error && <p role="alert" style={{ fontSize: 12.5, color: "var(--red)" }}>{error}</p>}
 
       <div style={{ display: "grid", gap: 12, marginBottom: 20 }}>

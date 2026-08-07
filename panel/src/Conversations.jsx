@@ -7,6 +7,7 @@ import {
 import { api } from "./api.js";
 import { SLA_STATE_CLASS, SLA_STATE_LABELS, describeSla } from "./sla.js";
 import { actionLabel, actorLabel, formatMoment } from "./activity.js";
+import Loading from "./Loading.jsx";
 import {
   EMPTY_FILTERS,
   INTENT_LABELS,
@@ -586,7 +587,7 @@ export default function Conversations() {
       </div>
       <div className="wpai-split">
         <div className="wpai-conv-list">
-          {loadingList && <div className="wpai-empty"><p>Caricamento…</p></div>}
+          {loadingList && <Loading />}
           {!loadingList && listError && (
             <div className="wpai-empty">
               <p>{listError}</p>

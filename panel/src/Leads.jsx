@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { UserPlus, Plus, Trash2, Download, ClipboardList, PlugZap, Send } from "lucide-react";
 import { api, getToken } from "./api.js";
 import { formatMoment } from "./activity.js";
+import Loading from "./Loading.jsx";
 
 const TRIGGER_LABELS = {
   escalation: "Quando la chat passa a un operatore",
@@ -355,7 +356,7 @@ function LeadsList({ reloadKey, connections }) {
         </button>
       </div>
 
-      {loading && <p style={{ fontSize: 12.5, color: "var(--text-muted)" }}>Caricamento…</p>}
+      {loading && <Loading inline />}
       {error && <p role="alert" style={{ fontSize: 12.5, color: "var(--red)" }}>{error}</p>}
       {!loading && leads.length === 0 && !error && (
         <p style={{ fontSize: 12.5, color: "var(--text-muted)" }}>
