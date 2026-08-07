@@ -24,7 +24,10 @@ from . import billing
 from .routers import (
     automations, channels, commercial, developers, helpdesk_config, inbox, insights, public_api,
 )
-from .util import bounded_limit as _bounded_limit, iso as _iso, slugify as _slugify
+from .util import (
+    bounded_limit as _bounded_limit, iso as _iso,
+    normalize_origins as _normalize_origins, slugify as _slugify, split_origins as _split_origins,
+)
 from .analytics import (
     build_stats as _build_stats,
     csat_summary as _csat_summary,
@@ -75,6 +78,11 @@ from .conversations import (
 )
 from .apikeys import API_SCOPES, generate as _generate_api_key, scopes_of as _api_key_scopes
 from .deps import (
+    chat_limiter,
+    ingest_limiter,
+    plan_limit as _plan_limit,
+    rate_limit_chat,
+    rate_limit_ingest,
     hash_api_key as _hash_api_key,
     ADMIN_API_KEY,
     audit as _audit,
@@ -359,8 +367,6 @@ OPERATOR_SESSION_TTL = timedelta(hours=int(os.getenv("OPERATOR_SESSION_TTL_HOURS
 
 # /chat hits the LLM on every call, so it's the main abuse/cost surface — limit per client+IP.
 # Ingest is limited per client. Windows are 60s; override the counts via env.
-chat_limiter = make_limiter(int(os.getenv("CHAT_RATE_LIMIT", "30")), 60)
-ingest_limiter = make_limiter(int(os.getenv("INGEST_RATE_LIMIT", "60")), 60)
 auth_limiter = make_limiter(int(os.getenv("AUTH_RATE_LIMIT", "10")), 60)
 
 
@@ -425,31 +431,6 @@ PANEL_ORIGINS = [o.strip() for o in os.getenv("PANEL_ORIGINS", "http://localhost
 _ALLOWED_ORIGINS: set[str] = set(PANEL_ORIGINS)
 
 
-def _split_origins(raw: str) -> list[str]:
-    return [o.strip() for o in (raw or "").split(",") if o.strip()]
-
-
-def _normalize_origins(raw: str) -> str:
-    """Reduce each comma-separated entry to a browser Origin (scheme://host[:port]), dropping
-    any path/query/fragment. A browser's Origin header never includes a path, so a value like
-    'https://site.it/shop' could never match and would silently 403 the widget. Tolerates a
-    missing scheme; leaves an unparseable entry as-is."""
-    from urllib.parse import urlparse
-
-    out: list[str] = []
-    for entry in _split_origins(raw):
-        parsed = urlparse(entry if "//" in entry else "//" + entry)
-        if parsed.scheme and parsed.netloc:
-            normalized = f"{parsed.scheme}://{parsed.netloc}"
-        elif parsed.netloc:
-            normalized = parsed.netloc  # host only (no scheme given)
-        else:
-            normalized = entry
-        if normalized not in out:
-            out.append(normalized)
-    return ",".join(out)
-
-
 def rebuild_allowed_origins(session: Session) -> None:
     """Recompute the browser-layer allowlist: panel origins + every client's widget origins."""
     origins = set(PANEL_ORIGINS)
@@ -484,33 +465,6 @@ async def dynamic_cors(request: Request, call_next):
     if allowed:
         response.headers.update(_cors_headers(origin))
     return response
-
-
-def _plan_limit(session: Session, client: Client, attr: str, fallback: int) -> int:
-    """The client's plan limit for `attr` (chat_rate_limit/ingest_rate_limit), or the
-    global default if the client has no plan (shouldn't happen post-migration, but a
-    missing/deleted plan must degrade to *some* limit rather than 500)."""
-    plan = session.get(Plan, client.plan_id) if client.plan_id else None
-    return getattr(plan, attr) if plan else fallback
-
-
-def rate_limit_chat(request: Request, client: Client = Depends(require_client), session: Session = Depends(get_session)) -> Client:
-    # enforceable per-client binding: a browser call with this client's key must come from
-    # one of its configured origins (skipped when unconfigured or for server-side calls)
-    allowed = _split_origins(client.allowed_origins)
-    origin = request.headers.get("origin")
-    if allowed and origin and origin not in allowed:
-        raise HTTPException(403, "origin not allowed for this client")
-    ip = request.client.host if request.client else "unknown"
-    limit = _plan_limit(session, client, "chat_rate_limit", chat_limiter.limit)
-    chat_limiter.check(f"chat:{client.id}:{ip}", limit=limit)
-    return client
-
-
-def rate_limit_ingest(client: Client = Depends(require_client), session: Session = Depends(get_session)) -> Client:
-    limit = _plan_limit(session, client, "ingest_rate_limit", ingest_limiter.limit)
-    ingest_limiter.check(f"ingest:{client.id}", limit=limit)
-    return client
 
 
 def _create_conversation(session: Session, client_id: int, visitor_id: str) -> tuple[Conversation, str]:

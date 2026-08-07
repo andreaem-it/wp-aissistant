@@ -45,8 +45,11 @@ def client(monkeypatch):
     # rate-limit key) restart at 1 — without a fresh limiter here, hits from an earlier
     # test's "client 1" would count against this test's unrelated "client 1" and cause
     # sporadic 429s across the suite.
-    monkeypatch.setattr(main, "chat_limiter", FixedWindowLimiter(main.chat_limiter.limit, 60))
-    monkeypatch.setattr(main, "ingest_limiter", FixedWindowLimiter(main.ingest_limiter.limit, 60))
+    # chat/ingest limiters moved to app/deps.py when main.py was split; patch them where they
+    # live now, or the limit stays shared across tests and produces sporadic 429s
+    from app import deps
+    monkeypatch.setattr(deps, "chat_limiter", FixedWindowLimiter(deps.chat_limiter.limit, 60))
+    monkeypatch.setattr(deps, "ingest_limiter", FixedWindowLimiter(deps.ingest_limiter.limit, 60))
     monkeypatch.setattr(main, "auth_limiter", FixedWindowLimiter(main.auth_limiter.limit, 60))
     # api_limiter moved to the public API router when main.py was split; patch it where it
     # lives now, or the public API keeps a limiter shared across tests and 429s sporadically

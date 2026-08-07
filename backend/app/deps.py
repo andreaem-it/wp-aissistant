@@ -14,10 +14,12 @@ import os
 import secrets
 from datetime import datetime
 
-from fastapi import Depends, Header, HTTPException
+from fastapi import Depends, Header, HTTPException, Request
 from sqlmodel import Session, or_, select
 
-from .db import ApiKey, AuditLog, Client, Operator, OperatorSession, get_session
+from .db import ApiKey, AuditLog, Client, Operator, OperatorSession, Plan, get_session
+from .ratelimit import make_limiter
+from .util import split_origins
 from .logging_config import log
 
 logger = logging.getLogger("wpai")
@@ -162,3 +164,38 @@ def audit(session, actor_type, actor_id, action, target="", client_id=None, deta
     except Exception as exc:  # noqa: BLE001
         session.rollback()
         log(logger, logging.WARNING, "audit.failed", action=action, error=str(exc))
+
+# ---- Rate limits ------------------------------------------------------------------------------
+#
+# Process-wide limiters. The per-plan budget is read from the caller's plan, so a paying tenant
+# is never throttled by the free tier's ceiling.
+
+chat_limiter = make_limiter(int(os.getenv("CHAT_RATE_LIMIT", "30")), 60)
+ingest_limiter = make_limiter(int(os.getenv("INGEST_RATE_LIMIT", "60")), 60)
+
+
+def plan_limit(session: Session, client: Client, attr: str, fallback: int) -> int:
+    """The client's plan limit for `attr` (chat_rate_limit/ingest_rate_limit), or the
+    global default if the client has no plan (shouldn't happen post-migration, but a
+    missing/deleted plan must degrade to *some* limit rather than 500)."""
+    plan = session.get(Plan, client.plan_id) if client.plan_id else None
+    return getattr(plan, attr) if plan else fallback
+
+
+def rate_limit_chat(request: Request, client: Client = Depends(require_client), session: Session = Depends(get_session)) -> Client:
+    # enforceable per-client binding: a browser call with this client's key must come from
+    # one of its configured origins (skipped when unconfigured or for server-side calls)
+    allowed = split_origins(client.allowed_origins)
+    origin = request.headers.get("origin")
+    if allowed and origin and origin not in allowed:
+        raise HTTPException(403, "origin not allowed for this client")
+    ip = request.client.host if request.client else "unknown"
+    limit = plan_limit(session, client, "chat_rate_limit", chat_limiter.limit)
+    chat_limiter.check(f"chat:{client.id}:{ip}", limit=limit)
+    return client
+
+
+def rate_limit_ingest(client: Client = Depends(require_client), session: Session = Depends(get_session)) -> Client:
+    limit = plan_limit(session, client, "ingest_rate_limit", ingest_limiter.limit)
+    ingest_limiter.check(f"ingest:{client.id}", limit=limit)
+    return client
