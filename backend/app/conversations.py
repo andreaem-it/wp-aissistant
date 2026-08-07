@@ -12,6 +12,7 @@ from fastapi import HTTPException
 from sqlmodel import Session, select
 
 from . import email as email_service
+from . import events
 from . import meta_messaging as meta_messaging_service
 from . import whatsapp as whatsapp_service
 from .db import Client, Contact, Conversation, ConversationRating, Message, WhatsAppConsent
@@ -176,3 +177,56 @@ def rating_payload(rating: ConversationRating | None) -> dict | None:
         "resolved_by": rating.resolved_by,
         "created_at": _iso(rating.created_at),
     }
+
+
+def get_or_create_contact(
+    session: Session,
+    client_id: int,
+    channel: str,
+    external_id: str,
+    *,
+    email: str | None = None,
+    name: str = "",
+) -> Contact:
+    """Resolve identity inside one tenant/channel and enrich it without erasing known data."""
+    contact = session.exec(
+        select(Contact).where(
+            Contact.client_id == client_id,
+            Contact.channel == channel,
+            Contact.external_id == external_id,
+        )
+    ).first()
+    if contact:
+        changed = False
+        if email and contact.email != email:
+            contact.email = email
+            changed = True
+        if name and contact.name != name:
+            contact.name = name[:120]
+            changed = True
+        if changed:
+            contact.updated_at = datetime.utcnow()
+            session.add(contact)
+            session.commit()
+        return contact
+    contact = Contact(
+        client_id=client_id,
+        channel=channel,
+        external_id=external_id,
+        email=email,
+        name=name[:120],
+    )
+    session.add(contact)
+    session.commit()
+    session.refresh(contact)
+    return contact
+
+
+def emit_visitor_message(session: Session, conv: Conversation, message: Message) -> None:
+    """Emit privacy-safe metadata for inbound messages on every visitor-facing channel."""
+    events.emit(session, conv.client_id, "conversation.message.received", {
+        "conversation_id": conv.id,
+        "message_id": message.id,
+        "channel": conv.channel or "web",
+        "role": "user",
+    }, conv=conv)
