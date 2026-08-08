@@ -10,14 +10,16 @@ WP AIssistant è sviluppato in Italia e incorpora diverse misure di privacy by d
 non può dichiarare che tutti i dati restano nell'Unione europea**, né presentarsi senza riserve
 come «100% GDPR compliant».
 
-I tre blocchi tecnici più importanti sono verificati sulla configurazione live:
+L'audit iniziale ha trovato tre blocchi tecnici; i primi due sono stati corretti nello stesso
+giorno:
 
-1. il backend Railway gira nella regione `sfo`, quindi negli **Stati Uniti**;
+1. ~~backend Railway in `sfo`~~ → spostato esclusivamente in `EU West` (Amsterdam), health ok;
 2. chat ed embedding usano Cloudflare Workers AI, il cui contenuto non viene usato per training,
    ma per cui Cloudflare dichiara Workers AI **incompatibile con Regional Services**: non abbiamo
    una garanzia che l'inferenza avvenga solo nell'UE;
-3. il bucket R2 degli allegati ha location hint `EEUR`, che è best effort e **non** una
-   restrizione giurisdizionale UE.
+3. ~~bucket R2 con solo hint `EEUR`~~ → creato bucket omonimo nella jurisdiction `eu`, binding
+   aggiornato e Worker distribuito; il bucket precedente è vuoto e resta temporaneamente come
+   rollback finché non viene chiuso il collaudo.
 
 Inoltre `DATA_RETENTION_DAYS` e `STRICT_PRODUCTION_CONFIG` non sono impostati in produzione:
 la retention delle conversazioni è quindi illimitata e i controlli production non sono
@@ -28,9 +30,9 @@ fail-closed. Sono condizioni incompatibili con una dichiarazione forte di confor
 | Flusso / dato | Provider e stato live | Residenza verificata | Esito |
 |---|---|---|---|
 | Account, conversazioni, messaggi, KB, log AI e ticket | Neon Postgres, host `eu-central-1` | UE, Francoforte | Positivo; conservare evidenza della regione e sottoscrivere il DPA |
-| API, RAG, autenticazione, log applicativi e worker backend | Railway, deployment `sfo` | USA | **Bloccante**: spostare in `EU West` e verificare anche log/build metadata e DPA |
+| API, RAG, autenticazione, log applicativi e worker backend | Railway, deployment `EU West` | UE, Amsterdam | **Corretto il 9 agosto**: replica `sfo` rimossa, deployment riuscito e health ok; restano DPA e verifica metadata di piattaforma |
 | Prompt, cronologia selezionata, risposte ed embedding | Cloudflare Workers AI | Non garantita UE-only | **Bloccante per il claim di residenza**; scegliere inferenza con regione UE vincolante o self-host in UE |
-| Allegati privati | Cloudflare R2, hint `EEUR`, bucket non pubblico | Hint Europa orientale, non garanzia | **Bloccante**: creare bucket con jurisdiction `eu`, migrare e distruggere il precedente dopo verifica |
+| Allegati privati | Cloudflare R2 privato, jurisdiction `eu` | UE vincolata | **Corretto il 9 agosto**: nuovo bucket vuoto, binding e Worker aggiornati; completare test upload/download/delete e rimuovere il bucket legacy vuoto |
 | Email transazionali e canale email | Brevo API | Da verificare per account, piano, log e subprocessori | DPA, regione e retention da documentare; il contenuto email può includere dati personali |
 | Pagamenti, fatture e customer portal | Stripe | Trattamento globale con garanzie contrattuali | Trasferimento extra-UE possibile: DPA/SCC, informativa e lista subprocessori obbligatori |
 | Error tracking | Sentry disattivato | Nessun invio live | Positivo oggi; rivalutare regione/DPA prima dell'attivazione |
@@ -58,10 +60,10 @@ contratti, registro dei trattamenti, DPIA, procedure e verifiche dei fornitori.
 
 ### P0-A — Residenza tecnica
 
-- [ ] Spostare il backend Railway da `sfo` a `EU West` (Amsterdam), ridistribuire e salvare
+- [x] Spostare il backend Railway da `sfo` a `EU West` (Amsterdam), ridistribuire e salvare
   evidenza della regione effettiva.
 - [ ] Confermare in Neon Console che progetto, branch, backup e PITR restino in `eu-central-1`.
-- [ ] Creare un nuovo bucket R2 con jurisdiction `eu`, aggiungere `"jurisdiction": "eu"` al
+- [x] Creare un nuovo bucket R2 con jurisdiction `eu`, aggiungere `"jurisdiction": "eu"` al
   binding, migrare gli oggetti, verificare download/cancellazione e poi dismettere il bucket
   con semplice location hint.
 - [ ] Sostituire Workers AI per chat/embedding con un provider che offra elaborazione e logging
@@ -123,7 +125,10 @@ contratti, registro dei trattamenti, DPIA, procedure e verifiche dei fornitori.
 - Configurazione live Railway filtrata: Neon `eu-central-1`, Workers AI, Brevo, retention e
   strict mode non impostate.
 - Configurazione live R2 (`wrangler r2 bucket info`, 9 agosto 2026): location `EEUR`, zero
-  oggetti al momento della verifica.
+  oggetti al momento della verifica iniziale; nuovo bucket creato nella jurisdiction `eu` e
+  Worker versione `1a83fae5-3c18-48d4-993c-bc9951b8b61b` distribuito.
+- Configurazione live Railway dopo la remediation: solo `europe-west4-drams3a`, deployment
+  `df3cb429-23c3-4a0d-9369-ad9ae9c2d632` riuscito e `/health` operativo.
 - [Railway — regioni](https://docs.railway.com/deployments/regions) e
   [DPA/GDPR](https://docs.railway.com/enterprise/compliance).
 - [Neon — sicurezza e cifratura](https://neon.com/docs/security/security-overview) e
