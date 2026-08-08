@@ -3,7 +3,7 @@ Tags: ai, chatbot, customer-support, woocommerce, rag
 Requires at least: 5.8
 Tested up to: 6.5
 Requires PHP: 7.4
-Stable tag: 1.3.1
+Stable tag: 1.3.2
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -37,6 +37,11 @@ Richiede un'istanza del backend WP AIssistant raggiungibile e una API Key del cl
 4. In *AI Assistant → Sincronizzazione* usa **Sincronizza ora** per il primo caricamento.
 
 == Changelog ==
+
+= 1.3.2 =
+* La sincronizzazione di un prodotto aspetta sia la scheda sia il testo: un errore sul testo
+  non passa più inosservato sotto una spunta verde.
+* Gli elementi finiti in errore non sono più contati fra i sincronizzati.
 
 = 1.3.1 =
 * Testo delle impostazioni WooCommerce più naturale nelle risposte.

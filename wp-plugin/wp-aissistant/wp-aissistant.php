@@ -2,13 +2,13 @@
 /**
  * Plugin Name: WP AIssistant
  * Description: Floating AI chat widget backed by a RAG backend, with automatic site content sync.
- * Version: 1.3.1
+ * Version: 1.3.2
  */
 
 if (!defined('ABSPATH')) exit;
 
 define('WPAI_OPTION', 'wpai_settings');
-define('WPAI_VERSION', '1.3.1'); // keep in sync with the "Version:" header above
+define('WPAI_VERSION', '1.3.2'); // keep in sync with the "Version:" header above
 
 // The backend is a single hosted service (not something each site owner runs), so its URL
 // isn't a setting — it's hardcoded here. Override only for local/staging testing by defining
@@ -788,22 +788,37 @@ add_action('wp_ajax_wpai_sync_item', function () {
         wp_send_json_success(['job_id' => $res['job_id'] ?? 0, 'indexed' => $res['indexed'] ?? false]);
     }
 
+    $sent = [];
     if ($type === 'site-info') {
-        $res = wpai_push_content(home_url() . '/#site-info', wpai_build_site_info_content(), true);
+        $sent[] = wpai_push_content(home_url() . '/#site-info', wpai_build_site_info_content(), true);
     } else {
         $post = get_post($id);
         if (!$post) wp_send_json_error('post not found', 404);
         if ($type === 'product') {
-            $res = wpai_push_product($post, true);                                    // tracked job = product card
-            wpai_push_content(get_permalink($id), wpai_build_post_content($post));     // + RAG text (fire-and-forget)
+            // Un prodotto sono due invii: la scheda produce la card, il testo è ciò da cui il
+            // modello risponde. Il secondo era fire-and-forget e il suo esito buttato via, così
+            // un errore lasciava il prodotto in base senza descrizione mentre la riga diceva
+            // "sincronizzato". Ora si aspettano entrambi.
+            $sent[] = wpai_push_product($post, true);
+            $sent[] = wpai_push_content(get_permalink($id), wpai_build_post_content($post), true);
         } else {
-            $res = wpai_push_content(get_permalink($id), wpai_build_post_content($post), true);
+            $sent[] = wpai_push_content(get_permalink($id), wpai_build_post_content($post), true);
         }
     }
-    if (!is_array($res) || empty($res['job_id'])) {
-        wp_send_json_error($res['error'] ?? 'ingest failed', 502);
+
+    $job_ids = [];
+    foreach ($sent as $res) {
+        // null = non c'era nulla da inviare (testo vuoto): non è un errore
+        if ($res === null) continue;
+        if (!is_array($res) || empty($res['job_id'])) {
+            $error = is_array($res) ? ($res['error'] ?? '') : '';
+            wp_send_json_error($error ?: 'ingest failed', 502);
+        }
+        $job_ids[] = (int) $res['job_id'];
     }
-    wp_send_json_success(['job_id' => (int) $res['job_id'], 'status' => $res['status'] ?? 'queued']);
+    if (!$job_ids) wp_send_json_error('ingest failed', 502);
+    // `job_id` resta per compatibilità con una pagina già aperta durante l'aggiornamento
+    wp_send_json_success(['job_id' => $job_ids[0], 'job_ids' => $job_ids, 'status' => 'queued']);
 });
 
 // Proxy the backend job status (queued | processing | done | error).

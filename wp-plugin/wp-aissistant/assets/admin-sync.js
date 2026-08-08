@@ -26,23 +26,43 @@
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-  // poll the ingest job until it's done/error (or we give up after ~30s)
-  async function waitForJob(jobId, row) {
-    for (let i = 0; i < 20; i++) {
+  // Segue i job di una riga finché non sono tutti finiti (o si rinuncia dopo ~30s).
+  //
+  // Un prodotto ne produce due, scheda e testo: la riga è "sincronizzato" solo quando lo sono
+  // entrambi, e l'errore di uno solo è l'errore della riga. Prima se ne osservava uno, quindi
+  // metà del prodotto poteva mancare sotto una spunta verde.
+  //
+  // Torna true se la riga è a posto, così il conteggio finale non annovera fra i sincronizzati
+  // ciò che è fallito sotto gli occhi di chi guarda.
+  async function waitForJobs(jobIds, row) {
+    const pending = new Set(jobIds);
+    let latest = "in coda…";
+    for (let i = 0; i < 20 && pending.size; i++) {
       await sleep(1500);
-      let res;
-      try {
-        res = await ajax({ action: "wpai_job_status", job_id: jobId });
-      } catch (e) {
-        continue;
+      for (const jobId of Array.from(pending)) {
+        let res;
+        try {
+          res = await ajax({ action: "wpai_job_status", job_id: jobId });
+        } catch (e) {
+          continue;
+        }
+        if (!res || !res.success) continue;
+        const status = res.data.status;
+        if (status === "done") { pending.delete(jobId); continue; }
+        if (status === "error") {
+          setRow(row, "errore: " + (res.data.error || ""), "error", "fa-triangle-exclamation");
+          return false;
+        }
+        latest = status === "processing" ? "elaborazione…" : "in coda…";
       }
-      if (!res || !res.success) continue;
-      const status = res.data.status;
-      if (status === "done") { setRow(row, "sincronizzato", "done", "fa-check"); return; }
-      if (status === "error") { setRow(row, "errore: " + (res.data.error || ""), "error", "fa-triangle-exclamation"); return; }
-      setRow(row, status === "processing" ? "elaborazione…" : "in coda…");
+      if (pending.size) setRow(row, latest);
     }
-    setRow(row, "inviato (elaborazione in corso)", "done", "fa-check");
+    if (pending.size) {
+      setRow(row, "inviato (elaborazione in corso)", "done", "fa-check");
+      return true;
+    }
+    setRow(row, "sincronizzato", "done", "fa-check");
+    return true;
   }
 
   async function run(btn) {
@@ -92,8 +112,8 @@
         setRow(rows[i], "errore: " + (res && res.data ? res.data : ""), "error", "fa-triangle-exclamation");
         continue;
       }
-      await waitForJob(res.data.job_id, rows[i]);
-      done++;
+      const jobIds = res.data.job_ids || [res.data.job_id];
+      if (await waitForJobs(jobIds, rows[i])) done++;
     }
 
     progressEl.textContent = `Completato — ${done} / ${items.length} elementi sincronizzati.`;

@@ -2,6 +2,14 @@
 
 Tutte le modifiche rilevanti del plugin WP AIssistant.
 
+## [1.3.2] - 2026-08-08
+
+- La sincronizzazione di un prodotto aspetta entrambi i suoi invii. Un prodotto ne produce due,
+  la scheda (da cui nasce il box prodotto in chat) e il testo (da cui il modello risponde): il
+  secondo non era osservato, quindi poteva fallire lasciando il prodotto in base senza
+  descrizione mentre la riga mostrava la spunta verde.
+- Il conteggio finale non annovera più fra gli elementi sincronizzati quelli finiti in errore.
+
 ## [1.3.1] - 2026-08-08
 
 - Le impostazioni WooCommerce nella knowledge base sono scritte come le direbbe un negozio,
