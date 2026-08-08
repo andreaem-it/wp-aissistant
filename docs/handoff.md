@@ -200,6 +200,20 @@ Convenzioni utili viste nella suite:
   sintetico (vedi `test_analytics.py::_log_turn`). **Attenzione**: `/chat` ne scrive già uno,
   quindi aggiungerne un altro sullo stesso turno raddoppia i conteggi.
 
+### La trappola dell'embedder finto
+
+`conftest` sostituisce `embed` con una funzione che restituisce `[0.0] * EMBED_DIM`. Fra due
+vettori nulli **la distanza coseno non è definita**: Postgres la restituisce `NULL`. Ogni
+filtro della forma `dist is not None and dist < SOGLIA` scarta quindi *tutto*, sempre.
+
+Conseguenza: un test che si limita ad asserire "non è tornato nulla" passa anche se il codice
+sottostante è rotto, e un percorso che dipende da una soglia di distanza è **non coperto** anche
+quando la suite è verde. È così che il recupero prodotti è rimasto senza rete per mesi.
+
+Quando si tocca qualcosa che dipende da una distanza, si usa un embedder finto ma
+*discriminante* — vettori diversi per testi diversi, vicini per testi che condividono parole.
+Il modello sta in `tests/test_product_cards.py::_fake_embed`: poche righe, nessuna dipendenza.
+
 ## 8. Debito noto (non bloccante, ma reale)
 
 1. ~~**`backend/app/main.py`: 8016 righe, 182 endpoint.**~~ **Risolto.** Il file è a **567 righe e
