@@ -238,11 +238,13 @@ def test_webhook_action_queues_a_signed_delivery(client, tenant, monkeypatch):
 
 def test_email_action_uses_the_email_service(client, tenant, monkeypatch):
     sent = []
-    monkeypatch.setattr(workflows.email_service, "send_email", lambda to, subject, body: sent.append((to, subject)))
+    # il client_id non è decorativo: senza, l'email non finisce nel costo di quel tenant
+    monkeypatch.setattr(workflows.email_service, "send_email",
+                        lambda to, subject, body, **kw: sent.append((to, subject, kw.get("client_id"))))
     _workflow(client, tenant, actions=[{"type": "send_email", "to": "capo@acme.it", "subject": "Escalation"}])
 
     _escalate(client, tenant)
-    assert sent == [("capo@acme.it", "Escalation")]
+    assert sent == [("capo@acme.it", "Escalation", tenant["cid"])]
 
 
 def test_inactive_workflow_does_nothing(client, tenant):

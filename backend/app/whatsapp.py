@@ -11,6 +11,7 @@ import urllib.error
 import urllib.request
 
 from .logging_config import log
+from .usage import record_message
 
 
 logger = logging.getLogger(__name__)
@@ -50,9 +51,12 @@ def send_message(*, client_id: int, to: str, body: str, reply_to_message_id: str
             ok = 200 <= response.status < 300
     except (urllib.error.URLError, TimeoutError, ValueError) as exc:
         log(logger, logging.WARNING, "whatsapp.outbound_failed", client_id=client_id, error=type(exc).__name__)
+        record_message(client_id, "whatsapp", ok=False)
         return False
     if not ok:
         log(logger, logging.WARNING, "whatsapp.outbound_failed", client_id=client_id, status=response.status)
+    # contato qui e non prima: un provider non configurato non ha inviato nulla e non costa nulla
+    record_message(client_id, "whatsapp", ok=ok)
     return ok
 
 
@@ -77,10 +81,13 @@ def send_template(*, client_id: int, to: str, template: str, language: str, para
     )
     try:
         with urllib.request.urlopen(request, timeout=WHATSAPP_OUTBOUND_TIMEOUT) as response:
-            return 200 <= response.status < 300
+            ok = 200 <= response.status < 300
     except (urllib.error.URLError, TimeoutError, ValueError) as exc:
         log(logger, logging.WARNING, "whatsapp.template_failed", client_id=client_id, error=type(exc).__name__)
+        record_message(client_id, "whatsapp", ok=False)
         return False
+    record_message(client_id, "whatsapp", ok=ok)
+    return ok
 
 
 def config_status() -> dict:

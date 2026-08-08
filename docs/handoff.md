@@ -227,10 +227,17 @@ Il modello sta in `tests/test_product_cards.py::_fake_embed`: poche righe, nessu
 3. **Le automazioni immediate girano sincrone** dentro la richiesta che emette l'evento. Le
    azioni **ritardate** sono invece già su coda (`WorkflowScheduledAction`, servita dal worker):
    il debito residuo riguarda solo le azioni immediate lente.
-4. **Il margine non conta ancora email e canali.** Inferenza, embedding e storage ci sono
-   (`EmbeddingUsage` + somma degli allegati); restano fuori le email transazionali e i messaggi
-   sui canali. Nota: i token di embedding sono **stimati dai caratteri** perché Cloudflare
-   restituisce solo il vettore — la stima è dichiarata nell'API e nel panel, non nascosta.
+4. ~~**Il margine non conta ancora email e canali.**~~ **Risolto.** `MessagingUsage` (rollup
+   giornaliero per client/canale, migrazione 0051) è scritto da `usage.record_message`, chiamato
+   dentro `send_email` e `whatsapp.send_message`/`send_template` — cioè all'unica strozzatura da
+   cui passa ogni invio, non nei dodici punti che la chiamano. Prezzi per messaggio via
+   `EMAIL_PRICE_PER_MESSAGE_MILLICENTS` e `WHATSAPP_PRICE_PER_MESSAGE_MILLICENTS`: senza, il
+   canale è **non prezzato** e dichiarato in `unpriced_channels`, mai contato come gratis.
+   Confine di attribuzione: sono costo del tenant le email generate dal suo **traffico**
+   (risposta al visitatore, canale email, azione di workflow); verifica indirizzo, reset password
+   e avvisi di fatturazione riguardano l'account e restano spesa di piattaforma.
+   Nota: i token di embedding sono **stimati dai caratteri** perché Cloudflare restituisce solo
+   il vettore — la stima è dichiarata nell'API e nel panel, non nascosta.
 5. **Le intestazioni CORS sono scritte a mano** in `cors.headers()`, non derivate dalle rotte.
    Hanno già annunciato solo `GET, POST, OPTIONS` mentre l'app instradava 36 rotte PUT/PATCH/
    DELETE, rendendole invisibilmente inutilizzabili dal browser: il server rispondeva `204` al
@@ -256,10 +263,15 @@ prima di tutto il resto, perché è l'unica cosa che non dipende da noi.
 > e va portato sul canale WhatsApp, come passo intermedio verso l'Embedded Signup di Meta.
 
 **B. Completare la parte commerciale.** Fatti: portale Stripe per il cliente con avvisi via email,
-viste **Ricavi**, **Costi e margine** e **Crescita**, e le **azioni commerciali**. Restano: azioni
-costi di embedding, storage e canali per chiudere il margine (debito 4). Azioni commerciali su
-Stripe, funnel di attivazione e clienti a rischio sono fatti: la parte commerciale è coperta
-tranne quel pezzo di costi.
+viste **Ricavi**, **Costi e margine** e **Crescita**, le **azioni commerciali** su Stripe, il
+funnel di attivazione e i clienti a rischio. Il margine conta ora inferenza, embedding, storage
+ed email/canali: il debito 4 è chiuso e **la parte commerciale è coperta**.
+
+> Il codice c'è, i **prezzi** no. Finché non sono impostati — listino modelli dal pannello,
+> `STORAGE_PRICE_PER_GB_MONTH_MILLICENTS`, `EMAIL_PRICE_PER_MESSAGE_MILLICENTS`,
+> `WHATSAPP_PRICE_PER_MESSAGE_MILLICENTS` — ogni voce senza prezzo è **dichiarata ed esclusa**,
+> mai contata come gratis. Il margine mostrato resta quindi un tetto finché il listino non è
+> completo, e il pannello dice esattamente cosa manca.
 
 > Il listino modelli parte **vuoto**: finché il superadmin non lo compila da *Costi e margine*,
 > ogni modello usato compare fra quelli senza prezzo e i costi restano a zero. È voluto — un

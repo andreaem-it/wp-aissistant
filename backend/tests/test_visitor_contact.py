@@ -39,7 +39,7 @@ def test_contact_scoped_to_client(client, tenant):
 def test_operator_reply_notifies_visitor(client, tenant, monkeypatch):
     sent = []
     monkeypatch.setattr(main.email_service, "send_visitor_reply",
-                        lambda to, client_name, url: sent.append((to, client_name, url)) or True)
+                        lambda to, client_name, url, **kw: sent.append((to, client_name, url, kw.get("client_id"))) or True)
 
     conv = _escalated_conversation(client, tenant)
     conv_id = conv["conversation_id"]
@@ -49,7 +49,7 @@ def test_operator_reply_notifies_visitor(client, tenant, monkeypatch):
     tid = client.get("/tickets", headers=tenant["op"]).json()[0]["ticket"]["id"]
 
     client.post(f"/tickets/{tid}/reply", headers=tenant["op"], params={"reply": "ecco la risposta"})
-    assert sent == [("visitor@x.it", "Acme", "https://site.it/p")]
+    assert sent == [("visitor@x.it", "Acme", "https://site.it/p", tenant["cid"])]
 
 
 def test_operator_reply_without_contact_sends_nothing(client, tenant, monkeypatch):

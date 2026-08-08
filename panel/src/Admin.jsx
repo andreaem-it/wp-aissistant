@@ -772,6 +772,12 @@ function CostsView() {
   const money = (cents) => (data.mixed_currencies ? (cents / 100).toFixed(2) : formatPrice(Math.round(cents), data.currency));
   const tokens = (n) => new Intl.NumberFormat("it-IT").format(n);
   const gb = (bytes) => (bytes / 1024 ** 3).toFixed(2);
+  // il totale, col dettaglio per canale nel title: in tabella serve un numero confrontabile,
+  // non un elenco che allarga la colonna per un cliente su dieci
+  const msgTotal = (messages) => {
+    const total = Object.values(messages || {}).reduce((sum, n) => sum + n, 0);
+    return total ? tokens(total) : "—";
+  };
 
   const cards = [
     { label: "Costo AI / mese", value: money(data.monthly_cost_cents), Icon: Sparkles },
@@ -822,6 +828,17 @@ function CostsView() {
         </div>
       )}
 
+      {(data.unpriced_channels || []).length > 0 && (
+        <div className="wpai-callout warn" role="alert" style={{ marginTop: 12 }}>
+          <div>
+            Canali senza prezzo, esclusi dai totali: <strong>{data.unpriced_channels.join(", ")}</strong>.
+            I messaggi sono contati ma non valorizzati. Imposta{" "}
+            <code>EMAIL_PRICE_PER_MESSAGE_MILLICENTS</code> o{" "}
+            <code>WHATSAPP_PRICE_PER_MESSAGE_MILLICENTS</code> (millesimi di centesimo a messaggio).
+          </div>
+        </div>
+      )}
+
       {data.unpriced_models.length > 0 && (
         <div className="wpai-callout warn" role="alert" style={{ marginTop: 12 }}>
           <div>
@@ -842,10 +859,11 @@ function CostsView() {
       </div>
 
       <p style={{ color: "var(--text-muted)", fontSize: 12.5, margin: "10px 0 0" }}>
-        Comprende inferenza, embedding (ingest e domande) e storage degli allegati. Restano fuori
-        email e canali, quindi il margine è ancora un <strong>tetto</strong>. Il costo del periodo è
-        riportato al mese per essere confrontabile con il ricavo; lo storage è già mensile e non
-        viene riscalato.
+        Comprende inferenza, embedding (ingest e domande), storage degli allegati ed email e
+        messaggi sui canali generati dal traffico. Le email di account — verifica indirizzo, reset
+        password, avvisi di fatturazione — sono spesa di piattaforma e restano fuori di proposito.
+        Il costo del periodo è riportato al mese per essere confrontabile con il ricavo; lo storage
+        è già mensile e non viene riscalato.
       </p>
 
       <div className="wpai-card" style={{ marginTop: 16 }}>
@@ -862,6 +880,7 @@ function CostsView() {
                 <th style={{ textAlign: "right" }}>Turni</th>
                 <th style={{ textAlign: "right" }}>Token in/out</th>
                 <th style={{ textAlign: "right" }}>Storage</th>
+                <th style={{ textAlign: "right" }}>Messaggi</th>
                 <th style={{ textAlign: "right" }}>Costo/mese</th>
                 <th style={{ textAlign: "right" }}>Ricavo/mese</th>
                 <th style={{ textAlign: "right" }}>Margine</th>
@@ -873,7 +892,7 @@ function CostsView() {
                   <td>
                     {r.name}
                     {!r.fully_priced && (
-                      <span className="wpai-badge warn" style={{ marginLeft: 6 }} title="Usa modelli senza prezzo">parziale</span>
+                      <span className="wpai-badge warn" style={{ marginLeft: 6 }} title="Usa modelli o canali senza prezzo">parziale</span>
                     )}
                   </td>
                   <td>{r.plan || "—"}</td>
@@ -882,7 +901,16 @@ function CostsView() {
                   <td style={{ textAlign: "right", color: "var(--text-muted)" }}>
                     {r.storage_bytes ? `${gb(r.storage_bytes)} GB` : "—"}
                   </td>
-                  <td style={{ textAlign: "right" }} title={`Inferenza ${money(r.inference_cost_cents)} + embedding ${money(r.embedding_cost_cents)}`}>
+                  <td
+                    style={{ textAlign: "right", color: "var(--text-muted)" }}
+                    title={Object.entries(r.messages || {}).map(([c, n]) => `${c}: ${n}`).join(" · ")}
+                  >
+                    {msgTotal(r.messages)}
+                    {r.messaging_priced === false && (
+                      <span title="Canale senza prezzo: contati, non valorizzati"> *</span>
+                    )}
+                  </td>
+                  <td style={{ textAlign: "right" }} title={`Inferenza ${money(r.inference_cost_cents)} + embedding ${money(r.embedding_cost_cents)} + messaggi ${money(r.messaging_cost_cents)}`}>
                     {money(r.monthly_cost_cents)}
                   </td>
                   <td style={{ textAlign: "right" }}>{money(r.monthly_revenue_cents)}</td>

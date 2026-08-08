@@ -22,7 +22,7 @@ from datetime import datetime, timedelta
 from sqlmodel import Session, func, select
 
 from . import billing
-from .db import AiResponseLog, Attachment, Client, EmbeddingUsage, ModelPrice, Plan
+from .db import AiResponseLog, Attachment, Client, EmbeddingUsage, MessagingUsage, ModelPrice, Plan
 from .logging_config import log
 
 logger = logging.getLogger("wpai.costs")
@@ -38,6 +38,19 @@ CHARS_PER_TOKEN = float(os.getenv("EMBEDDING_CHARS_PER_TOKEN", "4"))
 _STORAGE_PRICE = os.getenv("STORAGE_PRICE_PER_GB_MONTH_MILLICENTS", "").strip()
 STORAGE_MILLICENTS_PER_GB_MONTH = int(_STORAGE_PRICE) if _STORAGE_PRICE.isdigit() else None
 BYTES_PER_GB = 1024 ** 3
+# Email e messaggi sui canali si pagano a messaggio, non a token. Come per lo storage, un canale
+# senza prezzo ha costo **ignoto**, non zero: WhatsApp in particolare fattura per conversazione e
+# per paese, quindi una tariffa piatta è un'approssimazione che va scelta da chi la conosce, non
+# indovinata qui.
+_MESSAGE_PRICE_ENV = {
+    "email": "EMAIL_PRICE_PER_MESSAGE_MILLICENTS",
+    "whatsapp": "WHATSAPP_PRICE_PER_MESSAGE_MILLICENTS",
+}
+
+
+def message_price_millicents(channel: str) -> "int | None":
+    raw = os.getenv(_MESSAGE_PRICE_ENV.get(channel, ""), "").strip()
+    return int(raw) if raw.isdigit() else None
 MILLICENTS_PER_CENT = 1000
 
 
@@ -90,6 +103,17 @@ def storage_cost_cents(size_bytes: int) -> "float | None":
     return gigabytes * STORAGE_MILLICENTS_PER_GB_MONTH / MILLICENTS_PER_CENT
 
 
+def messaging_cost_cents(channel: str, messages: int) -> "float | None":
+    """Costo dei messaggi usciti su un canale, o None se quel canale non ha un prezzo.
+
+    None non è zero: significa che il totale è incompleto e va detto, come per lo storage.
+    """
+    price = message_price_millicents(channel)
+    if price is None:
+        return None
+    return messages * price / MILLICENTS_PER_CENT
+
+
 def cost_summary(session: Session, days: int = 30) -> dict:
     """Per-tenant AI spend over the window, with the margin against recurring revenue.
 
@@ -116,13 +140,14 @@ def cost_summary(session: Session, days: int = 30) -> dict:
 
     per_client: dict[int, dict] = {}
     unpriced: set[str] = set()
+    unpriced_channels: set[str] = set()
     currencies: set[str] = set()
 
     def _entry(store, cid):
         return store.setdefault(cid, {
             "turns": 0, "tokens_in": 0, "tokens_out": 0, "cost": 0.0, "priced": True,
             "embedding_chars": 0, "embedding_cost": 0.0, "embedding_estimated": False,
-            "storage_bytes": 0,
+            "storage_bytes": 0, "messages": {}, "messaging_cost": 0.0, "messaging_priced": True,
         })
     for client_id, model, turns, tokens_in, tokens_out in usage:
         tokens_in, tokens_out = int(tokens_in or 0), int(tokens_out or 0)
@@ -171,6 +196,29 @@ def cost_summary(session: Session, days: int = 30) -> dict:
     ).all():
         _entry(per_client, cid)["storage_bytes"] += int(size or 0)
 
+    # Messaggi usciti per il traffico del tenant: email di supporto e messaggi sui canali. È un
+    # flusso come l'inferenza, quindi si conta nella finestra e si normalizza a mese più sotto.
+    for cid, channel, sent in session.exec(
+        select(
+            MessagingUsage.client_id,
+            MessagingUsage.channel,
+            func.sum(MessagingUsage.sent).label("sent"),
+        )
+        .where(MessagingUsage.day >= since_day)
+        .group_by(MessagingUsage.client_id, MessagingUsage.channel)
+    ).all():
+        sent = int(sent or 0)
+        if not sent:
+            continue
+        entry = _entry(per_client, cid)
+        entry["messages"][channel] = entry["messages"].get(channel, 0) + sent
+        cost = messaging_cost_cents(channel, sent)
+        if cost is None:
+            entry["messaging_priced"] = False
+            unpriced_channels.add(channel)
+        else:
+            entry["messaging_cost"] += cost
+
     window = max(days, 1)
     rows, total_cost, total_revenue = [], 0.0, 0
     total_storage_bytes = 0
@@ -185,9 +233,12 @@ def cost_summary(session: Session, days: int = 30) -> dict:
         total_storage_bytes += entry["storage_bytes"]
         any_estimated = any_estimated or entry["embedding_estimated"]
         # inference and embeddings are flows measured over the window; storage is already monthly
-        monthly_cost = (entry["cost"] + entry["embedding_cost"]) * 30 / window + (storage_cost or 0.0)
+        monthly_cost = (
+            (entry["cost"] + entry["embedding_cost"] + entry["messaging_cost"]) * 30 / window
+            + (storage_cost or 0.0)
+        )
         # only tenants whose spend is fully priced can be summed into a trustworthy total
-        if entry["priced"]:
+        if entry["priced"] and entry["messaging_priced"]:
             total_cost += monthly_cost
         if client.billing_status in ("active", "past_due"):
             total_revenue += revenue
@@ -201,17 +252,20 @@ def cost_summary(session: Session, days: int = 30) -> dict:
             "turns": entry["turns"],
             "tokens_in": entry["tokens_in"],
             "tokens_out": entry["tokens_out"],
-            "cost_cents": round(entry["cost"] + entry["embedding_cost"], 2),
+            "cost_cents": round(entry["cost"] + entry["embedding_cost"] + entry["messaging_cost"], 2),
             "inference_cost_cents": round(entry["cost"], 2),
             "embedding_cost_cents": round(entry["embedding_cost"], 2),
             "embedding_chars": entry["embedding_chars"],
             "embedding_estimated": entry["embedding_estimated"],
             "storage_bytes": entry["storage_bytes"],
             "storage_cost_cents": round(storage_cost, 2) if storage_cost is not None else None,
+            "messages": dict(sorted(entry["messages"].items())),
+            "messaging_cost_cents": round(entry["messaging_cost"], 2),
+            "messaging_priced": entry["messaging_priced"],
             "monthly_cost_cents": round(monthly_cost, 2),
             "monthly_revenue_cents": revenue,
             "monthly_margin_cents": round(revenue - monthly_cost, 2),
-            "fully_priced": entry["priced"],
+            "fully_priced": entry["priced"] and entry["messaging_priced"],
         })
 
     rows.sort(key=lambda r: r["monthly_cost_cents"], reverse=True)
@@ -232,6 +286,8 @@ def cost_summary(session: Session, days: int = 30) -> dict:
         "currencies": sorted(currencies),
         # names, not a boolean: the superadmin has to know *which* price to add
         "unpriced_models": sorted(unpriced),
+        # stessa logica dei modelli: i nomi, perché il superadmin deve sapere *quale* prezzo manca
+        "unpriced_channels": sorted(unpriced_channels),
         "storage_bytes": total_storage_bytes,
         # None means "no price configured": the storage cost is missing from the total, not zero
         "storage_priced": STORAGE_MILLICENTS_PER_GB_MONTH is not None,

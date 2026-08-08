@@ -82,8 +82,9 @@ def test_operator_reply_is_delivered_as_threaded_email(client, tenant, monkeypat
     ]
     sent = {}
 
-    def fake_send(to, client_name, subject, body, thread_id=""):
-        sent.update(to=to, client_name=client_name, subject=subject, body=body, thread_id=thread_id)
+    def fake_send(to, client_name, subject, body, thread_id="", client_id=None):
+        sent.update(to=to, client_name=client_name, subject=subject, body=body,
+                    thread_id=thread_id, client_id=client_id)
         return True
 
     monkeypatch.setattr(email_service, "send_channel_reply", fake_send)
@@ -100,6 +101,7 @@ def test_operator_reply_is_delivered_as_threaded_email(client, tenant, monkeypat
         "subject": "Problema con un ordine",
         "body": "Il tuo ordine è in consegna.",
         "thread_id": "<thread-1@example.it>",
+        "client_id": tenant["cid"],  # senza, il messaggio non entra nel costo del tenant
     }
 
 

@@ -28,6 +28,7 @@ import urllib.request
 from email.message import EmailMessage
 
 from .logging_config import log
+from .usage import record_message
 
 logger = logging.getLogger("wpai.email")
 
@@ -79,18 +80,30 @@ def send_email(
     *,
     headers: dict[str, str] | None = None,
     reply_to: str = "",
+    client_id: int | None = None,
 ) -> bool:
     """Send a plain-text email via the configured provider. Returns True on success (or when
-    logged-only in dev), False on a delivery failure. Never raises — callers branch on the bool."""
+    logged-only in dev), False on a delivery failure. Never raises — callers branch on the bool.
+
+    `client_id` attribuisce il costo del messaggio a un tenant. Va passato quando l'email parte
+    per il traffico di quel tenant (risposta al visitatore, canale email, azione di workflow);
+    va lasciato vuoto per le email che riguardano l'account e non il servizio erogato ai suoi
+    visitatori — verifica indirizzo, reset password, avvisi di fatturazione — che sono spesa di
+    piattaforma. Il conteggio sta qui, all'unica strozzatura da cui passa ogni invio, e non nei
+    dodici punti che la chiamano: uno dimenticato sarebbe un buco silenzioso nel margine.
+    """
     subject = _header(subject)
     headers = {key: _header(value) for key, value in (headers or {}).items() if _header(value)} or None
     if not enabled():
         # dev/staging fallback: make the link readable without a configured provider
         log(logger, logging.INFO, "email.not_configured_logged", to=to, subject=subject, body=body)
-        return True
+        return True  # non contato: senza provider non è partito nulla e nulla è costato
     if EMAIL_PROVIDER == "brevo_api":
-        return _send_brevo_api(to, subject, body, headers=headers, reply_to=reply_to)
-    return _send_smtp(to, subject, body, headers=headers, reply_to=reply_to)
+        sent = _send_brevo_api(to, subject, body, headers=headers, reply_to=reply_to)
+    else:
+        sent = _send_smtp(to, subject, body, headers=headers, reply_to=reply_to)
+    record_message(client_id, "email", ok=sent)
+    return sent
 
 
 def _send_smtp(to: str, subject: str, body: str, *, headers: dict[str, str] | None = None, reply_to: str = "") -> bool:
@@ -183,24 +196,24 @@ def send_password_reset(to: str, token: str) -> bool:
     return send_email(to, "Reimposta la password — WP AIssistant", body)
 
 
-def send_visitor_reply(to: str, client_name: str, page_url: str | None) -> bool:
+def send_visitor_reply(to: str, client_name: str, page_url: str | None, client_id: int | None = None) -> bool:
     """Notify a visitor that a human operator replied to their conversation."""
     if page_url:
         cta = f"Riapri la chat per leggerla e continuare la conversazione:\n{page_url}\n\n"
     else:
         cta = "Torna sul sito e riapri la chat per leggerla.\n\n"
     body = f"Hai ricevuto una risposta dal supporto di {client_name}.\n\n{cta}Grazie!\n"
-    return send_email(to, f"Nuova risposta dal supporto — {client_name}", body)
+    return send_email(to, f"Nuova risposta dal supporto — {client_name}", body, client_id=client_id)
 
 
-def send_channel_reply(to: str, client_name: str, subject: str, body: str, thread_id: str = "") -> bool:
+def send_channel_reply(to: str, client_name: str, subject: str, body: str, thread_id: str = "", client_id: int | None = None) -> bool:
     """Deliver a panel reply directly into an email-channel thread."""
     clean_subject = _header(subject) or f"Supporto — {client_name}"
     if not clean_subject.lower().startswith("re:"):
         clean_subject = f"Re: {clean_subject}"
     clean_thread_id = _header(thread_id)
     headers = {"In-Reply-To": clean_thread_id, "References": clean_thread_id} if clean_thread_id else None
-    return send_email(to, clean_subject, body, headers=headers, reply_to=SUPPORT_EMAIL_ADDRESS)
+    return send_email(to, clean_subject, body, headers=headers, reply_to=SUPPORT_EMAIL_ADDRESS, client_id=client_id)
 
 
 def _billing_link() -> str:

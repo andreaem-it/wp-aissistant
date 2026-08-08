@@ -123,9 +123,12 @@ def notify_visitor_reply(session, client_id, conv):
                     conv.channel_subject,
                     messages[0].content,
                     conv.external_thread_id,
+                    client_id=client_id,
                 )
         else:
-            return email_service.send_visitor_reply(conv.visitor_email, client_name, conv.visitor_url)
+            return email_service.send_visitor_reply(
+                conv.visitor_email, client_name, conv.visitor_url, client_id=client_id
+            )
     return True
 
 

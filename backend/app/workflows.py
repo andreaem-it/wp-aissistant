@@ -327,7 +327,11 @@ def _apply_action(session: Session, conv: Conversation | None, action: dict, eve
             f"Conversazione: {conv.id if conv else '—'}\n"
             f"Dettagli: {json.dumps(data, ensure_ascii=False)}\n"
         )
-        email_service.send_email(action["to"], action["subject"], body)
+        # l'email parte per una regola di questo tenant: il costo è suo
+        email_service.send_email(
+            action["to"], action["subject"], body,
+            client_id=conv.client_id if conv else None,
+        )
         return f"email a {action['to']}"
 
     if kind == "send_webhook":

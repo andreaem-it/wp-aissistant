@@ -296,6 +296,33 @@ class EmbeddingUsage(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
 
+class MessagingUsage(SQLModel, table=True):
+    """Daily rollup of the messages a tenant's traffic sent outside the widget.
+
+    One row per client, channel and day, like `EmbeddingUsage`: the bill is monthly, nobody
+    needs one row per email.
+
+    Only what a tenant's **traffic** caused is recorded here — la risposta dell'operatore al
+    visitatore, il canale email, l'azione email di un workflow. Verifica dell'indirizzo, reset
+    della password e avvisi di fatturazione riguardano l'account, non il servizio erogato ai
+    suoi visitatori: sono spesa di piattaforma e restano fuori dal margine per tenant, dichiarate
+    come tali invece di essere spalmate su qualcuno.
+
+    `failed` è tenuto separato da `sent` perché un provider che rifiuta non smette di costare
+    (diversi fatturano il tentativo) e soprattutto perché un tasso di fallimento invisibile è
+    il modo in cui ci si accorge tardi che le notifiche non arrivano.
+    """
+    __table_args__ = (UniqueConstraint("client_id", "channel", "day", name="uq_messaging_usage_day"),)
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    client_id: int = Field(index=True, foreign_key="client.id")
+    channel: str = Field(index=True)  # "email" | "whatsapp"
+    day: date = Field(index=True)
+    sent: int = 0
+    failed: int = 0
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 class AuditLog(SQLModel, table=True):
     """Append-only record of privileged actions (admin onboarding + operator actions) so the
     superadmin can see who did what, when. `detail` is action-specific JSON."""
