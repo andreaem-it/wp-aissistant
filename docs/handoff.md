@@ -1,10 +1,11 @@
 # Handoff — stato del progetto e regole per chi prosegue
 
-> Documento di sincronizzazione, riallineato il **5 agosto 2026** dopo la chiusura del grosso del
-> backlog P2. Serve a chi (persona o assistente AI) riprende il lavoro senza aver seguito la
-> sessione precedente. È una guida al **contesto e alle convenzioni**: la verità sul codice sta
-> nel codice, la verità sul prodotto in [`competitor-feature-backlog.md`](competitor-feature-backlog.md).
-> Se i numeri qui sotto non tornano più, ricontali invece di fidarti: questo file invecchia.
+> Documento di sincronizzazione, riallineato il **9 agosto 2026** dopo il refactor del backend,
+> il completamento delle viste commerciali e l'audit GDPR/residenza UE. Serve a chi (persona o
+> assistente AI) riprende il lavoro senza aver seguito la sessione precedente. È una guida al
+> **contesto e alle convenzioni**: la verità sul codice sta nel codice, la verità sul prodotto in
+> [`competitor-feature-backlog.md`](competitor-feature-backlog.md). Se i numeri qui sotto non
+> tornano più, ricontali invece di fidarti: questo file invecchia.
 
 ## 1. Cos'è il progetto
 
@@ -24,9 +25,10 @@ llama per la chat), panel e sito su Cloudflare Pages. CI/CD su GitHub Actions.
 
 ## 2. Stato al momento dell'handoff
 
-**P0 e P1 sono chiusi.** Del **P2 è rilasciato quasi tutto il codice**: modello di canale
+**P1 è sostanzialmente chiuso; P0 operativo e compliance sono ancora aperti.** Del **P2 è
+rilasciato quasi tutto il codice**: modello di canale
 unificato, email, WhatsApp, Messenger/Instagram, allegati inbound come file privati, CRM,
-help desk esterni, notifiche push operatore e SDK browser pubblicato su npm.
+help desk esterni, notifiche push operatore e SDK browser pronto per npm (non ancora pubblicato).
 
 Attenzione alla distinzione che conta:
 
@@ -34,8 +36,11 @@ Attenzione alla distinzione che conta:
 > mancano le credenziali dei provider, i webhook registrati e i worker Meta distribuiti.
 > "Rilasciato nel repo" non vuol dire "funzionante per un cliente".
 
-Restano scoperti: **marketplace/connettori**, la **parte commerciale** (fatturato, margini,
-azioni commerciali nel superadmin) e il filone **Voice**.
+La parte commerciale è implementata. Restano scoperti: remediation **GDPR/residenza UE**,
+attivazione live dei canali, marketplace/connettori, pubblicazione npm e il filone **Voice**.
+L'audit del 9 agosto ha verificato backend Railway in `sfo`, Workers AI non regionalizzabile,
+R2 con semplice hint `EEUR`, retention e strict mode non attive: non usare claim «tutti i dati
+in UE» o «100% GDPR compliant». Vedi [`gdpr-eu-residency-audit.md`](gdpr-eu-residency-audit.md).
 
 Ultimi commit rilevanti (dal più recente):
 
@@ -52,13 +57,15 @@ f7f0678 feat: package the browser sdk for npm
 c6a1e2c feat: cluster knowledge gaps locally
 ```
 
-Dimensioni attuali: **177 endpoint e 7902 righe** in `backend/app/main.py`, **48 tabelle** in
-`backend/app/db.py`, migrazioni fino a **`0048`**, 54 file di test backend (**502 test**), 29 test
-panel, 7 test plugin. Plugin alla versione **1.2.2**.
+Dimensioni verificate il 9 agosto: **187 route decorator** nel backend, `backend/app/main.py`
+ridotto a **567 righe e 2 endpoint diretti**, logica HTTP divisa in dodici router, migrazioni
+fino a **`0051`** e 59 file di test backend. Plugin alla versione **1.3.2**. Ricontare i test
+prima di citare un totale: la vecchia cifra di 502 non include gli ultimi blocchi.
 
 ## 3. Moduli backend e perché esistono
 
-`main.py` contiene tutti gli endpoint; la logica non banale è stata estratta in moduli, ognuno
+`main.py` contiene bootstrap, middleware, lifespan e registrazione router; gli endpoint sono
+nei dodici moduli sotto `routers/`. La logica non banale è stata estratta in moduli, ognuno
 con un vincolo di progetto preciso da rispettare se lo modifichi:
 
 | Modulo | Responsabilità | Vincolo da non rompere |
@@ -93,7 +100,8 @@ disattivi anche quelle.
 
 ## 4. Modello dati
 
-48 tabelle, migrazioni fino a `0048`.
+Migrazioni fino a `0051`; ricontare le tabelle direttamente da `db.py` prima di pubblicare una
+cifra.
 
 **Aggiunte in P1** (`0019`→`0029`):
 
