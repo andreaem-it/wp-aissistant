@@ -278,14 +278,20 @@ def list_plans(session: Session = Depends(get_session)):
     return session.exec(select(Plan).order_by(Plan.id)).all()
 
 
-def _reject_free_plan(price_cents: int, yearly_price_cents: int) -> None:
-    """Un piano deve costare qualcosa su almeno un intervallo.
+def _reject_free_plan(price_cents: int, yearly_price_cents: int, internal: bool = False) -> None:
+    """Un piano vendibile deve costare qualcosa su almeno un intervallo.
 
     Non esiste una versione gratuita del prodotto: un piano a zero su entrambi gli intervalli
     darebbe accesso al servizio senza contropartita e comparirebbe nei ricavi come cliente che
     non paga, falsando margine e funnel. Mensile-solo o annuale-solo restano legittimi — è la
     gratuità totale a non esserlo.
+
+    I piani **interni** sono esclusi: non sono prodotti, non compaiono in nessun elenco rivolto
+    a un cliente e non concedono nulla. Dare loro un prezzo per far passare questo controllo li
+    farebbe sembrare acquistabili, che è esattamente il problema che si vuole evitare.
     """
+    if internal:
+        return
     if price_cents <= 0 and yearly_price_cents <= 0:
         raise HTTPException(400, "un piano deve avere un prezzo mensile o annuale maggiore di zero")
 
@@ -379,7 +385,7 @@ def update_plan(
         plan.monthly_message_limit = monthly_message_limit
     # dopo che entrambi i prezzi sono stati applicati: azzerarne uno solo è legittimo (un piano
     # può non essere offerto ad anno), ritrovarsi con tutti e due a zero no
-    _reject_free_plan(plan.price_cents, plan.yearly_price_cents)
+    _reject_free_plan(plan.price_cents, plan.yearly_price_cents, plan.internal)
     session.add(plan)
     session.commit()
     session.refresh(plan)

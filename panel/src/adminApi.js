@@ -45,6 +45,7 @@ export const adminApi = {
   reembed: () => call("/admin/reembed", { method: "POST" }),
   plans: () => call("/admin/plans"),
   createPlan: (plan) => call("/admin/plans", { method: "POST", body: plan }),
+  updatePlan: (id, fields) => call(`/admin/plans/${id}`, { method: "POST", body: fields }),
   setClientPlan: (clientId, plan_id) => call(`/admin/clients/${clientId}/plan`, { method: "POST", body: { plan_id } }),
   // commercial actions: these change the subscription at Stripe; our rows follow via webhook
   extendTrial: (clientId, days) =>

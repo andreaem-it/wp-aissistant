@@ -28,6 +28,10 @@ class Plan(SQLModel, table=True):
     yearly_price_cents: int = 0
     stripe_price_id: str = ""
     stripe_yearly_price_id: str = ""
+    # Segnaposto interno, non un prodotto. Serve a dare dei limiti a un account che esiste prima
+    # di aver pagato (`Client.plan_id` non è nullable) e non compare in nessun elenco rivolto a
+    # un cliente. Non concede nulla: a decidere l'erogazione è `billing_status`.
+    internal: bool = False
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 

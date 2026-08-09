@@ -497,6 +497,111 @@ function ClientDetail({ client, plans, onChanged }) {
   );
 }
 
+/**
+ * Una riga del listino, modificabile sul posto.
+ *
+ * Prima i piani si potevano solo creare: un prezzo sbagliato o un limite da correggere
+ * obbligavano a toccare il database. L'endpoint esisteva già, mancava il modo di usarlo.
+ *
+ * I piani **interni** (il segnaposto per chi non ha ancora pagato) si vedono ma si dichiarano
+ * per quello che sono: non sono prodotti, non compaiono ai clienti e non si vendono.
+ */
+function PlanRow({ plan, onChanged }) {
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState(plan);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => { setForm(plan); setError(""); }, [plan]);
+
+  const save = async () => {
+    setSaving(true);
+    setError("");
+    try {
+      await adminApi.updatePlan(plan.id, {
+        name: form.name,
+        price_cents: Number(form.price_cents),
+        yearly_price_cents: Number(form.yearly_price_cents || 0),
+        chat_rate_limit: Number(form.chat_rate_limit),
+        ingest_rate_limit: Number(form.ingest_rate_limit),
+        monthly_message_limit: Number(form.monthly_message_limit || 0),
+        stripe_price_id: form.stripe_price_id || "",
+        stripe_yearly_price_id: form.stripe_yearly_price_id || "",
+      });
+      setOpen(false);
+      onChanged();
+    } catch (e) {
+      setError(
+        e?.status === 400
+          ? "Un piano deve avere un prezzo mensile o annuale maggiore di zero."
+          : e?.status === 409
+            ? "Nome piano già in uso."
+            : "Salvataggio non riuscito."
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const field = (label, key, extra = {}) => (
+    <label style={{ display: "grid", gap: 4, fontSize: 12.5 }}>
+      {label}
+      <input
+        value={form[key] ?? ""}
+        onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))}
+        {...extra}
+      />
+    </label>
+  );
+
+  return (
+    <div className="wpai-card" style={{ padding: 12 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+        <strong style={{ flex: "1 1 160px" }}>
+          {plan.name}
+          {plan.internal && (
+            <span className="wpai-badge" style={{ marginLeft: 8 }} title="Segnaposto per gli account che non hanno ancora pagato: non è un prodotto e non è visibile ai clienti">interno</span>
+          )}
+          {!plan.internal && !plan.stripe_price_id && (
+            <span className="wpai-badge warn" style={{ marginLeft: 8 }} title="Senza price id di Stripe non è acquistabile">non su Stripe</span>
+          )}
+        </strong>
+        <span style={{ color: "var(--text-muted)", fontSize: 13 }}>
+          {plan.internal ? "—" : `${formatPrice(plan.price_cents, plan.currency)}/mese`}
+        </span>
+        <span style={{ color: "var(--text-muted)", fontSize: 13 }}>{plan.chat_rate_limit} chat/min</span>
+        <span style={{ color: "var(--text-muted)", fontSize: 13 }}>
+          {plan.monthly_message_limit ? `${plan.monthly_message_limit} msg/mese` : "msg illimitati"}
+        </span>
+        <button className="wpai-btn ghost" onClick={() => setOpen((v) => !v)}>
+          <Pencil size={14} /> {open ? "Chiudi" : "Modifica"}
+        </button>
+      </div>
+
+      {open && (
+        <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
+          {error && <p className="wpai-error" style={{ margin: 0 }}>{error}</p>}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 10 }}>
+            {field("Nome", "name")}
+            {field("Prezzo (centesimi/mese)", "price_cents", { type: "number", min: 0 })}
+            {field("Prezzo annuale (centesimi)", "yearly_price_cents", { type: "number", min: 0 })}
+            {field("Chat (msg/min)", "chat_rate_limit", { type: "number", min: 1 })}
+            {field("Ingest (richieste/min)", "ingest_rate_limit", { type: "number", min: 1 })}
+            {field("Messaggi/mese (0 = illimitati)", "monthly_message_limit", { type: "number", min: 0 })}
+            {field("Stripe price id (mensile)", "stripe_price_id")}
+            {field("Stripe price id (annuale)", "stripe_yearly_price_id")}
+          </div>
+          <div>
+            <button className="wpai-btn" onClick={save} disabled={saving}>
+              {saving ? "Salvataggio…" : "Salva"}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function PlansView({ plans, onChanged }) {
   const [form, setForm] = useState({ name: "", price_cents: 0, chat_rate_limit: 30, ingest_rate_limit: 60, monthly_message_limit: 0 });
   const [saving, setSaving] = useState(false);
@@ -520,15 +625,8 @@ function PlansView({ plans, onChanged }) {
   return (
     <div>
       <h2 style={{ marginTop: 0 }}>Piani</h2>
-      <div className="wpai-kb-list" style={{ marginBottom: 20 }}>
-        {plans?.map((p) => (
-          <div key={p.id} className="wpai-kb-row">
-            <span className="wpai-kb-label">{p.name}</span>
-            <span className="wpai-kb-count">{formatPrice(p.price_cents, p.currency)}/mese</span>
-            <span className="wpai-kb-count">{p.chat_rate_limit} chat/min</span>
-            <span className="wpai-kb-count">{p.monthly_message_limit ? `${p.monthly_message_limit} msg/mese` : "msg illimitati"}</span>
-          </div>
-        ))}
+      <div style={{ marginBottom: 20, display: "grid", gap: 10 }}>
+        {plans?.map((p) => <PlanRow key={p.id} plan={p} onChanged={onChanged} />)}
       </div>
 
       <div className="wpai-card">

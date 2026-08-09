@@ -83,7 +83,8 @@ def test_admin_create_plan_and_assign_to_client(client, tenant):
 
 def test_admin_create_plan_rejects_duplicate_name(client, tenant):
     admin = {"Authorization": "Bearer test-admin"}
-    r = client.post("/admin/plans", headers=admin, json={"name": "Base", "price_cents": 100})
+    client.post("/admin/plans", headers=admin, json={"name": "Doppione", "price_cents": 900})
+    r = client.post("/admin/plans", headers=admin, json={"name": "Doppione", "price_cents": 900})
     assert r.status_code == 409
 
 

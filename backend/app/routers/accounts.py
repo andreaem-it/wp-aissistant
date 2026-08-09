@@ -58,7 +58,9 @@ def public_plans(session: Session = Depends(get_session)):
             "id": p.id, "name": p.name, "price_cents": p.price_cents,
             "yearly_price_cents": p.yearly_price_cents, "currency": p.currency,
         }
-        for p in session.exec(select(Plan).order_by(Plan.price_cents, Plan.id)).all()
+        for p in session.exec(
+            select(Plan).where(Plan.internal.is_(False)).order_by(Plan.price_cents, Plan.id)
+        ).all()
         if p.stripe_price_id
     ]
 

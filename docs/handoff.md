@@ -230,8 +230,17 @@ non è un interruttore, è la traccia di cosa il cliente aveva.
 
 Fino ad agosto 2026 chi disdiceva veniva **retrocesso a un piano chiamato "Free"** con
 `monthly_message_limit = 0`, cioè messaggi illimitati: il servizio continuava gratis e senza
-scadenza. La migrazione 0052 rinomina quel piano in "Base", gli dà un prezzo e mette in coda di
-cancellazione i tenant già disdetti.
+scadenza. La migrazione 0052 ha tolto la retrocessione e messo in coda di cancellazione i tenant
+già disdetti.
+
+Quella riga **non è un piano**: è il segnaposto per un account che esiste prima di aver pagato,
+perché `Client.plan_id` non è nullable. La 0052 aveva provato a darle un prezzo di 1 € per farle
+superare il controllo "niente piani gratuiti" — creando un prodotto apparente da 1 €/mese con
+messaggi illimitati, visibile ai clienti in `/billing/plans` e capace di rendere insensato il
+piano vero a 19 €/500 messaggi. La 0053 la marca `internal`: fuori da `/billing/plans` e
+`/public/plans`, esente dal controllo sul prezzo, visibile al solo superadmin con un'etichetta.
+Un piano interno non va prezzato per farlo passare da una validazione — è il modo di farlo
+sembrare acquistabile.
 
 Dopo la disdetta i dati restano `DATA_RETENTION_DAYS_AFTER_CANCEL` giorni (90) a partire dalla
 **fine del periodo pagato**, non dalla richiesta. `app/retention.py` manda gli avvisi a 30/14/7/3

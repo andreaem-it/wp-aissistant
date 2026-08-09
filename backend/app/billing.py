@@ -448,13 +448,18 @@ def default_plan_id(session: Session) -> int:
     veniva creato un piano chiamato "Free", che di fatto era una versione gratuita del prodotto
     a cui si finiva anche disdicendo.
 
-    Su un database senza piani ne crea uno minimo — non gratuito — perché `Client.plan_id` non
-    è nullable e un'installazione nuova deve poter creare un account prima che il listino sia
+    Su un database senza piani ne crea uno **interno**: non è un prodotto, non compare in nessun
+    elenco rivolto a un cliente e non è acquistabile. Esiste perché `Client.plan_id` non è
+    nullable e un'installazione nuova deve poter creare un account prima che il listino sia
     compilato.
     """
     plan = session.exec(select(Plan).order_by(Plan.id)).first()
     if not plan:
-        plan = Plan(name="Base", price_cents=100, chat_rate_limit=30, ingest_rate_limit=60)
+        # `monthly_message_limit` resta 0 (illimitato) di proposito: non è questo piano a
+        # concedere il servizio — lo decide `billing_status` — e un tetto qui taglierebbe le
+        # gambe a un cliente creato a mano dal superadmin, che finisce su questa riga.
+        plan = Plan(name="Nessun abbonamento", internal=True, price_cents=0,
+                    chat_rate_limit=30, ingest_rate_limit=60)
         session.add(plan)
         session.commit()
         session.refresh(plan)

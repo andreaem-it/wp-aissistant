@@ -125,7 +125,9 @@ def billing_plans(operator: Operator = Depends(require_operator), session: Sessi
             "purchasable": bool(p.stripe_price_id),
             "yearly_purchasable": bool(p.stripe_yearly_price_id),
         }
-        for p in session.exec(select(Plan).order_by(Plan.price_cents, Plan.id)).all()
+        for p in session.exec(
+            select(Plan).where(Plan.internal.is_(False)).order_by(Plan.price_cents, Plan.id)
+        ).all()
     ]
 
 
