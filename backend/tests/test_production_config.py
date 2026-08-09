@@ -26,7 +26,19 @@ def test_production_config_detects_dangerous_defaults():
     warnings = production_warnings({"ADMIN_API_KEY": "change-me", "CORS_ALLOW_ALL": "true"})
     assert any("ADMIN_API_KEY" in warning for warning in warnings)
     assert any("CORS_ALLOW_ALL" in warning for warning in warnings)
-    assert any("DATA_RETENTION_DAYS" in warning for warning in warnings)
+
+
+def test_indefinite_active_tenant_retention_is_an_explicit_safe_policy():
+    env = safe_env()
+    env["DATA_RETENTION_DAYS"] = "0"
+    assert production_warnings(env) == []
+
+
+@pytest.mark.parametrize("value", ["-1", "invalid"])
+def test_invalid_retention_is_reported(value):
+    env = safe_env()
+    env["DATA_RETENTION_DAYS"] = value
+    assert any("DATA_RETENTION_DAYS" in warning for warning in production_warnings(env))
 
 
 def test_strict_mode_fails_closed():

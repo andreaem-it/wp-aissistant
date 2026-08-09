@@ -21,9 +21,10 @@ giorno:
    aggiornato e Worker distribuito; il bucket precedente è vuoto e resta temporaneamente come
    rollback finché non viene chiuso il collaudo.
 
-Inoltre `DATA_RETENTION_DAYS` e `STRICT_PRODUCTION_CONFIG` non sono impostati in produzione:
-la retention delle conversazioni è quindi illimitata e i controlli production non sono
-fail-closed. Sono condizioni incompatibili con una dichiarazione forte di conformità.
+`DATA_RETENTION_DAYS=0` è la policy deliberata per i tenant attivi: storico senza scadenza finché
+il cliente non sceglie un periodo diverso. È distinta dalla cancellazione completa 90 giorni
+dopo la cessazione dell'abbonamento. Redis è stato creato in EU West e collegato al backend;
+`STRICT_PRODUCTION_CONFIG` verrà attivato dopo il deploy del controllo aggiornato.
 
 ## Mappa verificata dei trattamenti
 
@@ -74,8 +75,8 @@ contratti, registro dei trattamenti, DPIA, procedure e verifiche dei fornitori.
 
 ### P0-B — Configurazione e minimizzazione
 
-- [ ] Impostare `DATA_RETENTION_DAYS` con un periodo motivato (baseline proposta: 90 giorni,
-  configurabile per contratto) e verificare purge su database e R2.
+- [ ] Esporre ai tenant attivi una retention configurabile; default deliberato senza scadenza.
+  La cancellazione dell'intero account 90 giorni dopo la disdetta resta obbligatoria e separata.
 - [ ] Attivare `STRICT_PRODUCTION_CONFIG=true` e risolvere tutti i warning prima del deploy.
 - [ ] Definire retention separate per audit, fatturazione, lead, backup, email e log tecnici.
 - [ ] Ridurre log applicativi e provider ai soli metadati necessari; vietare prompt, transcript,
@@ -122,8 +123,9 @@ contratti, registro dei trattamenti, DPIA, procedure e verifiche dei fornitori.
 ## Evidenze e fonti primarie
 
 - Configurazione live Railway (`railway status --json`, 9 agosto 2026): deployment `sfo`.
-- Configurazione live Railway filtrata: Neon `eu-central-1`, Workers AI, Brevo, retention e
-  strict mode non impostate.
+- Configurazione live Railway filtrata: Neon `eu-central-1`, Workers AI e Brevo; Redis creato
+  e vincolato a EU West il 9 agosto. Retention attivi deliberatamente illimitata; strict mode
+  da attivare dopo il deploy del controllo aggiornato.
 - Configurazione live R2 (`wrangler r2 bucket info`, 9 agosto 2026): location `EEUR`, zero
   oggetti al momento della verifica iniziale; nuovo bucket creato nella jurisdiction `eu` e
   Worker versione `1a83fae5-3c18-48d4-993c-bc9951b8b61b` distribuito.
