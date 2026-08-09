@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from urllib.parse import urlparse
 
 
 PLACEHOLDER_SECRETS = {"change-me", "changeme", "secret", "test-admin", "password"}
+EU_AI_HOSTS = {"api.eu.mistral.ai"}
 
 
 def production_warnings(env: Mapping[str, str]) -> list[str]:
@@ -52,6 +54,21 @@ def production_warnings(env: Mapping[str, str]) -> list[str]:
     vapid = [env.get(name, "").strip() for name in ("VAPID_PUBLIC_KEY", "VAPID_PRIVATE_KEY", "VAPID_SUBJECT")]
     if any(vapid) and not all(vapid):
         warnings.append("VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY and VAPID_SUBJECT must be configured together")
+
+    # This flag backs a public data-residency promise, so it is deliberately stricter than
+    # merely checking that an AI provider works. Both chat and embeddings carry customer
+    # content and must use a regional endpoint whose contract guarantees in-region inference.
+    if env.get("REQUIRE_EU_AI", "false").lower() == "true":
+        chat_model = env.get("CHAT_MODEL", "").strip()
+        embed_model = env.get("EMBED_MODEL", "").strip()
+        ai_base = env.get("LLM_API_BASE", "").strip()
+        host = (urlparse(ai_base).hostname or "").lower()
+        if host not in EU_AI_HOSTS or not ai_base.lower().startswith("https://"):
+            warnings.append("LLM_API_BASE must use an approved HTTPS EU regional AI endpoint")
+        if not chat_model.startswith("mistral/") or not embed_model.startswith("mistral/"):
+            warnings.append("CHAT_MODEL and EMBED_MODEL must match the approved EU regional provider")
+        if host == "api.eu.mistral.ai" and not env.get("MISTRAL_API_KEY", "").strip():
+            warnings.append("MISTRAL_API_KEY is required for Mistral EU regional inference")
     return warnings
 
 

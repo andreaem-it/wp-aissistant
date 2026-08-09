@@ -59,3 +59,34 @@ def test_partial_vapid_configuration_is_reported():
     env = safe_env()
     env["VAPID_PUBLIC_KEY"] = "public-only"
     assert any("VAPID_PRIVATE_KEY" in warning for warning in production_warnings(env))
+
+
+def test_eu_ai_guard_accepts_only_regional_mistral_for_both_paths():
+    env = safe_env() | {
+        "REQUIRE_EU_AI": "true",
+        "CHAT_MODEL": "mistral/mistral-small-latest",
+        "EMBED_MODEL": "mistral/mistral-embed",
+        "LLM_API_BASE": "https://api.eu.mistral.ai/v1",
+        "MISTRAL_API_KEY": "configured",
+    }
+    assert production_warnings(env) == []
+
+
+@pytest.mark.parametrize(
+    "overrides, expected",
+    [
+        ({"LLM_API_BASE": "https://api.mistral.ai/v1"}, "approved HTTPS EU"),
+        ({"CHAT_MODEL": "cloudflare/model"}, "approved EU regional provider"),
+        ({"EMBED_MODEL": "cloudflare/embed"}, "approved EU regional provider"),
+        ({"MISTRAL_API_KEY": ""}, "MISTRAL_API_KEY"),
+    ],
+)
+def test_eu_ai_guard_fails_closed(overrides, expected):
+    env = safe_env() | {
+        "REQUIRE_EU_AI": "true",
+        "CHAT_MODEL": "mistral/mistral-small-latest",
+        "EMBED_MODEL": "mistral/mistral-embed",
+        "LLM_API_BASE": "https://api.eu.mistral.ai/v1",
+        "MISTRAL_API_KEY": "configured",
+    } | overrides
+    assert any(expected in warning for warning in production_warnings(env))

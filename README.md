@@ -437,9 +437,11 @@ Per collegare CRM e automazioni ci sono due strade complementari, documentate in
 | `DATABASE_URL` | `postgresql+psycopg://rag:rag@localhost:5432/rag` | Connessione Postgres |
 | `EMBED_DIM` | `1024` | Dimensione embedding — deve combaciare con `EMBED_MODEL` (1024 = bge-m3, 768 = nomic) |
 | `DB_AUTO_CREATE` | `false` | `true` crea le tabelle dai modelli allo startup (solo dev; in prod usa Alembic) |
-| `CHAT_MODEL` | `ollama/llama3.1` | Modello chat (formato LiteLLM) |
-| `EMBED_MODEL` | `ollama/nomic-embed-text` | Modello embedding |
-| `LLM_API_BASE` | `http://localhost:11434` | Endpoint LLM (Ollama locale) |
+| `CHAT_MODEL` | `cloudflare/@cf/meta/llama-3.1-8b-instruct-fp8` | Modello chat (formato LiteLLM) |
+| `EMBED_MODEL` | `cloudflare/@cf/baai/bge-m3` | Modello embedding |
+| `LLM_API_BASE` | *(provider default)* | Endpoint esplicito per Ollama o inferenza regionale; forza chat ed embedding LiteLLM sullo stesso endpoint |
+| `REQUIRE_EU_AI` | `false` | Se `true`, strict mode accetta solo provider/modelli regionali approvati per entrambi i percorsi; oggi Mistral su `api.eu.mistral.ai` |
+| `MISTRAL_API_KEY` | *(non impostata)* | Credenziale per l'endpoint regionale Mistral EU |
 | `ADMIN_API_KEY` | *(non impostato)* | Token per gli endpoint `/admin/clients`; se assente l'admin API è disabilitata |
 | `CHAT_RATE_LIMIT` | `30` | Richieste `/chat` per 60s, per client+IP |
 | `INGEST_RATE_LIMIT` | `60` | Richieste di ingest per 60s, per client |
@@ -508,6 +510,11 @@ Per collegare CRM e automazioni ci sono due strade complementari, documentate in
 
 LiteLLM permette di passare a OpenAI / Claude / **Cloudflare Workers AI** / altri provider
 cambiando `CHAT_MODEL`, `EMBED_MODEL` e le relative credenziali, senza modifiche al codice.
+
+Per una garanzia di inferenza regionale, la configurazione candidata è Mistral EU:
+`CHAT_MODEL=mistral/mistral-small-latest`, `EMBED_MODEL=mistral/mistral-embed`,
+`LLM_API_BASE=https://api.eu.mistral.ai/v1` e `REQUIRE_EU_AI=true`. La procedura e il benchmark
+obbligatorio prima del passaggio live sono in [`docs/eu-ai-migration.md`](docs/eu-ai-migration.md).
 
 **Cloudflare Workers AI** (inferenza edge, senza GPU da ospitare) — esempio in `.env.example`:
 `CHAT_MODEL=cloudflare/@cf/meta/llama-3.1-8b-instruct`, `EMBED_MODEL=cloudflare/@cf/baai/bge-m3`

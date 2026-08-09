@@ -70,7 +70,9 @@ contratti, registro dei trattamenti, DPIA, procedure e verifiche dei fornitori.
   con semplice location hint.
 - [ ] Sostituire Workers AI per chat/embedding con un provider che offra elaborazione e logging
   contrattualmente vincolati all'UE, oppure eseguire i modelli nel backend UE. Workers AI può
-  restare solo se Cloudflare fornisce una garanzia contrattuale specifica sufficiente.
+  restare solo se Cloudflare fornisce una garanzia contrattuale specifica sufficiente. Il
+  guardrail fail-closed e il piano Mistral EU sono pronti in
+  [`eu-ai-migration.md`](eu-ai-migration.md); mancano account/DPA, chiave e benchmark.
 - [ ] Verificare e documentare localizzazione di Worker, KV, log/analytics Cloudflare e routing
   email. La Data Localization Suite è Enterprise e non regionalizza Workers AI.
 
