@@ -24,7 +24,8 @@ giorno:
 `DATA_RETENTION_DAYS=0` è la policy deliberata per i tenant attivi: storico senza scadenza finché
 il cliente non sceglie un periodo diverso. È distinta dalla cancellazione completa 90 giorni
 dopo la cessazione dell'abbonamento. Redis è stato creato in EU West e collegato al backend;
-`STRICT_PRODUCTION_CONFIG` verrà attivato dopo il deploy del controllo aggiornato.
+`STRICT_PRODUCTION_CONFIG=true` è ora attivo: il deploy Railway è riuscito, il controllo delle
+variabili riporta zero warning e l'health pubblico è operativo.
 
 ## Mappa verificata dei trattamenti
 
@@ -77,7 +78,7 @@ contratti, registro dei trattamenti, DPIA, procedure e verifiche dei fornitori.
 
 - [ ] Esporre ai tenant attivi una retention configurabile; default deliberato senza scadenza.
   La cancellazione dell'intero account 90 giorni dopo la disdetta resta obbligatoria e separata.
-- [ ] Attivare `STRICT_PRODUCTION_CONFIG=true` e risolvere tutti i warning prima del deploy.
+- [x] Attivare `STRICT_PRODUCTION_CONFIG=true` e risolvere tutti i warning prima del deploy.
 - [ ] Definire retention separate per audit, fatturazione, lead, backup, email e log tecnici.
 - [ ] Ridurre log applicativi e provider ai soli metadati necessari; vietare prompt, transcript,
   email e token nei log.
@@ -125,7 +126,7 @@ contratti, registro dei trattamenti, DPIA, procedure e verifiche dei fornitori.
 - Configurazione live Railway (`railway status --json`, 9 agosto 2026): deployment `sfo`.
 - Configurazione live Railway filtrata: Neon `eu-central-1`, Workers AI e Brevo; Redis creato
   e vincolato a EU West il 9 agosto. Retention attivi deliberatamente illimitata; strict mode
-  da attivare dopo il deploy del controllo aggiornato.
+  attiva con zero warning e deployment `ae2ba17b-a1b0-4e37-af84-2310d1c7c197` riuscito.
 - Configurazione live R2 (`wrangler r2 bucket info`, 9 agosto 2026): location `EEUR`, zero
   oggetti al momento della verifica iniziale; nuovo bucket creato nella jurisdiction `eu` e
   Worker versione `1a83fae5-3c18-48d4-993c-bc9951b8b61b` distribuito.
