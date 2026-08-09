@@ -32,3 +32,12 @@ sla_breaches_total = Counter(
     "SLA targets breached (counted once per conversation and target)",
     ["target"],  # first_response | resolution
 )
+
+# Copertura della licenza sulle chiamate del widget, contata **senza rifiutare nulla**: è il
+# numero che dice quando si può applicare il vincolo senza spegnere qualcuno, e quanto traffico
+# arriva senza header Origin — cioè non da un browser, dove il binding oggi non si applica.
+widget_origin_checks_total = Counter(
+    "wpai_widget_origin_checks_total",
+    "Widget calls classified by licence coverage (observation only, nothing is rejected)",
+    ["result"],  # covered | uncovered | missing_origin
+)

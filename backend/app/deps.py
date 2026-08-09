@@ -17,6 +17,7 @@ from datetime import datetime
 from fastapi import Depends, Header, HTTPException, Request
 from sqlmodel import Session, or_, select
 
+from . import origins
 from .db import ApiKey, AuditLog, Client, Operator, OperatorSession, Plan, PluginInstallation, get_session
 from .ratelimit import make_limiter
 from .util import split_origins
@@ -212,6 +213,12 @@ def rate_limit_chat(request: Request, client: Client = Depends(require_client), 
     # one of its configured origins (skipped when unconfigured or for server-side calls)
     allowed = split_origins(client.allowed_origins)
     origin = request.headers.get("origin")
+    # Osservazione della licenza per dominio: annota e conta, **non rifiuta**. Il rifiuto arriva
+    # in un blocco successivo, quando sapremo chi si romperebbe. Le due maglie larghe qui sopra
+    # — nessun controllo senza origin configurati, controllo saltato senza header Origin —
+    # restano com'erano di proposito: cambiarle adesso, senza dati, è il modo per spegnere il
+    # widget a qualcuno senza accorgersene.
+    origins.observe(session, client.id, origin, allowed)
     if allowed and origin and origin not in allowed:
         raise HTTPException(403, "origin not allowed for this client")
     ip = request.client.host if request.client else "unknown"

@@ -330,17 +330,47 @@ già: le conversazioni che arrivano da staging vanno marcate e tenute fuori da s
 e viste commerciali per impostazione predefinita. Non è anti-abuso, è qualità del prodotto —
 altrimenti le prove di un tema in staging inquinano i numeri su cui il cliente decide.
 
-**La migrazione è la parte pericolosa, e va fatta a scaglioni.** Ribaltare fail-open in
-fail-closed su un sistema vivo spegne il widget a **ogni cliente con `allowed_origins` vuoto** —
-cioè oggi la maggioranza, visto che solo il superadmin può popolarlo. Rilasciato diretto non è
-un rischio: è un'interruzione di servizio a tutto il parco clienti, con la nostra firma sopra.
-La sequenza:
+### Quanto è già chiuso: correzione dopo la verifica in produzione
 
-1. **Osservazione.** Registrare l'origin visto a ogni chiamata come `status='observed'`. Oggi
-   **nessuna parte del backend registra l'`Origin`** (verificato): senza questo passo non
-   sappiamo nemmeno quanti clienti romperemmo, né su quali domini.
-2. **Backfill.** Da `PluginInstallation.site_origin`, che sono origin **già verificati per
-   challenge**: i clienti con il plugin installato passano senza accorgersene.
+Una prima stesura di questo documento diceva che passare a fail closed avrebbe spento il widget
+a quasi tutti i clienti. **Non è così, e la differenza cambia le priorità.** Il backend di
+produzione applica la CORS in modo stretto: un preflight con un `Origin` sconosciuto riceve
+`403` (verificato il 10 agosto 2026 contro il backend live; `CORS_ALLOW_ALL` è quindi `false`
+come prescrive `production_config.py`).
+
+Conseguenze, tutte controintuitive rispetto a com'era scritto prima:
+
+1. **Il traffico browser da un dominio non ammesso non arriva mai all'applicazione.** La chiamata
+   a `/chat` porta `Authorization` e JSON, quindi non è una richiesta semplice: il browser manda
+   prima il preflight, che viene rifiutato. Un cliente il cui dominio non è in allowlist ha già
+   oggi un widget che **non funziona** — non uno che funziona e che romperemmo noi.
+2. **La licenza per dominio, lato browser, è già in gran parte applicata** — non dalla riga che
+   guardavamo, ma dall'allowlist CORS. Il "venti siti con una licenza" fatto da un browser oggi
+   fallisce già al preflight.
+3. **Restano due varchi veri.** L'allowlist CORS è **globale**: un origin registrato da un
+   cliente qualsiasi passa il livello browser, e poi `rate_limit_chat` rifiuta solo se è il
+   *chiamante* ad avere origin configurati — quindi "dominio registrato da un altro tenant +
+   chiamante con `allowed_origins` vuoto" passa. E soprattutto: alle chiamate **senza header
+   `Origin`** la CORS non si applica affatto, perché non è un browser a farle. Quel varco è
+   intero, ed è il modo realistico di usare una chiave pubblica rubata.
+
+Quindi il lavoro cambia bersaglio: meno "non spegniamo tutti", più **chiudere il varco
+server-side** e misurare quanti tenant hanno davvero `allowed_origins` vuoto *e* traffico
+recente — una query da fare in produzione prima di decidere la data di applicazione, non una
+supposizione.
+
+**La migrazione resta da fare a scaglioni, ma per una ragione più stretta.** Il rischio non è
+più "tutti", è la coda: i tenant che passano oggi grazie a un origin registrato da altri, e
+quelli che usano il widget da un server. La sequenza:
+
+1. **Osservazione.** Registrare l'origin visto a ogni chiamata come riga `observed`, e contare a
+   parte le chiamate **senza** `Origin` — che sono il segnale che conta, perché è l'unico
+   traffico su cui oggi non c'è alcun controllo. **Fatto** (migrazione `0054`, `app/origins.py`,
+   metrica `wpai_widget_origin_checks_total`).
+2. **Backfill.** Da `Client.allowed_origins` (il primo dominio di ciascuno diventa `live`, gli
+   altri restano da confermare: quale sia la produzione fra due voci di una stringa non lo sa
+   nessuno) e da `PluginInstallation.site_origin`, che sono origin **già verificati per
+   challenge** e vincono sugli altri. **Fatto** nella migrazione `0054`.
 3. **Conferma dal cliente.** Il panel mostra "abbiamo visto traffico da questi domini" e chiede
    di confermarli. Trasforma l'osservazione in registrazione senza far indovinare niente a
    nessuno, e fa emergere subito chi è già oltre gli slot del piano.
@@ -568,11 +598,12 @@ Licenza  osservazione → backfill → conferma → preavviso → applicazione
 1. **Due widget invece di uno.** È il rischio che la fase 1 esiste per evitare. Se per fretta si
    costruisce un widget nuovo lasciando quello del plugin, da quel giorno ogni correzione si fa
    due volte e una delle due si dimentica.
-2. **Spegnere il widget a tutto il parco clienti passando a fail closed.** Il rischio più grave
-   della roadmap, e non è un'ipotesi: oggi la maggior parte dei tenant ha `allowed_origins`
-   vuoto, quindi l'applicazione diretta della licenza per dominio li interrompe tutti insieme.
-   Osservazione, backfill, conferma e preavviso prima dell'applicazione (§5) non sono prudenza:
-   sono la funzionalità.
+2. **Spegnere clienti passando a fail closed.** Ridimensionato dopo la verifica in produzione
+   (§5): la CORS stretta ferma già al preflight il traffico browser dai domini non ammessi,
+   quindi la platea a rischio è la coda — chi passa grazie a un origin registrato da un altro
+   tenant e chi usa il widget da un server. Resta il motivo per cui osservazione, backfill,
+   conferma e preavviso vengono prima dell'applicazione, ma la data si decide su una query, non
+   su una paura.
 3. **Il `403` silenzioso sull'origin.** Il fallimento più probabile in installazione, e si
    manifesta come "il widget non c'è". Errore leggibile e test d'installazione nel panel.
 4. **Contesto tenant troppo generoso.** Un blocco di contesto che cresce a ogni richiesta di

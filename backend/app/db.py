@@ -25,6 +25,10 @@ class Plan(SQLModel, table=True):
     # monthly chat-message quota (visitor messages that reach the AI); 0 = unlimited.
     # Counted per calendar month; over quota the AI stops answering (see enforcement in /chat).
     monthly_message_limit: int = 0
+    # Quanti domini di produzione concede la licenza; 0 = illimitato, come sopra. È un numero e
+    # non una costante nel codice perché il primo cliente agenzia o WordPress multisite chiederà
+    # più siti, e quella è una leva di prezzo. Lo slot di staging è uno e non dipende dal piano.
+    max_live_origins: int = 1
     yearly_price_cents: int = 0
     stripe_price_id: str = ""
     stripe_yearly_price_id: str = ""
@@ -101,6 +105,40 @@ class Client(SQLModel, table=True):
     # rimandare la stessa email a ogni giro del worker: si invia una soglia solo se è più
     # stretta dell'ultima. Azzerato alla riattivazione insieme alla scadenza.
     deletion_reminder_sent_days: Optional[int] = None
+
+
+class ClientOrigin(SQLModel, table=True):
+    """Un sito coperto dalla licenza del tenant, o visto usarla.
+
+    Sostituisce la stringa separata da virgole `Client.allowed_origins`: con la licenza legata al
+    dominio i siti vanno **contati, datati e mostrati**, e una colonna di testo non permette
+    nessuna delle tre cose.
+
+    `kind` vale `live` (produzione), `staging` (ambiente di prova, vincolato dalle regole di
+    `origins.py`) oppure `observed`. Un `observed` **non concede nulla**: è la traccia di un
+    Origin da cui è arrivato traffico, raccolta per sapere quali domini un cliente sta davvero
+    usando prima di applicare il vincolo. Diventa `live` o `staging` solo quando qualcuno lo
+    conferma — noi nel backfill o il cliente dal pannello.
+
+    `origin` è la forma normalizzata (`scheme://host[:port]`); `host` è la forma confrontabile
+    prodotta da `origins.host_of()` — senza schema, porta e `www.` — ed è ciò su cui cade
+    l'unicità, perché `esempio.it` e `www.esempio.it` sono lo stesso sito e devono occupare un
+    solo slot.
+    """
+    __table_args__ = (UniqueConstraint("client_id", "host", name="uq_client_origin_host"),)
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    client_id: int = Field(index=True, foreign_key="client.id")
+    origin: str
+    host: str = Field(index=True)
+    kind: str = "observed"  # live | staging | observed
+    # Da dove viene la riga: `plugin` (installazione verificata per challenge), `panel` (scelta
+    # del cliente), `admin`, `traffic` (osservata). Serve a sapere quanto ci si può fidare di un
+    # dominio quando arriverà il momento di applicare il vincolo senza spegnere nessuno.
+    source: str = "traffic"
+    first_seen_at: datetime = Field(default_factory=datetime.utcnow)
+    last_seen_at: datetime = Field(default_factory=datetime.utcnow)
+    confirmed_at: Optional[datetime] = None
 
 
 class Chunk(SQLModel, table=True):

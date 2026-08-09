@@ -159,6 +159,11 @@ finiscono nell'audit.
 ## Modello dati
 
 - **Client** — tenant, identificato da `api_key`.
+- **ClientOrigin** — i siti coperti dalla licenza del tenant: un dominio `live` (quanti ne
+  concede il piano, `Plan.max_live_origins`), uno `staging` vincolato dalle regole di
+  `app/origins.py`, e le righe `observed` — traccia di traffico che **non concede nulla**,
+  raccolta per sapere quali domini un cliente usa davvero prima di applicare il vincolo. Gli
+  indirizzi locali (`localhost`, `*.local`, `*.test`) sono sempre ammessi e non occupano slot.
 - **Chunk** — pezzo di contenuto embeddato (documento o pagina sito).
 - **Product** — prodotto WooCommerce strutturato (per renderizzare card nel widget).
 - **Contact** — identità tenant-scoped condivisa tra conversazioni e canali; usa il browser id
