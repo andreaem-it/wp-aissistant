@@ -3,16 +3,18 @@ import {
   Shield, Building2, Plus, Eye, EyeOff, Copy, Check, RefreshCw,
   Trash2, MessageSquare, Users, FileText, Package, Sparkles, CreditCard,
   LayoutDashboard, Activity, ScrollText, AlertTriangle, Search,
-  ThumbsUp, ThumbsDown, X, TrendingUp,
+  ThumbsUp, ThumbsDown, X, TrendingUp, CalendarDays, Pencil,
 } from "lucide-react";
 import { getAdminKey, setAdminKey, clearAdminKey, adminApi } from "./adminApi.js";
 import { MiniBars, Breakdown } from "./Charts.jsx";
 import ThemeToggle from "./ThemeToggle.jsx";
 import Loading from "./Loading.jsx";
 
+// Nessun "Gratis" per lo zero. Non esiste una versione gratuita del prodotto, e questa stessa
+// funzione formatta anche costi, ricavi e margini: lì lo zero è zero euro, non un regalo — un
+// margine esattamente in pareggio si leggeva "Gratis".
 function formatPrice(cents, currency) {
-  if (!cents) return "Gratis";
-  return new Intl.NumberFormat("it-IT", { style: "currency", currency: currency || "eur" }).format(cents / 100);
+  return new Intl.NumberFormat("it-IT", { style: "currency", currency: currency || "eur" }).format((cents || 0) / 100);
 }
 
 function NewClientForm({ onCreated }) {
@@ -265,12 +267,47 @@ function ClientDetail({ client, plans, onChanged }) {
   const [keyVisible, setKeyVisible] = useState(false);
   const [copied, setCopied] = useState(false);
   const [confirmingRotate, setConfirmingRotate] = useState(false);
+  const [name, setName] = useState(client.name);
+  const [savingName, setSavingName] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState("");
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
 
   useEffect(() => {
     setOrigins(client.allowed_origins || "");
     setNewKey(null);
     setConfirmingRotate(false);
-  }, [client.id, client.allowed_origins]);
+    setName(client.name);
+    setDeleteConfirm("");
+    setDeleteError("");
+  }, [client.id, client.allowed_origins, client.name]);
+
+  const saveName = async () => {
+    setSavingName(true);
+    try {
+      await adminApi.renameClient(client.id, name.trim());
+      onChanged();
+    } finally {
+      setSavingName(false);
+    }
+  };
+
+  const removeClient = async () => {
+    setDeleting(true);
+    setDeleteError("");
+    try {
+      await adminApi.deleteClient(client.id, deleteConfirm.trim());
+      onChanged();  // il ricaricamento non lo trova più e riporta alla lista
+    } catch (e) {
+      setDeleteError(
+        e?.status === 400
+          ? "Il nome non corrisponde. Scrivilo esattamente come compare qui sopra."
+          : `Eliminazione non riuscita${e?.status ? ` (errore ${e.status})` : ""}.`
+      );
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   const saveOrigins = async () => {
     setSavingOrigins(true);
@@ -295,9 +332,53 @@ function ClientDetail({ client, plans, onChanged }) {
     setTimeout(() => setCopied(false), 1500);
   };
 
+  const day = (value) => (value ? new Date(value).toLocaleDateString("it-IT") : "—");
+  // "attivo dal" è la data del primo incasso, non quella della registrazione: un account creato
+  // e mai pagato non è un cliente attivo, e mostrarne la data come tale falserebbe la lettura
+  const activeSince = client.first_paid_at;
+  const suspended = !["active", "trialing", "past_due"].includes(client.billing_status);
+
   return (
     <div>
       <h2 style={{ marginTop: 0 }}>{client.name}</h2>
+
+      <div className="wpai-card" style={{ marginBottom: 16 }}>
+        <div className="wpai-card-title" style={{ marginBottom: 12 }}>
+          <CalendarDays size={15} /> Abbonamento
+        </div>
+        <div className="wpai-kv-grid">
+          <div><span>Stato</span><strong>
+            <span className={"wpai-badge " + (suspended ? "warn" : "ok")}>{client.billing_status || "—"}</span>
+          </strong></div>
+          <div><span>Piano</span><strong>{client.plan_name || "—"}</strong></div>
+          <div><span>Registrato il</span><strong>{day(client.created_at)}</strong></div>
+          <div><span>Attivo dal</span><strong>{day(activeSince)}</strong></div>
+          <div>
+            <span>{client.subscription_cancel_at_period_end ? "Disdetto, attivo fino al" : "Rinnovo il"}</span>
+            <strong>{day(client.subscription_period_end)}</strong>
+          </div>
+          <div><span>Fatturazione</span><strong>
+            {client.subscription_interval === "year" ? "annuale"
+              : client.subscription_interval === "month" ? "mensile" : "—"}
+          </strong></div>
+          {client.subscription_canceled_at && (
+            <div><span>Disdetto il</span><strong>{day(client.subscription_canceled_at)}</strong></div>
+          )}
+        </div>
+
+        {suspended && (
+          <div className="wpai-callout warn" role="status" style={{ marginTop: 12 }}>
+            <div>
+              L'assistente non risponde ai visitatori: non c'è un abbonamento attivo.
+              {client.data_deletion_due_at && (
+                <> I dati vengono <strong>eliminati definitivamente il {day(client.data_deletion_due_at)}</strong>;
+                  il cliente riceve un avviso a 30, 14, 7 e 3 giorni. Riattivando, la
+                  cancellazione si annulla.</>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
 
       <div className="wpai-stat-grid" style={{ marginBottom: 20 }}>
         {[
@@ -364,9 +445,54 @@ function ClientDetail({ client, plans, onChanged }) {
         </button>
       </div>
 
+      <div className="wpai-card" style={{ marginTop: 16 }}>
+        <div className="wpai-card-title" style={{ marginBottom: 12 }}><Pencil size={15} /> Nome</div>
+        <div className="wpai-field">
+          <input value={name} onChange={(e) => setName(e.target.value)} />
+          <p style={{ fontSize: 11.5, color: "var(--text-muted)", margin: "6px 0 0" }}>
+            Compare nel pannello e nelle email al visitatore («Nuova risposta dal supporto — {name || "…"}»).
+          </p>
+        </div>
+        <button
+          className="wpai-btn"
+          onClick={saveName}
+          disabled={savingName || !name.trim() || name.trim() === client.name}
+        >
+          {savingName ? "Salvataggio…" : "Rinomina"}
+        </button>
+      </div>
+
       <PlanPicker client={client} plans={plans} onChanged={onChanged} />
       <CommercialActions client={client} />
       <OperatorsPanel clientId={client.id} />
+
+      <div className="wpai-card wpai-danger-zone" style={{ marginTop: 16 }}>
+        <div className="wpai-card-title" style={{ marginBottom: 8 }}>
+          <AlertTriangle size={15} /> Elimina cliente
+        </div>
+        <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "0 0 12px" }}>
+          Cancella l'account e <strong>tutti</strong> i suoi dati: conversazioni, knowledge base,
+          contatti, operatori. Non è annullabile e non aspetta i 90 giorni previsti dopo una
+          disdetta. Per confermare, scrivi il nome esatto del cliente.
+        </p>
+        {deleteError && <p className="wpai-error">{deleteError}</p>}
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <input
+            value={deleteConfirm}
+            onChange={(e) => setDeleteConfirm(e.target.value)}
+            placeholder={client.name}
+            style={{ maxWidth: 260 }}
+            aria-label={`Scrivi «${client.name}» per confermare`}
+          />
+          <button
+            className="wpai-btn danger"
+            onClick={removeClient}
+            disabled={deleting || deleteConfirm.trim() !== client.name}
+          >
+            <Trash2 size={14} /> {deleting ? "Eliminazione…" : "Elimina definitivamente"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -414,9 +540,9 @@ function PlansView({ plans, onChanged }) {
             <input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} required />
           </div>
           <div className="wpai-field">
-            <label>Prezzo (centesimi/mese, 0 = gratis)</label>
+            <label>Prezzo (centesimi/mese)</label>
             <input
-              type="number" min={0} value={form.price_cents}
+              type="number" min={1} value={form.price_cents}
               onChange={(e) => setForm((f) => ({ ...f, price_cents: Number(e.target.value) }))}
             />
           </div>
@@ -1399,7 +1525,9 @@ function Dashboard() {
     setClients(list);
     setSelected((current) => {
       if (!current) return current;
-      return list.find((c) => c.id === current.id) || current;
+      // sparito dalla lista = eliminato: si torna all'elenco invece di restare su un dettaglio
+      // che mostra dati di una riga che non c'è più
+      return list.find((c) => c.id === current.id) || null;
     });
   }), []);
   const loadPlans = useCallback(() => adminApi.plans().then(setPlans), []);

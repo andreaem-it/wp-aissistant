@@ -61,6 +61,18 @@ def enabled() -> bool:
     return bool(STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET)
 
 
+# Gli stati in cui il servizio viene erogato. `past_due` è dentro di proposito: è il periodo di
+# grazia mentre Stripe ritenta il pagamento, e spegnere l'assistente a un cliente per una carta
+# scaduta gli farebbe perdere conversazioni vere. Fuori restano `incomplete` (mai pagato) e
+# `canceled` (sospeso): non esiste un piano gratuito che li copra.
+SERVING_STATUSES = ("active", "trialing", "past_due")
+
+
+def service_suspended(client: "Client | None") -> bool:
+    """Se il servizio è sospeso per questo tenant."""
+    return bool(client) and client.billing_status not in SERVING_STATUSES
+
+
 def map_status(stripe_status: str) -> str:
     return _STATUS_MAP.get(stripe_status, "active")
 
@@ -76,15 +88,6 @@ def _client_by_subscription(session: Session, sub_id) -> "Client | None":
     if not sub_id:
         return None
     return session.exec(select(Client).where(Client.stripe_subscription_id == sub_id)).first()
-
-
-def _free_plan_id(session: Session) -> "int | None":
-    """The plan to fall back to on cancellation: the one named 'Free', else the oldest."""
-    plan = (
-        session.exec(select(Plan).where(Plan.name == "Free")).first()
-        or session.exec(select(Plan).order_by(Plan.id)).first()
-    )
-    return plan.id if plan else None
 
 
 def _apply_plan(session: Session, client: "Client", plan_id) -> None:
@@ -176,21 +179,27 @@ def handle_event(session: Session, event) -> None:
         )
         # mirror the paid-through date so /usage can answer without calling Stripe
         client.subscription_period_end = _period_end(obj.get("current_period_end")) or client.subscription_period_end
-        # policy: canceled -> downgrade to Free (its limits apply via plan_id). past_due keeps
-        # the paid plan as a grace period while Stripe retries the payment.
+        # Non esiste un piano gratuito a cui retrocedere: alla disdetta il servizio si sospende
+        # e parte il conto alla rovescia per la cancellazione dei dati. Il `plan_id` resta quello
+        # che il cliente aveva — serve a sapere cosa riattivare, non a dargli accesso.
+        # past_due tiene il piano come periodo di grazia mentre Stripe ritenta il pagamento.
         if client.billing_status == "canceled":
-            free_id = _free_plan_id(session)
-            if free_id:
-                client.plan_id = free_id
+            client.data_deletion_due_at = _deletion_due_from(client)
+        elif client.billing_status in ("active", "trialing"):
+            # riattivazione: il conto alla rovescia si annulla, non si mette in pausa
+            client.data_deletion_due_at = None
         session.add(client)
         session.commit()
         # tell the customer only about the transitions they need to act on, and only once:
         # a cancellation already announced at period end must not mail them twice.
         if etype == "customer.subscription.deleted":
-            _notify(session, client, email_service.send_subscription_canceled)
+            deletion_on = client.data_deletion_due_at
+            _notify(session, client, lambda to: email_service.send_subscription_canceled(
+                to, deletion_on, DATA_RETENTION_DAYS))
         elif client.subscription_cancel_at_period_end and not was_scheduled_to_cancel:
             ends_on = client.subscription_period_end
-            _notify(session, client, lambda to: email_service.send_cancellation_scheduled(to, ends_on))
+            _notify(session, client, lambda to: email_service.send_cancellation_scheduled(
+                to, ends_on, DATA_RETENTION_DAYS))
 
     elif etype == "customer.subscription.trial_will_end":
         client = _client_by_subscription(session, obj.get("id")) or _client_by_id(session, metadata.get("client_id"))
@@ -416,12 +425,36 @@ def change_plan(client: "Client", price_id: str):
     )
 
 
+# Quanto restano i dati dopo la disdetta prima di essere eliminati, e quando avvisare.
+DATA_RETENTION_DAYS = int(os.getenv("DATA_RETENTION_DAYS_AFTER_CANCEL", "90"))
+DELETION_REMINDER_DAYS = (30, 14, 7, 3)
+
+
+def _deletion_due_from(client: "Client") -> datetime:
+    """Da quando contare i 90 giorni: la fine del periodo pagato, non il momento della disdetta.
+
+    Chi disdice a inizio mese ha già pagato fino a fine mese: far partire il conto alla rovescia
+    subito gli toglierebbe giorni che ha comprato.
+    """
+    start = client.subscription_period_end or datetime.utcnow()
+    return start + timedelta(days=DATA_RETENTION_DAYS)
+
+
 def default_plan_id(session: Session) -> int:
-    """The oldest plan (seeded "Free" on fresh DBs via migration 0005). Auto-creates one
-    if missing entirely — e.g. DB_AUTO_CREATE dev setups that skip migrations."""
+    """Il piano assegnato a un account che non ha ancora pagato.
+
+    Serve solo a dare dei limiti di frequenza a una riga che esiste prima del pagamento: non
+    concede il servizio, che dipende da `billing_status` (`incomplete` non eroga). Prima qui
+    veniva creato un piano chiamato "Free", che di fatto era una versione gratuita del prodotto
+    a cui si finiva anche disdicendo.
+
+    Su un database senza piani ne crea uno minimo — non gratuito — perché `Client.plan_id` non
+    è nullable e un'installazione nuova deve poter creare un account prima che il listino sia
+    compilato.
+    """
     plan = session.exec(select(Plan).order_by(Plan.id)).first()
     if not plan:
-        plan = Plan(name="Free", chat_rate_limit=30, ingest_rate_limit=60)
+        plan = Plan(name="Base", price_cents=100, chat_rate_limit=30, ingest_rate_limit=60)
         session.add(plan)
         session.commit()
         session.refresh(plan)

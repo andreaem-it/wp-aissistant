@@ -221,9 +221,13 @@ def _billing_link() -> str:
     return f"{panel_url()}/?section=billing"
 
 
-def _on_date(value) -> str:
-    """' il 12/09/2026' when the date is known, '' otherwise — never an invented deadline."""
-    return f" il {value.strftime('%d/%m/%Y')}" if value else ""
+def _on_date(value, prefix: str = " il") -> str:
+    """' il 12/09/2026' when the date is known, '' otherwise — never an invented deadline.
+
+    `prefix` perché la stessa data entra in frasi diverse ("fino al", ", il"): senza, la
+    preposizione andrebbe scritta fuori e comparirebbe anche quando la data non c'è.
+    """
+    return f"{prefix} {value.strftime('%d/%m/%Y')}" if value else ""
 
 
 def send_payment_failed(to: str) -> bool:
@@ -249,27 +253,52 @@ def send_trial_ending(to: str, trial_end=None) -> bool:
     return send_email(to, "La prova sta per terminare — WP AIssistant", body)
 
 
-def send_cancellation_scheduled(to: str, ends_at=None) -> bool:
+def send_cancellation_scheduled(to: str, ends_at=None, retention_days: int = 90) -> bool:
     """Confirm a cancellation requested from the billing portal, before it takes effect."""
     body = (
         f"Abbiamo registrato la disdetta del tuo abbonamento WP AIssistant.\n\n"
-        f"Il piano resta attivo fino alla fine del periodo già pagato{_on_date(ends_at)}; "
-        "dopo quella data l'account passa al piano Free.\n\n"
-        "Se hai cambiato idea puoi riattivarlo dal pannello:\n"
+        f"Il servizio resta attivo fino alla fine del periodo già pagato{_on_date(ends_at)}. "
+        "Dopo quella data l'assistente smette di rispondere ai visitatori del tuo sito, "
+        f"ma i tuoi dati restano al loro posto ancora {retention_days} giorni: conversazioni, "
+        "knowledge base e impostazioni ti aspettano se cambi idea, e la riattivazione è "
+        "immediata.\n\n"
+        "Se hai cambiato idea puoi riattivare dal pannello:\n"
         f"{_billing_link()}\n"
     )
     return send_email(to, "Disdetta registrata — WP AIssistant", body)
 
 
-def send_subscription_canceled(to: str) -> bool:
-    """Tell the tenant the paid subscription has ended and the account is now on Free."""
+def send_subscription_canceled(to: str, deletion_at=None, retention_days: int = 90) -> bool:
+    """Tell the tenant the paid subscription has ended and the assistant is now suspended."""
     body = (
-        "Il tuo abbonamento WP AIssistant è terminato e l'account è passato al piano Free.\n\n"
-        "I tuoi dati e le conversazioni restano al loro posto: valgono i limiti del piano Free. "
-        "Puoi riattivare un piano quando vuoi dal pannello:\n"
+        "Il tuo abbonamento WP AIssistant è terminato e l'assistente ha smesso di rispondere "
+        "ai visitatori del tuo sito.\n\n"
+        f"I tuoi dati restano disponibili ancora {retention_days} giorni"
+        f"{_on_date(deletion_at, prefix=', fino al')}: conversazioni, knowledge base e "
+        "impostazioni sono al loro posto e la riattivazione è immediata, senza rifare nulla.\n\n"
+        "Puoi riattivare quando vuoi dal pannello:\n"
         f"{_billing_link()}\n"
     )
     return send_email(to, "Abbonamento terminato — WP AIssistant", body)
+
+
+def send_deletion_reminder(to: str, days_left: int, deletion_at=None) -> bool:
+    """Avvisa che i dati stanno per essere eliminati definitivamente.
+
+    Scritta perché si possa agire leggendo solo la prima riga: chi la riceve ha già disdetto e
+    non sta guardando il pannello. Il numero di giorni sta nell'oggetto per la stessa ragione.
+    """
+    giorni = "giorno" if days_left == 1 else "giorni"
+    body = (
+        f"Fra {days_left} {giorni} i dati del tuo account WP AIssistant verranno eliminati "
+        f"definitivamente{_on_date(deletion_at, prefix=', il')}.\n\n"
+        "Riguarda conversazioni, knowledge base, contatti e impostazioni: dopo quella data non "
+        "sono più recuperabili, da noi né da te.\n\n"
+        "Se ti servono ancora, basta riattivare un piano dal pannello — la cancellazione si "
+        "annulla e ritrovi tutto com'era:\n"
+        f"{_billing_link()}\n"
+    )
+    return send_email(to, f"Fra {days_left} {giorni} i tuoi dati verranno eliminati — WP AIssistant", body)
 
 
 def send_test(to: str) -> bool:

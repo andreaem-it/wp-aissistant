@@ -9,7 +9,7 @@ ADMIN = {"Authorization": "Bearer test-admin"}
 def _set_plan_limit(client, tenant, limit):
     """Point the tenant's client at a plan with the given monthly message limit."""
     plan = client.post("/admin/plans", headers=ADMIN,
-                       json={"name": f"Limited{limit}", "monthly_message_limit": limit}).json()
+                       json={"name": f"Limited{limit}", "price_cents": 900, "monthly_message_limit": limit}).json()
     client.post(f"/admin/clients/{tenant['cid']}/plan", headers=ADMIN, json={"plan_id": plan["id"]})
     return plan
 

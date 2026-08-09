@@ -222,6 +222,26 @@ Quando si tocca qualcosa che dipende da una distanza, si usa un embedder finto m
 *discriminante* — vettori diversi per testi diversi, vicini per testi che condividono parole.
 Il modello sta in `tests/test_product_cards.py::_fake_embed`: poche righe, nessuna dipendenza.
 
+### Non esiste un piano gratuito
+
+L'accesso al servizio dipende **solo** da `Client.billing_status`: erogano `active`, `trialing`
+e `past_due` (grazia mentre Stripe ritenta); non erogano `incomplete` e `canceled`. Il `plan_id`
+non è un interruttore, è la traccia di cosa il cliente aveva.
+
+Fino ad agosto 2026 chi disdiceva veniva **retrocesso a un piano chiamato "Free"** con
+`monthly_message_limit = 0`, cioè messaggi illimitati: il servizio continuava gratis e senza
+scadenza. La migrazione 0052 rinomina quel piano in "Base", gli dà un prezzo e mette in coda di
+cancellazione i tenant già disdetti.
+
+Dopo la disdetta i dati restano `DATA_RETENTION_DAYS_AFTER_CANCEL` giorni (90) a partire dalla
+**fine del periodo pagato**, non dalla richiesta. `app/retention.py` manda gli avvisi a 30/14/7/3
+giorni e poi elimina. La riattivazione azzera la scadenza, non la mette in pausa.
+
+`retention.purge_client` ricava le tabelle dai metadati di SQLModel invece di elencarle: una
+dimenticanza non darebbe errore, lascerebbe dati di un cliente cancellato dentro un sistema
+multi-tenant. L'ordine è quello topologico rovesciato — `airesponselog` ha `client_id` e punta a
+`message`, che non ce l'ha, quindi nessun ordine "prima quelle con client_id" funziona.
+
 ## 8. Debito noto (non bloccante, ma reale)
 
 1. ~~**`backend/app/main.py`: 8016 righe, 182 endpoint.**~~ **Risolto.** Il file è a **567 righe e

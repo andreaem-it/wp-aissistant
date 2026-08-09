@@ -20,7 +20,7 @@ def _price(client, model, input_cents=0, output_cents=0, currency="eur"):
     })
 
 
-def _plan(client, name, price_cents=0, yearly_price_cents=0):
+def _plan(client, name, price_cents=100, yearly_price_cents=0):
     return client.post("/admin/plans", headers=ADMIN, json={
         "name": name, "price_cents": price_cents, "yearly_price_cents": yearly_price_cents,
     }).json()["id"]
@@ -180,8 +180,9 @@ def test_yearly_subscriber_revenue_is_normalised(client):
 
 
 def test_margin_pct_is_absent_without_revenue(client):
-    plan_id = _plan(client, "Free")
-    cid = _tenant(client, "Gratis", plan_id)
+    # un tenant sospeso non produce ricavo: è il caso in cui la percentuale non è calcolabile
+    plan_id = _plan(client, "Sospeso")
+    cid = _tenant(client, "Senza ricavo", plan_id, status="canceled")
     _price(client, "m", input_cents=100, output_cents=0)
     _turns(cid, "m", tokens_in=1_000_000)
 

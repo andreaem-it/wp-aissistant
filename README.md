@@ -453,6 +453,7 @@ Per collegare CRM e automazioni ci sono due strade complementari, documentate in
 | `STORAGE_PRICE_PER_GB_MONTH_MILLICENTS` | *(non impostato)* | Prezzo dello storage allegati in millesimi di centesimo per GB-mese. Senza, lo storage è **non prezzato** — escluso dal totale e segnalato, mai contato come gratis |
 | `EMAIL_PRICE_PER_MESSAGE_MILLICENTS` | *(non impostato)* | Prezzo di un'email transazionale in millesimi di centesimo. Senza, le email sono **contate ma non valorizzate** — escluse dal totale e segnalate nel pannello |
 | `WHATSAPP_PRICE_PER_MESSAGE_MILLICENTS` | *(non impostato)* | Come sopra per i messaggi WhatsApp. Attenzione: Meta fattura per conversazione e per paese, quindi una tariffa piatta è un'approssimazione da scegliere con cognizione |
+| `DATA_RETENTION_DAYS_AFTER_CANCEL` | `90` | Giorni in cui i dati di un tenant restano disponibili dopo la disdetta, prima di essere eliminati. Avvisi al cliente a 30/14/7/3 giorni dalla scadenza |
 | `BILLING_PORTAL_RETURN_URL` | *(usa `BILLING_SUCCESS_URL`)* | Dove Stripe riporta il cliente quando chiude il portale di fatturazione |
 | `DOCS_ENABLED` | `false` | Espone `/docs`, `/redoc`, `/openapi.json` (off di default in prod) |
 | `METRICS_TOKEN` | *(non impostato)* | Se assente `/metrics` è disabilitato; se impostato richiede `Bearer <token>` |

@@ -31,6 +31,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import func
 from sqlmodel import Session, select
 
+from ..billing import service_suspended as _service_suspended
 from .. import events, language, i18n, metrics, push as push_service, tagging, webhooks
 from .. import email as email_service
 from ..conversations import (
@@ -449,6 +450,8 @@ def _deterministic_chat_action(
         return "escalated"
     if _over_quota(session, client_id):
         return "quota_exceeded"
+    if _service_suspended(session.get(Client, client_id)):
+        return "suspended"
     return None
 
 
@@ -544,6 +547,11 @@ def chat_stream_endpoint(
                 return
             if early_action == "quota_exceeded":
                 yield _sse({"type": "quota_exceeded", "conversation_id": conv.id})
+                return
+            # abbonamento assente o disdetto: l'assistente non risponde. Stato distinto dalla
+            # quota perché il visitatore non c'entra e il rimedio è del titolare del sito.
+            if early_action == "suspended":
+                yield _sse({"type": "suspended", "conversation_id": conv.id})
                 return
             if early_action == "ticket_offered":
                 yield _sse({
@@ -735,6 +743,8 @@ def chat_endpoint(
         return {"conversation_id": conv.id, "conversation_token": access_token, "status": "escalated", "reply": None}
     if early_action == "quota_exceeded":
         return {"conversation_id": conv.id, "conversation_token": access_token, "status": "quota_exceeded", "reply": None}
+    if early_action == "suspended":
+        return {"conversation_id": conv.id, "conversation_token": access_token, "status": "suspended", "reply": None}
     if early_action == "ticket_offered":
         return {
             "conversation_id": conv.id,

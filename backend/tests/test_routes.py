@@ -170,6 +170,7 @@ ADMIN_ROUTES = {
     "/admin/clients": {"GET", "POST"},
     "/admin/clients/{client_id}/operators": {"GET", "POST"},
     "/admin/clients/{client_id}/origins": {"POST"},
+    "/admin/clients/{client_id}": {"DELETE", "PATCH"},
     "/admin/clients/{client_id}/rotate-key": {"POST"},
     "/admin/operators/{operator_id}": {"DELETE"},
     "/admin/conversations/{conversation_id}/debug": {"GET"},

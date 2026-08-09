@@ -17,7 +17,7 @@ from datetime import datetime, timedelta
 
 from sqlmodel import Session, select
 
-from . import metrics, workflows
+from . import metrics, retention, workflows
 from .db import Chunk, Conversation, IngestJob, engine
 from .logging_config import log
 from .rag import ingest, ingest_product
@@ -156,6 +156,7 @@ def run_worker(stop: threading.Event) -> None:
         try:
             with Session(engine) as session:
                 workflows.dispatch_scheduled(session)
+                retention.run_if_due(session)
                 job = _claim_next(session)
                 if job is None:
                     stop.wait(POLL_INTERVAL)

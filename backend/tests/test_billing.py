@@ -87,7 +87,7 @@ def test_checkout_uses_yearly_price(client, tenant, monkeypatch):
 def test_checkout_requires_stripe_price_id(client, tenant):
     # a plan without a stripe_price_id can't be checked out
     admin = {"Authorization": "Bearer test-admin"}
-    plan = client.post("/admin/plans", headers=admin, json={"name": "NoPrice"}).json()
+    plan = client.post("/admin/plans", headers=admin, json={"name": "NoPrice", "price_cents": 900}).json()
     r = client.post("/billing/checkout", headers=tenant["op"], json={"plan_id": plan["id"]})
     assert r.status_code == 400
 
@@ -129,7 +129,7 @@ def test_admin_can_update_plan_commercial_settings(client):
 
 def test_admin_rejects_invalid_plan_commercial_settings(client):
     admin = {"Authorization": "Bearer test-admin"}
-    plan = client.post("/admin/plans", headers=admin, json={"name": "Valid"}).json()
+    plan = client.post("/admin/plans", headers=admin, json={"name": "Valid", "price_cents": 900}).json()
 
     response = client.post(
         f"/admin/plans/{plan['id']}",
@@ -163,8 +163,7 @@ def test_webhook_checkout_completed_activates_plan(client, tenant, monkeypatch):
         assert c.stripe_subscription_id == "sub_1"
 
 
-def test_webhook_cancel_downgrades_to_free(client, tenant, monkeypatch):
-    from sqlmodel import select
+def test_webhook_cancel_suspends_without_downgrading(client, tenant, monkeypatch):
 
     paid_plan_id = _make_paid_plan(client, price_id="price_cancel")
     with Session(db.engine) as session:
@@ -183,9 +182,11 @@ def test_webhook_cancel_downgrades_to_free(client, tenant, monkeypatch):
 
     with Session(db.engine) as session:
         c = session.get(db.Client, tenant["cid"])
-        free = session.exec(select(db.Plan).where(db.Plan.name == "Free")).first()
         assert c.billing_status == "canceled"
-        assert c.plan_id == free.id  # downgraded off the paid plan
+        # nessuna retrocessione: non esiste un piano gratuito. Il piano resta quello che aveva,
+        # come traccia di cosa riattivare; a decidere l'accesso è billing_status.
+        assert c.plan_id == paid_plan_id
+        assert c.data_deletion_due_at is not None  # parte il conto alla rovescia dei 90 giorni
 
 
 def test_webhook_subscription_deleted_marks_canceled(client, tenant, monkeypatch):

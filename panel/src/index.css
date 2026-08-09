@@ -906,6 +906,17 @@ button.wpai-btn.danger:hover { background: var(--red-hover); }
 .wpai-tag.ai { background: var(--primary-soft); color: var(--primary-soft-text); }
 
 /* avvisi in linea (menzioni, collisione fra operatori) */
+/* Coppie etichetta/valore in due colonne: un elenco di date si legge per confronto, quindi
+   stanno incolonnate invece di scorrere in una riga di testo. Su schermo stretto va a una. */
+.wpai-kv-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px 18px; }
+.wpai-kv-grid > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.wpai-kv-grid span { font-size: 12px; color: var(--text-muted); }
+.wpai-kv-grid strong { font-size: 13.5px; font-weight: 600; }
+
+/* Azione distruttiva: si distingue dal resto della pagina prima di essere letta, non dopo. */
+.wpai-danger-zone { border-color: var(--red); }
+.wpai-danger-zone .wpai-card-title { color: var(--red); }
+
 .wpai-callout {
   display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
   padding: 10px 12px; margin-bottom: 12px;

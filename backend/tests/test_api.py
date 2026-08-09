@@ -56,11 +56,13 @@ def test_admin_list_clients_includes_usage_counts(client, tenant):
     assert "api_key" not in row
 
 
-def test_new_client_defaults_to_free_plan(client, tenant):
+def test_a_new_client_gets_the_bootstrap_plan_which_is_not_free(client, tenant):
+    """Il piano di partenza dà dei limiti a una riga che esiste prima del pagamento; non è una
+    versione gratuita del prodotto, che non esiste. L'accesso dipende da billing_status."""
     admin = {"Authorization": "Bearer test-admin"}
     body = client.get("/admin/clients", headers=admin).json()
     row = next(c for c in body if c["id"] == tenant["cid"])
-    assert row["plan_name"] == "Free"
+    assert row["plan_name"] != "Free"
     assert row["billing_status"] == "active"
 
 
@@ -81,7 +83,7 @@ def test_admin_create_plan_and_assign_to_client(client, tenant):
 
 def test_admin_create_plan_rejects_duplicate_name(client, tenant):
     admin = {"Authorization": "Bearer test-admin"}
-    r = client.post("/admin/plans", headers=admin, json={"name": "Free"})
+    r = client.post("/admin/plans", headers=admin, json={"name": "Base", "price_cents": 100})
     assert r.status_code == 409
 
 

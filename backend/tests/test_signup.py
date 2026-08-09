@@ -11,8 +11,8 @@ ADMIN = {"Authorization": "Bearer test-admin"}
 
 
 def _setup_plans(client):
-    """Seed a Free plan (default, no price) + a purchasable Pro plan; returns Pro's id."""
-    client.post("/admin/plans", headers=ADMIN, json={"name": "Free"})
+    """Seed the bootstrap plan + a purchasable Pro plan; returns Pro's id."""
+    client.post("/admin/plans", headers=ADMIN, json={"name": "Base", "price_cents": 100})
     pro = client.post("/admin/plans", headers=ADMIN, json={"name": "Pro", "price_cents": 4900}).json()
     client.post(f"/admin/plans/{pro['id']}", headers=ADMIN, json={"stripe_price_id": "price_pro"})
     return pro["id"]
@@ -69,11 +69,11 @@ def test_signup_starts_checkout_and_creates_incomplete_account(client, monkeypat
         assert op is not None
         c = session.get(db.Client, op.client_id)
         assert c.billing_status == "incomplete"
-        assert c.plan_id != pro_id  # on Free until the subscription activates
+        assert c.plan_id != pro_id  # sul piano di partenza finché l'abbonamento non si attiva
 
 
 def test_signup_uses_yearly_price(client, monkeypatch):
-    client.post("/admin/plans", headers=ADMIN, json={"name": "Free"})
+    client.post("/admin/plans", headers=ADMIN, json={"name": "Base", "price_cents": 100})
     annual = client.post(
         "/admin/plans",
         headers=ADMIN,

@@ -21,6 +21,7 @@ from sqlmodel import Session, select
 from .. import billing, cors, email as email_service, metrics, webhooks
 from ..analytics import build_stats as _build_stats
 from ..billing import default_plan_id as _default_plan_id
+from .. import retention
 from ..conversations import operator_name as _operator_name
 from ..db import (
     AiResponseLog, ApiKey, AuditLog, Chunk, Client, Conversation, IngestJob, Message, Operator,
@@ -193,6 +194,15 @@ def list_clients(session: Session = Depends(get_session)):
             "plan_id": c.plan_id,
             "plan_name": plans.get(c.plan_id),
             "billing_status": c.billing_status,
+            # le date del ciclo di vita: senza, il pannello mostra uno stato senza sapere da
+            # quando vale né fino a quando, che è la prima cosa che si chiede guardando un cliente
+            "created_at": c.created_at,
+            "first_paid_at": c.first_paid_at,
+            "subscription_period_end": c.subscription_period_end,
+            "subscription_cancel_at_period_end": c.subscription_cancel_at_period_end,
+            "subscription_canceled_at": c.subscription_canceled_at,
+            "subscription_interval": c.subscription_interval,
+            "data_deletion_due_at": c.data_deletion_due_at,
             "conversations": session.exec(
                 select(func.count()).select_from(Conversation).where(Conversation.client_id == c.id)
             ).one(),
@@ -268,6 +278,18 @@ def list_plans(session: Session = Depends(get_session)):
     return session.exec(select(Plan).order_by(Plan.id)).all()
 
 
+def _reject_free_plan(price_cents: int, yearly_price_cents: int) -> None:
+    """Un piano deve costare qualcosa su almeno un intervallo.
+
+    Non esiste una versione gratuita del prodotto: un piano a zero su entrambi gli intervalli
+    darebbe accesso al servizio senza contropartita e comparirebbe nei ricavi come cliente che
+    non paga, falsando margine e funnel. Mensile-solo o annuale-solo restano legittimi — è la
+    gratuità totale a non esserlo.
+    """
+    if price_cents <= 0 and yearly_price_cents <= 0:
+        raise HTTPException(400, "un piano deve avere un prezzo mensile o annuale maggiore di zero")
+
+
 @router.post("/admin/plans", dependencies=[Depends(require_admin)])
 def create_plan(
     name: str = Body(...),
@@ -283,6 +305,7 @@ def create_plan(
 ):
     if session.exec(select(Plan).where(Plan.name == name)).first():
         raise HTTPException(409, "a plan with this name already exists")
+    _reject_free_plan(price_cents, yearly_price_cents)
     plan = Plan(
         name=name, price_cents=price_cents, currency=currency,
         chat_rate_limit=chat_rate_limit, ingest_rate_limit=ingest_rate_limit,
@@ -354,6 +377,9 @@ def update_plan(
         if monthly_message_limit < 0:
             raise HTTPException(400, "monthly_message_limit cannot be negative")
         plan.monthly_message_limit = monthly_message_limit
+    # dopo che entrambi i prezzi sono stati applicati: azzerarne uno solo è legittimo (un piano
+    # può non essere offerto ad anno), ritrovarsi con tutti e due a zero no
+    _reject_free_plan(plan.price_cents, plan.yearly_price_cents)
     session.add(plan)
     session.commit()
     session.refresh(plan)
@@ -400,6 +426,62 @@ def set_client_origins(client_id: int, allowed_origins: str = Body(..., embed=Tr
     cors.rebuild_allowed_origins(session)
     _audit(session, "admin", "admin", "client.set_origins", target=f"client:{client_id}", client_id=client_id, detail={"allowed_origins": client.allowed_origins})
     return {"id": client.id, "name": client.name, "allowed_origins": client.allowed_origins}
+
+
+@router.patch("/admin/clients/{client_id}", dependencies=[Depends(require_admin)])
+def update_client(
+    client_id: int,
+    name: str = Body(..., embed=True),
+    session: Session = Depends(get_session),
+):
+    """Rinomina un cliente. È il nome che compare in ogni vista del pannello e nelle email al
+    visitatore («Nuova risposta dal supporto — <nome>»), quindi un refuso alla creazione va
+    potuto correggere senza rifare l'account."""
+    client = session.get(Client, client_id)
+    if not client:
+        raise HTTPException(404, "client not found")
+    new_name = name.strip()
+    if not new_name:
+        raise HTTPException(400, "il nome non può essere vuoto")
+    before = client.name
+    client.name = new_name
+    session.add(client)
+    session.commit()
+    _audit(session, "admin", "admin", "client.renamed", target=f"client:{client_id}",
+           client_id=client_id, detail={"from": before, "to": new_name})
+    return {"id": client.id, "name": client.name}
+
+
+@router.delete("/admin/clients/{client_id}", dependencies=[Depends(require_admin)])
+def delete_client(
+    client_id: int,
+    confirm: str = Body("", embed=True),
+    session: Session = Depends(get_session),
+):
+    """Elimina un tenant e tutti i suoi dati. Definitiva, non annullabile.
+
+    Chiede il nome esatto del cliente come conferma, non un "sì": è l'unica azione del pannello
+    che distrugge i dati di qualcun altro, e in una lista di clienti la riga sbagliata è a un
+    pixel di distanza da quella giusta. Scrivere il nome costringe a guardare **quale**.
+
+    La stessa `purge_client` è usata dalla scadenza dei 90 giorni dopo la disdetta: un solo
+    posto che sa cosa significa cancellare un tenant, così non divergono.
+    """
+    client = session.get(Client, client_id)
+    if not client:
+        raise HTTPException(404, "client not found")
+    if confirm.strip() != client.name:
+        raise HTTPException(400, "per confermare, scrivi il nome esatto del cliente")
+    name = client.name
+    removed = retention.purge_client(session, client_id)
+    # L'audit va scritto **dopo** e senza client_id: la tabella è per tenant, quindi una riga
+    # scritta prima verrebbe cancellata dalla purga insieme al resto e la traccia di chi ha
+    # cancellato cosa sparirebbe proprio nel momento in cui serve. Nome e id restano nel
+    # dettaglio: sono il registro della piattaforma, non dati del cliente.
+    _audit(session, "admin", "admin", "client.deleted", target=f"client:{client_id}",
+           detail={"name": name, "client_id": client_id, "removed": removed})
+    cors.rebuild_allowed_origins(session)
+    return {"deleted": True, "name": name, "removed": removed}
 
 
 @router.post("/admin/clients/{client_id}/rotate-key", dependencies=[Depends(require_admin)])

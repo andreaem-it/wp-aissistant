@@ -61,10 +61,12 @@ class Client(SQLModel, table=True):
     # empty = not configured (no per-client origin enforcement for this client)
     allowed_origins: str = ""
     plan_id: int = Field(foreign_key="plan.id")
-    # billing_status is kept in sync by the Stripe webhook (app/billing.py). Policy: on
-    # "canceled" the client is downgraded to the Free plan (plan_id changes, so the per-plan
-    # rate limits follow automatically); "past_due" keeps the paid plan as a grace period.
-    billing_status: str = "active"  # active | trialing | past_due | canceled
+    # billing_status is kept in sync by the Stripe webhook (app/billing.py) ed è **l'unica**
+    # cosa che decide se il servizio è erogato: non esiste un piano gratuito a cui retrocedere.
+    # Erogano: active, trialing, past_due (grazia mentre Stripe ritenta il pagamento).
+    # Non erogano: incomplete (mai pagato) e canceled (sospeso). Il `plan_id` resta quello che
+    # il cliente aveva, come traccia storica: non è più un interruttore.
+    billing_status: str = "active"  # active | trialing | past_due | canceled | incomplete
     stripe_customer_id: str = ""
     stripe_subscription_id: str = ""
     # End of the paid period, mirrored from Stripe by the webhook. Stored rather than fetched
@@ -86,6 +88,15 @@ class Client(SQLModel, table=True):
     created_at: Optional[datetime] = Field(default_factory=datetime.utcnow)
     # first invoice Stripe actually collected — the moment a trial became revenue.
     first_paid_at: Optional[datetime] = None
+    # Quando i dati del tenant vengono eliminati se non riattiva. Impostata alla disdetta
+    # (fine periodo pagato + 90 giorni), azzerata alla riattivazione. None = nessuna
+    # cancellazione programmata. È una data, non un flag, perché i promemoria al cliente si
+    # contano all'indietro da qui e devono restare veri anche se il worker salta un giro.
+    data_deletion_due_at: Optional[datetime] = None
+    # Il promemoria più recente già inviato, in giorni di anticipo (30, 14, 7, 3). Serve a non
+    # rimandare la stessa email a ogni giro del worker: si invia una soglia solo se è più
+    # stretta dell'ultima. Azzerato alla riattivazione insieme alla scadenza.
+    deletion_reminder_sent_days: Optional[int] = None
 
 
 class Chunk(SQLModel, table=True):

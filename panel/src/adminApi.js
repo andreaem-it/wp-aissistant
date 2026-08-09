@@ -34,6 +34,9 @@ export const adminApi = {
   clients: () => call("/admin/clients"),
   createClient: (name, allowed_origins) => call("/admin/clients", { method: "POST", body: { name, allowed_origins } }),
   setOrigins: (id, allowed_origins) => call(`/admin/clients/${id}/origins`, { method: "POST", body: { allowed_origins } }),
+  renameClient: (id, name) => call(`/admin/clients/${id}`, { method: "PATCH", body: { name } }),
+  // `confirm` è il nome esatto del cliente: il backend rifiuta qualunque altra cosa
+  deleteClient: (id, confirm) => call(`/admin/clients/${id}`, { method: "DELETE", body: { confirm } }),
   rotateKey: (id) => call(`/admin/clients/${id}/rotate-key`, { method: "POST" }),
   operators: (id) => call(`/admin/clients/${id}/operators`),
   createOperator: (id, email, password) =>
