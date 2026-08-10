@@ -118,16 +118,17 @@ function ApiKeys() {
           placeholder="Nome, es. Integrazione CRM"
           aria-label="Nome della chiave"
         />
-        <fieldset style={{ border: "1px solid var(--border)", borderRadius: 8, padding: "8px 10px" }}>
-          <legend style={{ fontSize: 12, color: "var(--text-muted)" }}>Permessi</legend>
+        <fieldset className="wpai-choice-group">
+          <legend>Permessi</legend>
           {SCOPES.map((scope) => (
-            <label key={scope.value} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, padding: "2px 0" }}>
+            <label key={scope.value} className="wpai-choice-row">
               <input
                 type="checkbox"
                 checked={form.scopes.includes(scope.value)}
                 onChange={() => toggleScope(scope.value)}
               />
-              {scope.label} <code style={{ fontSize: 11 }}>{scope.value}</code>
+              <span>{scope.label}</span>
+              <code>{scope.value}</code>
             </label>
           ))}
         </fieldset>
@@ -409,14 +410,14 @@ function Webhooks() {
           placeholder="Descrizione (facoltativa)"
           aria-label="Descrizione del webhook"
         />
-        <fieldset style={{ border: "1px solid var(--border)", borderRadius: 8, padding: "8px 10px" }}>
-          <legend style={{ fontSize: 12, color: "var(--text-muted)" }}>
+        <fieldset className="wpai-choice-group">
+          <legend>
             Eventi (nessuna selezione = tutti)
           </legend>
           {events.map((event) => (
-            <label key={event} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, padding: "2px 0" }}>
+            <label key={event} className="wpai-choice-row compact">
               <input type="checkbox" checked={form.events.includes(event)} onChange={() => toggleEvent(event)} />
-              <code style={{ fontSize: 11.5 }}>{event}</code>
+              <code>{event}</code>
             </label>
           ))}
         </fieldset>
