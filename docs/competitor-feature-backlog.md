@@ -37,6 +37,7 @@ Queste funzionalità esistono già e non vanno reinserite come nuove feature:
 - Multi-tenant, autenticazione operatori, isolamento delle conversazioni, rate limit,
   osservabilità, audit superadmin, piani mensili/annuali e billing Stripe.
 - Panel e sito statico distribuiti su Cloudflare; backend e database di produzione separati.
+- Panel tenant riorganizzato per utenti non tecnici: navigazione per obiettivo, sezioni interne a tab, testi operativi coerenti e layout mobile dedicato.
 
 ## Backlog prioritario
 

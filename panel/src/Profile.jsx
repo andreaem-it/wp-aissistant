@@ -1,7 +1,15 @@
 import { useEffect, useState } from "react";
-import { Eye, EyeOff, Copy, Check, Circle, RefreshCw, KeyRound, CreditCard, User, Bell } from "lucide-react";
+import { Eye, EyeOff, Copy, Check, Circle, RefreshCw, KeyRound, CreditCard, User, Bell, ShieldCheck } from "lucide-react";
 import { api } from "./api.js";
 import Loading from "./Loading.jsx";
+import { PageHeader, SectionTabs, TabPanel } from "./PageLayout.jsx";
+
+const PROFILE_TABS = [
+  { key: "account", label: "Account", description: "Profilo e notifiche", Icon: User },
+  { key: "wordpress", label: "Collegamento sito", description: "Chiave del plugin", Icon: KeyRound },
+  { key: "billing", label: "Piano e fatture", description: "Consumi e pagamenti", Icon: CreditCard },
+  { key: "security", label: "Sicurezza", description: "Password di accesso", Icon: ShieldCheck },
+];
 
 function NameCard({ me }) {
   const [name, setName] = useState(me.name || "");
@@ -72,14 +80,14 @@ function billingNotice(status, usage) {
     };
   }
   if (status === "canceled") {
-    return { tone: "warn", text: "L'abbonamento è terminato: l'account usa ora i limiti del piano Free." };
+    return { tone: "warn", text: "L'abbonamento è terminato e il servizio non è più attivo. I dati restano disponibili per il periodo di conservazione previsto." };
   }
   if (usage?.cancel_at_period_end) {
     return {
       tone: "warn",
       text: on
-        ? `Disdetta registrata: il piano resta attivo fino al ${on}, poi l'account passa al piano Free.`
-        : "Disdetta registrata: alla fine del periodo pagato l'account passa al piano Free.",
+        ? `Disdetta registrata: il piano resta attivo fino al ${on}, poi il servizio verrà disattivato.`
+        : "Disdetta registrata: il servizio verrà disattivato alla fine del periodo già pagato.",
     };
   }
   if (status === "trialing") {
@@ -405,6 +413,7 @@ function PushCard() {
 
 export default function Profile() {
   const [me, setMe] = useState(null);
+  const [section, setSection] = useState("account");
 
   useEffect(() => {
     api.me().then(setMe);
@@ -413,15 +422,43 @@ export default function Profile() {
   if (!me) return <Loading />;
 
   return (
-    <div style={{ maxWidth: 720 }}>
-      <h1 className="wpai-page-title">Profilo</h1>
-      <p style={{ color: "var(--text-muted)", fontSize: 13.5, marginTop: -14, marginBottom: 20 }}>{me.email}</p>
+    <div>
+      <PageHeader
+        eyebrow="Il tuo spazio"
+        title="Account"
+        description={`Gestisci il tuo profilo, il collegamento con WordPress e l’abbonamento associato a ${me.email}.`}
+      />
       <OnboardingCard />
-      <NameCard me={me} />
-      <PushCard />
-      <ApiKeyCard me={me} onRotated={(api_key) => setMe((m) => ({ ...m, api_key }))} />
-      <BillingCard me={me} />
-      <PasswordCard />
+      <SectionTabs items={PROFILE_TABS} active={section} onChange={setSection} label="Aree dell’account" />
+      <TabPanel active={section} name="account" className="wpai-single-col">
+        <div className="wpai-section-intro">
+          <h2>Preferenze personali</h2>
+          <p>Scegli il nome mostrato ai clienti e quali avvisi ricevere su questo dispositivo.</p>
+        </div>
+        <NameCard me={me} />
+        <PushCard />
+      </TabPanel>
+      <TabPanel active={section} name="wordpress" className="wpai-single-col">
+        <div className="wpai-section-intro">
+          <h2>Collega il tuo sito WordPress</h2>
+          <p>Copia questa chiave nelle impostazioni del plugin. Rigenerala soltanto se pensi che non sia più sicura.</p>
+        </div>
+        <ApiKeyCard me={me} onRotated={(api_key) => setMe((m) => ({ ...m, api_key }))} />
+      </TabPanel>
+      <TabPanel active={section} name="billing" className="wpai-single-col wide">
+        <div className="wpai-section-intro">
+          <h2>Abbonamento e utilizzo</h2>
+          <p>Controlla i consumi, scarica le fatture o modifica il piano dal portale di pagamento sicuro.</p>
+        </div>
+        <BillingCard me={me} />
+      </TabPanel>
+      <TabPanel active={section} name="security" className="wpai-single-col">
+        <div className="wpai-section-intro">
+          <h2>Proteggi il tuo account</h2>
+          <p>Aggiorna periodicamente la password e non condividerla con altri operatori.</p>
+        </div>
+        <PasswordCard />
+      </TabPanel>
     </div>
   );
 }

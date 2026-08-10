@@ -1,9 +1,16 @@
 import { useCallback, useEffect, useState } from "react";
-import { Workflow as WorkflowIcon, Plus, Trash2, Play, History } from "lucide-react";
+import { Workflow as WorkflowIcon, Plus, Trash2, Play, History, ListChecks, MessageCircleMore } from "lucide-react";
 import { api } from "./api.js";
 import { formatMoment } from "./activity.js";
 import Proactive from "./Proactive.jsx";
 import Loading from "./Loading.jsx";
+import { PageHeader, SectionTabs, TabPanel } from "./PageLayout.jsx";
+
+const AUTOMATION_TABS = [
+  { key: "rules", label: "Regole attive", description: "Cosa avviene in automatico", Icon: ListChecks },
+  { key: "proactive", label: "Messaggi proattivi", description: "Coinvolgi i visitatori", Icon: MessageCircleMore },
+  { key: "new", label: "Crea automazione", description: "Configura una nuova regola", Icon: Plus },
+];
 
 // Etichette italiane del vocabolario chiuso esposto dal backend in /workflows.catalog.
 const TRIGGER_LABELS = {
@@ -151,6 +158,7 @@ export default function Automations() {
   const [departments, setDepartments] = useState([]);
   const [operators, setOperators] = useState([]);
   const [endpoints, setEndpoints] = useState([]);
+  const [section, setSection] = useState("rules");
 
   const load = useCallback(
     () =>
@@ -197,6 +205,7 @@ export default function Automations() {
         actions: form.actions,
       });
       setForm(EMPTY_RULE);
+      setSection("rules");
       setError("");
       load();
     } catch (err) {
@@ -281,17 +290,22 @@ export default function Automations() {
 
   return (
     <div>
-      <h1 className="wpai-page-title">Automazioni</h1>
-      <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "0 0 16px", maxWidth: 660 }}>
-        Regole «quando succede X, se vale Y, fai Z». Ogni esecuzione viene registrata — anche
-        quando le condizioni non sono soddisfatte — così si vede sempre perché una regola è
-        scattata o no.
-      </p>
+      <PageHeader
+        eyebrow="Crescita"
+        title="Automazioni"
+        description="Fai svolgere a WP AIssistant le attività ripetitive: organizza le richieste, avvisa il team o coinvolgi un visitatore nel momento giusto."
+      />
+      <SectionTabs items={AUTOMATION_TABS} active={section} onChange={setSection} label="Aree delle automazioni" />
 
       {loading && <Loading inline />}
       {error && <p role="alert" style={{ fontSize: 12.5, color: "var(--red)" }}>{error}</p>}
 
-      <div style={{ display: "grid", gap: 12, marginBottom: 20 }}>
+      <TabPanel active={section} name="rules">
+        <div className="wpai-section-intro">
+          <h2>Regole configurate</h2>
+          <p>Controlla quali regole sono attive e consulta lo storico per capire quando sono state applicate.</p>
+        </div>
+        <div style={{ display: "grid", gap: 12 }}>
         {rules.map((rule) => (
           <div key={rule.id} className="wpai-card">
             <div className="wpai-canned-row">
@@ -324,18 +338,32 @@ export default function Automations() {
           </div>
         ))}
         {!loading && rules.length === 0 && (
-          <div className="wpai-card" style={{ fontSize: 12.5, color: "var(--text-muted)" }}>
-            Nessuna automazione. Creane una qui sotto: per esempio «quando passa a un operatore,
-            se l'intento è reclamo, imposta priorità urgente».
+          <div className="wpai-empty-card">
+            <WorkflowIcon size={22} />
+            <strong>Non hai ancora creato automazioni</strong>
+            <span>Puoi iniziare dando priorità urgente ai reclami che passano a un operatore.</span>
+            <button className="wpai-btn" type="button" onClick={() => setSection("new")}>
+              <Plus size={14} /> Crea la prima automazione
+            </button>
           </div>
         )}
-      </div>
+        </div>
+      </TabPanel>
 
-      <div style={{ marginBottom: 20 }}>
+      <TabPanel active={section} name="proactive">
+        <div className="wpai-section-intro">
+          <h2>Avvia la conversazione al momento giusto</h2>
+          <p>Mostra un messaggio contestuale, per esempio su una pagina prodotto o quando il visitatore sta per uscire.</p>
+        </div>
         <Proactive />
-      </div>
+      </TabPanel>
 
-      <div className="wpai-card">
+      <TabPanel active={section} name="new" className="wpai-single-col wide">
+        <div className="wpai-section-intro">
+          <h2>Crea una regola</h2>
+          <p>Scegli quando deve partire, aggiungi eventuali condizioni e indica cosa deve fare. Le azioni vengono eseguite nell’ordine mostrato.</p>
+        </div>
+        <div className="wpai-card">
         <div className="wpai-card-title"><WorkflowIcon size={15} /> Nuova automazione</div>
         <form onSubmit={create} style={{ display: "grid", gap: 10, marginTop: 10 }}>
           <input
@@ -412,7 +440,8 @@ export default function Automations() {
             <Play size={14} /> Crea automazione
           </button>
         </form>
-      </div>
+        </div>
+      </TabPanel>
     </div>
   );
 }

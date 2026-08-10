@@ -15,14 +15,14 @@ import Leads from "./Leads.jsx";
 import { VerifyEmail, ResetPassword, ForgotPassword } from "./Auth.jsx";
 
 const TABS = [
-  { key: "conversations", label: "Chat", Icon: MessageSquare, Component: Conversations },
-  { key: "tickets", label: "Ticket", Icon: TicketIcon, Component: Tickets },
-  { key: "upload", label: "Knowledge base", Icon: FileText, Component: Upload },
-  { key: "stats", label: "Statistiche", Icon: BarChart3, Component: Stats },
-  { key: "settings", label: "Configurazione", Icon: SettingsIcon, Component: Settings },
-  { key: "leads", label: "Lead", Icon: UserPlus, Component: Leads },
-  { key: "automations", label: "Automazioni", Icon: WorkflowIcon, Component: Automations },
-  { key: "developers", label: "API e webhook", Icon: Plug, Component: Developers },
+  { key: "conversations", label: "Conversazioni", group: "Assistenza", Icon: MessageSquare, Component: Conversations },
+  { key: "tickets", label: "Ticket", group: "Assistenza", Icon: TicketIcon, Component: Tickets },
+  { key: "upload", label: "Contenuti AI", group: "Assistenza", Icon: FileText, Component: Upload },
+  { key: "stats", label: "Statistiche", group: "Crescita", Icon: BarChart3, Component: Stats },
+  { key: "leads", label: "Contatti e lead", group: "Crescita", Icon: UserPlus, Component: Leads },
+  { key: "automations", label: "Automazioni", group: "Crescita", Icon: WorkflowIcon, Component: Automations },
+  { key: "settings", label: "Impostazioni", group: "Gestione", Icon: SettingsIcon, Component: Settings },
+  { key: "developers", label: "Integrazioni", group: "Gestione", Icon: Plug, Component: Developers },
 ];
 
 const PROFILE_TAB = { key: "profile", Component: Profile };
@@ -185,23 +185,28 @@ export default function App() {
       <nav className="wpai-sidebar">
         <Brand />
         <div className="wpai-nav">
-          {TABS.map((t) => (
-            <button
-              key={t.key}
-              className={"wpai-nav-item" + (t.key === tab ? " active" : "")}
-              onClick={() => setTab(t.key)}
-            >
-              <t.Icon size={17} strokeWidth={2.25} />
-              {t.label}
-              {t.key === "tickets" && openTickets > 0 && (
-                <span className="wpai-nav-count">{openTickets}</span>
-              )}
-            </button>
+          {["Assistenza", "Crescita", "Gestione"].map((group) => (
+            <div className="wpai-nav-group" key={group}>
+              <div className="wpai-nav-label">{group}</div>
+              {TABS.filter((item) => item.group === group).map((t) => (
+                <button
+                  key={t.key}
+                  className={"wpai-nav-item" + (t.key === tab ? " active" : "")}
+                  onClick={() => setTab(t.key)}
+                >
+                  <t.Icon size={17} strokeWidth={2.25} />
+                  {t.label}
+                  {t.key === "tickets" && openTickets > 0 && (
+                    <span className="wpai-nav-count">{openTickets}</span>
+                  )}
+                </button>
+              ))}
+            </div>
           ))}
         </div>
         {/* the toggle carries the auto margin; the footer's own is cleared so the free space
             is not split between two auto margins, which would strand both mid-sidebar */}
-        <div style={{ marginTop: "auto", paddingTop: 14 }}><ThemeToggle /></div>
+        <div className="wpai-theme-wrap"><ThemeToggle /></div>
         <div
           className={"wpai-sidebar-footer" + (tab === "profile" ? " active" : "")}
           style={{ marginTop: 0 }}

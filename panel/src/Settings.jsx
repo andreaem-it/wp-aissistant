@@ -1,9 +1,18 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   Download, Plus, Trash2, MessageSquareText, ListChecks, ShieldX, Timer, Shuffle, Tag as TagIcon, Clock3,
+  MessagesSquare, Users, Headphones, ShieldCheck,
 } from "lucide-react";
 import { api } from "./api.js";
 import Loading from "./Loading.jsx";
+import { PageHeader, SectionTabs, TabPanel } from "./PageLayout.jsx";
+
+const SETTINGS_TABS = [
+  { key: "content", label: "Conversazioni", description: "Campi, risposte e tag", Icon: MessagesSquare },
+  { key: "team", label: "Team e reparti", description: "Code e assegnazioni", Icon: Users },
+  { key: "service", label: "Orari e SLA", description: "Tempi del supporto", Icon: Headphones },
+  { key: "privacy", label: "Privacy", description: "Richieste sui dati", Icon: ShieldCheck },
+];
 
 function GdprCard() {
   const [email, setEmail] = useState("");
@@ -562,6 +571,7 @@ function TagsManager() {
 export default function Settings() {
   const [departments, setDepartments] = useState([]);
   const [operators, setOperators] = useState([]);
+  const [section, setSection] = useState("content");
 
   const loadDepartments = useCallback(
     () => api.departments().then(setDepartments).catch(() => setDepartments([])),
@@ -574,23 +584,48 @@ export default function Settings() {
 
   return (
     <div>
-      <h1 className="wpai-page-title">Configurazione</h1>
-      <div className="wpai-two-col">
+      <PageHeader
+        eyebrow="Gestione"
+        title="Impostazioni"
+        description="Personalizza il lavoro del team e il modo in cui vengono gestite le richieste dei clienti. Le impostazioni sono raggruppate per obiettivo."
+      />
+      <SectionTabs items={SETTINGS_TABS} active={section} onChange={setSection} label="Aree delle impostazioni" />
+
+      <TabPanel active={section} name="content" className="wpai-two-col">
+        <div className="wpai-section-intro">
+          <h2>Strumenti per rispondere meglio</h2>
+          <p>Prepara le informazioni che gli operatori usano ogni giorno e organizza le conversazioni in modo coerente.</p>
+        </div>
         <InfoFieldsManager />
         <CannedManager />
-      </div>
-      <div className="wpai-two-col">
-        <DepartmentsManager departments={departments} operators={operators} reload={loadDepartments} />
-        <div style={{ display: "grid", gap: 16, alignContent: "start" }}>
-          <RoutingManager departments={departments} />
-          <SupportScheduleManager />
-          <SlaManager departments={departments} />
-          <TagsManager />
+        <TagsManager />
+      </TabPanel>
+
+      <TabPanel active={section} name="team" className="wpai-two-col">
+        <div className="wpai-section-intro">
+          <h2>Organizza il lavoro del team</h2>
+          <p>Crea reparti come Vendite o Resi e scegli come distribuire automaticamente le nuove richieste.</p>
         </div>
-      </div>
-      <div style={{ marginTop: 16, maxWidth: 520 }}>
+        <DepartmentsManager departments={departments} operators={operators} reload={loadDepartments} />
+        <RoutingManager departments={departments} />
+      </TabPanel>
+
+      <TabPanel active={section} name="service" className="wpai-two-col">
+        <div className="wpai-section-intro">
+          <h2>Definisci i tempi del supporto</h2>
+          <p>Imposta quando il team è disponibile e gli obiettivi di risposta. Fuori orario le scadenze vengono messe in pausa.</p>
+        </div>
+        <SupportScheduleManager />
+        <SlaManager departments={departments} />
+      </TabPanel>
+
+      <TabPanel active={section} name="privacy" className="wpai-single-col">
+        <div className="wpai-section-intro">
+          <h2>Gestisci le richieste privacy</h2>
+          <p>Esporta o elimina i dati collegati a un visitatore. Le operazioni vengono registrate per mantenere una traccia verificabile.</p>
+        </div>
         <GdprCard />
-      </div>
+      </TabPanel>
     </div>
   );
 }

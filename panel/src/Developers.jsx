@@ -3,6 +3,12 @@ import { KeyRound, Plus, Trash2, Webhook, Send, RefreshCw } from "lucide-react";
 import { api } from "./api.js";
 import { formatMoment } from "./activity.js";
 import Loading from "./Loading.jsx";
+import { PageHeader, SectionTabs, TabPanel } from "./PageLayout.jsx";
+
+const INTEGRATION_TABS = [
+  { key: "api", label: "Chiavi API", description: "Accesso per app e CRM", Icon: KeyRound },
+  { key: "webhooks", label: "Notifiche webhook", description: "Eventi verso altri sistemi", Icon: Webhook },
+];
 
 const SCOPES = [
   { value: "conversations:read", label: "Leggere le conversazioni" },
@@ -430,17 +436,29 @@ function Webhooks() {
 }
 
 export default function Developers() {
+  const [section, setSection] = useState("api");
   return (
     <div>
-      <h1 className="wpai-page-title">API e webhook</h1>
-      <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "0 0 16px", maxWidth: 640 }}>
-        Collega WP AIssistant al tuo CRM o alle tue automazioni: l'API <code>/v1</code> legge e
-        aggiorna le conversazioni, i webhook ti avvisano quando succede qualcosa.
-      </p>
-      <div className="wpai-two-col">
+      <PageHeader
+        eyebrow="Gestione"
+        title="Integrazioni"
+        description="Collega WP AIssistant agli strumenti che usi già. Questa area è pensata per chi configura CRM, gestionali o automazioni esterne."
+      />
+      <SectionTabs items={INTEGRATION_TABS} active={section} onChange={setSection} label="Tipi di integrazione" />
+      <TabPanel active={section} name="api" className="wpai-single-col">
+        <div className="wpai-section-intro">
+          <h2>Consenti l’accesso a un’applicazione</h2>
+          <p>Crea una chiave per ogni sistema collegato e assegna solo i permessi necessari. Potrai revocarla in qualsiasi momento.</p>
+        </div>
         <ApiKeys />
+      </TabPanel>
+      <TabPanel active={section} name="webhooks" className="wpai-single-col wide">
+        <div className="wpai-section-intro">
+          <h2>Invia aggiornamenti in tempo reale</h2>
+          <p>Comunica a un altro sistema quando nasce, cambia o si chiude una conversazione, senza dover controllare continuamente.</p>
+        </div>
         <Webhooks />
-      </div>
+      </TabPanel>
     </div>
   );
 }
