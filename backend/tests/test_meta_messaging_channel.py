@@ -4,6 +4,7 @@ import json
 from sqlmodel import Session, select
 
 from app import db, meta_messaging
+from conftest import TENANT_ORIGIN
 
 
 def _payload(**overrides):
@@ -84,7 +85,7 @@ def test_meta_inbound_is_tenant_scoped_and_rejects_widget_key(client, tenant):
         "/channels/meta/inbound", headers=_channel_key(client, tenant), json=_payload()
     ).json()
     admin = {"Authorization": "Bearer test-admin"}
-    other = client.post("/admin/clients", headers=admin, json={"name": "Other Meta"}).json()
+    other = client.post("/admin/clients", headers=admin, json={"name": "Other Meta", "allowed_origins": TENANT_ORIGIN}).json()
     client.post(
         f"/admin/clients/{other['id']}/operators", headers=admin,
         json={"email": "other-meta@example.it", "password": "password1"},

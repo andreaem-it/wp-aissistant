@@ -3,6 +3,7 @@
 from app import main
 # scope check moved with the widget router when main.py was split
 from app.routers import widget as widget_router
+from conftest import TENANT_ORIGIN
 
 ADMIN = {"Authorization": "Bearer test-admin"}
 
@@ -25,7 +26,7 @@ def test_operator_stats_shape(client, tenant):
 
 def test_operator_stats_scoped_to_own_client(client, tenant):
     # another tenant's traffic must not leak into these stats
-    other = client.post("/admin/clients", headers=ADMIN, json={"name": "Other"}).json()
+    other = client.post("/admin/clients", headers=ADMIN, json={"name": "Other", "allowed_origins": TENANT_ORIGIN}).json()
     client.post("/chat", headers={"Authorization": f"Bearer {other['api_key']}"},
                 json={"visitor_id": "x", "message": "ciao"})
     client.post("/chat", headers=tenant["key"], json={"visitor_id": "v1", "message": "ciao"})
@@ -76,9 +77,11 @@ def test_client_origins_are_normalized(client):
     c = client.post("/admin/clients", headers=ADMIN,
                     json={"name": "N", "allowed_origins": "https://site.it/shop"}).json()
     assert c["allowed_origins"] == "https://site.it"
+    # il secondo dominio è lo staging, e deve stare sotto il live: la licenza copre un sito,
+    # non un elenco arbitrario (vedi app/origins.py)
     r = client.post(f"/admin/clients/{c['id']}/origins", headers=ADMIN,
-                    json={"allowed_origins": "https://a.com/x, https://b.com/"}).json()
-    assert r["allowed_origins"] == "https://a.com,https://b.com"
+                    json={"allowed_origins": "https://a.com/x, https://staging.a.com/"}).json()
+    assert r["allowed_origins"] == "https://a.com,https://staging.a.com"
 
 
 def test_admin_problematic_lists_model_escalations(client, tenant, monkeypatch):
@@ -128,7 +131,7 @@ def test_feedback_rejects_bad_value(client, tenant):
 
 def test_feedback_scoped_to_client(client, tenant):
     r = client.post("/chat", headers=tenant["key"], json={"visitor_id": "v1", "message": "ciao"}).json()
-    other = client.post("/admin/clients", headers=ADMIN, json={"name": "Other"}).json()
+    other = client.post("/admin/clients", headers=ADMIN, json={"name": "Other", "allowed_origins": TENANT_ORIGIN}).json()
     denied = client.post("/chat/feedback", headers={"Authorization": f"Bearer {other['api_key']}"},
                          json={"conversation_id": r["conversation_id"], "message_id": r["message_id"], "value": "up"})
     assert denied.status_code == 404  # not this client's conversation

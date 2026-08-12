@@ -3,12 +3,13 @@ the token straight from the DB. /auth/forgot never reveals whether an email exis
 from sqlmodel import Session, select
 
 from app import db
+from conftest import TENANT_ORIGIN
 
 ADMIN = {"Authorization": "Bearer test-admin"}
 
 
 def _make_operator(client, email="reset@acme.it", password="password1"):
-    c = client.post("/admin/clients", headers=ADMIN, json={"name": "Acme"}).json()
+    c = client.post("/admin/clients", headers=ADMIN, json={"name": "Acme", "allowed_origins": TENANT_ORIGIN}).json()
     client.post(f"/admin/clients/{c['id']}/operators", headers=ADMIN, json={"email": email, "password": password})
     return c
 

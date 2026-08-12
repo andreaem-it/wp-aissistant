@@ -7,6 +7,7 @@ from sqlmodel import Session, select
 from app import db
 # the chat stream moved with the widget router when main.py was split
 from app.routers import widget as main
+from conftest import TENANT_ORIGIN
 
 ADMIN = {"Authorization": "Bearer test-admin"}
 
@@ -130,7 +131,7 @@ def test_stream_model_escalation_buffers_prefix(client, tenant, monkeypatch):
 def test_stream_rejects_foreign_conversation(client, tenant):
     r = client.post("/chat/stream", headers=tenant["key"], json={"visitor_id": "v1", "message": "ciao"})
     conv_id = _events(r)[0]["conversation_id"]
-    other = client.post("/admin/clients", headers=ADMIN, json={"name": "Other"}).json()
+    other = client.post("/admin/clients", headers=ADMIN, json={"name": "Other", "allowed_origins": TENANT_ORIGIN}).json()
     denied = client.post("/chat/stream", headers={"Authorization": f"Bearer {other['api_key']}"},
                          json={"visitor_id": "x", "message": "ciao", "conversation_id": conv_id})
     assert denied.status_code == 404

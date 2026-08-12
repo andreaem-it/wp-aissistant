@@ -1,4 +1,5 @@
 """Saved inbox views: ownership, sharing, tenant isolation and inbox ordering."""
+from conftest import TENANT_ORIGIN
 
 ADMIN = {"Authorization": "Bearer test-admin"}
 
@@ -14,7 +15,7 @@ def _second_operator(client, tenant, email="colleague@acme.it"):
 
 
 def _other_tenant(client, name="Views Other"):
-    other = client.post("/admin/clients", headers=ADMIN, json={"name": name}).json()
+    other = client.post("/admin/clients", headers=ADMIN, json={"name": name, "allowed_origins": TENANT_ORIGIN}).json()
     email = f"{name.lower().replace(' ', '-')}@other.it"
     client.post(
         f"/admin/clients/{other['id']}/operators", headers=ADMIN, json={"email": email, "password": "password1"}

@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from sqlmodel import Session
 
 from app import db
+from conftest import TENANT_ORIGIN
 
 
 def _attach_customer(client_id, customer="cus_portal", subscription="sub_portal"):
@@ -253,7 +254,7 @@ def test_portal_requires_authentication(client, tenant):
 def test_portal_opens_only_the_callers_own_customer(client, tenant, monkeypatch):
     """Tenant isolation: the customer comes from the caller's session, never from the request."""
     admin = {"Authorization": "Bearer test-admin"}
-    other = client.post("/admin/clients", headers=admin, json={"name": "Other"}).json()
+    other = client.post("/admin/clients", headers=admin, json={"name": "Other", "allowed_origins": TENANT_ORIGIN}).json()
     client.post(
         f"/admin/clients/{other['id']}/operators",
         headers=admin,
@@ -423,7 +424,7 @@ def test_notification_failure_does_not_break_the_sync(client, tenant, monkeypatc
 def test_billing_events_do_not_notify_other_tenants(client, tenant, monkeypatch):
     """Tenant isolation on the notification path: only the owning tenant's operators are mailed."""
     admin = {"Authorization": "Bearer test-admin"}
-    other = client.post("/admin/clients", headers=admin, json={"name": "Bystander"}).json()
+    other = client.post("/admin/clients", headers=admin, json={"name": "Bystander", "allowed_origins": TENANT_ORIGIN}).json()
     client.post(
         f"/admin/clients/{other['id']}/operators",
         headers=admin,
@@ -457,7 +458,7 @@ def _plan(client, name, price_cents=0, yearly_price_cents=0, currency="eur"):
 def _subscriber(client, name, plan_id, *, status="active", interval="month", **fields):
     """Create a tenant already in a given commercial state, as the webhook would leave it."""
     admin = {"Authorization": "Bearer test-admin"}
-    created = client.post("/admin/clients", headers=admin, json={"name": name}).json()
+    created = client.post("/admin/clients", headers=admin, json={"name": name, "allowed_origins": TENANT_ORIGIN}).json()
     with Session(db.engine) as session:
         row = session.get(db.Client, created["id"])
         row.plan_id = plan_id

@@ -1,5 +1,6 @@
 """Visitor email capture on escalation + notification on operator reply."""
 from app import main
+from conftest import TENANT_ORIGIN
 
 ADMIN = {"Authorization": "Bearer test-admin"}
 
@@ -30,7 +31,7 @@ def test_contact_rejects_bad_email(client, tenant):
 
 def test_contact_scoped_to_client(client, tenant):
     conv = _escalated_conversation(client, tenant)
-    other = client.post("/admin/clients", headers=ADMIN, json={"name": "Other"}).json()
+    other = client.post("/admin/clients", headers=ADMIN, json={"name": "Other", "allowed_origins": TENANT_ORIGIN}).json()
     denied = client.post("/chat/contact", headers={"Authorization": f"Bearer {other['api_key']}"},
                          json={"conversation_id": conv["conversation_id"], "email": "v@x.it"})
     assert denied.status_code == 404
@@ -74,7 +75,7 @@ def test_conversation_reply_adds_message_and_closes_ticket(client, tenant):
 
 def test_conversation_reply_scoped_to_client(client, tenant):
     conv_id = _escalated_conversation(client, tenant)["conversation_id"]
-    other = client.post("/admin/clients", headers=ADMIN, json={"name": "Other"}).json()
+    other = client.post("/admin/clients", headers=ADMIN, json={"name": "Other", "allowed_origins": TENANT_ORIGIN}).json()
     client.post(f"/admin/clients/{other['id']}/operators", headers=ADMIN, json={"email": "o2@x.it", "password": "password1"})
     tok = client.post("/operator/login", json={"email": "o2@x.it", "password": "password1"}).json()["token"]
     denied = client.post(f"/conversations/{conv_id}/reply", headers={"Authorization": f"Bearer {tok}"}, json={"reply": "x"})

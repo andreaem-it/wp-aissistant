@@ -2,6 +2,7 @@
 from sqlmodel import Session, select
 
 from app import db
+from conftest import TENANT_ORIGIN
 
 ADMIN = {"Authorization": "Bearer test-admin"}
 
@@ -31,7 +32,7 @@ def test_invalid_status_rejected(client, tenant):
 
 def test_scoped_to_client(client, tenant):
     cid = _conv(client, tenant)["conversation_id"]
-    other = client.post("/admin/clients", headers=ADMIN, json={"name": "Other"}).json()
+    other = client.post("/admin/clients", headers=ADMIN, json={"name": "Other", "allowed_origins": TENANT_ORIGIN}).json()
     client.post(f"/admin/clients/{other['id']}/operators", headers=ADMIN, json={"email": "o2@x.it", "password": "password1"})
     tok = client.post("/operator/login", json={"email": "o2@x.it", "password": "password1"}).json()["token"]
     denied = client.post(f"/conversations/{cid}/status", headers={"Authorization": f"Bearer {tok}"}, json={"status": "closed"})

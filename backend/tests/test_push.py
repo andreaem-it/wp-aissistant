@@ -3,6 +3,7 @@ import json
 from sqlmodel import Session, select
 
 from app import db, push
+from conftest import TENANT_ORIGIN
 
 
 SUBSCRIPTION = {
@@ -42,7 +43,7 @@ def test_operator_can_subscribe_update_preferences_and_unsubscribe(client, tenan
 def test_push_subscription_is_operator_and_tenant_scoped(client, tenant):
     assert client.post("/push/subscriptions", headers=tenant["op"], json=SUBSCRIPTION).status_code == 200
     admin = {"Authorization": "Bearer test-admin"}
-    other = client.post("/admin/clients", headers=admin, json={"name": "Push Other"}).json()
+    other = client.post("/admin/clients", headers=admin, json={"name": "Push Other", "allowed_origins": TENANT_ORIGIN}).json()
     client.post(
         f"/admin/clients/{other['id']}/operators", headers=admin,
         json={"email": "push-other@example.it", "password": "password1"},

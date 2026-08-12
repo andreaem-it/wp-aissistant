@@ -10,7 +10,8 @@ def test_onboarding_status_is_derived_from_real_tenant_state(client, tenant):
     assert {step["key"]: step["complete"] for step in data["steps"]} == {
         "account": True,
         "billing": True,
-        "origin": False,
+        # la licenza è legata al dominio: il tenant nasce con il suo sito registrato
+        "origin": True,
         "knowledge": False,
         "chat": False,
     }

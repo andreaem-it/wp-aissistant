@@ -1,5 +1,6 @@
 from app import db
 from sqlmodel import Session
+from conftest import TENANT_ORIGIN
 
 
 ADMIN = {"Authorization": "Bearer test-admin"}
@@ -52,7 +53,7 @@ def test_department_assignment_priority_and_filters(client, tenant):
 
 def test_routing_rejects_cross_tenant_entities(client, tenant):
     conv_id = _conversation(client, tenant)
-    other = client.post("/admin/clients", headers=ADMIN, json={"name": "Other Routing"}).json()
+    other = client.post("/admin/clients", headers=ADMIN, json={"name": "Other Routing", "allowed_origins": TENANT_ORIGIN}).json()
     client.post(
         f"/admin/clients/{other['id']}/operators",
         headers=ADMIN,

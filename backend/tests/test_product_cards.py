@@ -14,6 +14,7 @@ import pytest
 from sqlmodel import Session, select
 
 from app import db
+from conftest import TENANT_ORIGIN
 
 
 def _fake_embed(text: str):
@@ -90,7 +91,7 @@ def test_a_product_without_an_embedding_is_never_shown(client, tenant, real_retr
 
 def test_cards_never_cross_tenants(client, tenant, drain, real_retrieval):
     admin = {"Authorization": "Bearer test-admin"}
-    other = client.post("/admin/clients", headers=admin, json={"name": "Vicino"}).json()
+    other = client.post("/admin/clients", headers=admin, json={"name": "Vicino", "allowed_origins": TENANT_ORIGIN}).json()
     client.post("/ingest/product", headers={"Authorization": f"Bearer {other['api_key']}"}, json={
         "url": "https://altro.it/p/felpa", "title": "Felpa zip", "price": "45 EUR",
         "description": "Felpa zip",

@@ -13,8 +13,7 @@ import os
 
 from sqlmodel import Session, select
 
-from .db import Client, ClientOrigin
-from .util import split_origins as _split_origins
+from .db import ClientOrigin
 
 CORS_ALLOW_ALL = os.getenv("CORS_ALLOW_ALL", "true").lower() == "true"
 PANEL_ORIGINS = [o.strip() for o in os.getenv("PANEL_ORIGINS", "http://localhost:5173").split(",") if o.strip()]
@@ -24,15 +23,11 @@ _ALLOWED_ORIGINS: set[str] = set(PANEL_ORIGINS)
 def rebuild_allowed_origins(session: Session) -> None:
     """Recompute the browser-layer allowlist: panel origins + every client's widget origins.
 
-    Le righe `ClientOrigin` confermate (`live`/`staging`) entrano nell'elenco insieme alla
-    vecchia colonna di testo. È un'unione voluta e temporanea: finché la tabella non è la sola
-    sorgente, togliere la colonna qui spegnerebbe i clienti la cui riga non è ancora stata
-    confermata. Le righe `observed` **non** entrano: sono una traccia di traffico, non un
-    permesso.
+    La sorgente sono le righe `ClientOrigin` confermate (`live`/`staging`), non più la colonna
+    di testo `Client.allowed_origins`: quella resta solo come specchio per il pannello admin.
+    Le righe `observed` **non** entrano — sono una traccia di traffico, non un permesso.
     """
     origins = set(PANEL_ORIGINS)
-    for c in session.exec(select(Client)).all():
-        origins.update(_split_origins(c.allowed_origins))
     for row in session.exec(
         select(ClientOrigin).where(ClientOrigin.kind.in_(("live", "staging")))
     ).all():

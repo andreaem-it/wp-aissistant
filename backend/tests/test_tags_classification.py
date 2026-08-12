@@ -4,13 +4,14 @@ import json
 from sqlmodel import Session, select
 
 from app import db, llm, main, tagging
+from conftest import TENANT_ORIGIN
 
 
 ADMIN = {"Authorization": "Bearer test-admin"}
 
 
 def _other_tenant(client, name="Tag Other"):
-    other = client.post("/admin/clients", headers=ADMIN, json={"name": name}).json()
+    other = client.post("/admin/clients", headers=ADMIN, json={"name": name, "allowed_origins": TENANT_ORIGIN}).json()
     email = f"{name.lower().replace(' ', '-')}@other.it"
     client.post(
         f"/admin/clients/{other['id']}/operators", headers=ADMIN, json={"email": email, "password": "password1"}

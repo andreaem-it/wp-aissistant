@@ -1,4 +1,5 @@
 """Internal notes, mentions, presence/collision detection and the conversation audit trail."""
+from conftest import TENANT_ORIGIN
 
 ADMIN = {"Authorization": "Bearer test-admin"}
 
@@ -17,7 +18,7 @@ def _colleague(client, tenant, email="mario.rossi@acme.it", name="Mario Rossi"):
 
 
 def _other_tenant(client, name="Notes Other"):
-    other = client.post("/admin/clients", headers=ADMIN, json={"name": name}).json()
+    other = client.post("/admin/clients", headers=ADMIN, json={"name": name, "allowed_origins": TENANT_ORIGIN}).json()
     email = f"{name.lower().replace(' ', '-')}@other.it"
     client.post(
         f"/admin/clients/{other['id']}/operators", headers=ADMIN, json={"email": email, "password": "password1"}

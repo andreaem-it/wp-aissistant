@@ -9,6 +9,7 @@ import pytest
 from sqlmodel import Session, select
 
 from app import costs, db, email as email_service, whatsapp
+from conftest import TENANT_ORIGIN
 
 
 @pytest.fixture
@@ -175,7 +176,7 @@ def test_failed_messages_are_not_billed(client, tenant, monkeypatch, delivering)
 def test_messages_never_cross_tenants(client, tenant, delivering, monkeypatch):
     monkeypatch.setenv("EMAIL_PRICE_PER_MESSAGE_MILLICENTS", "1000")
     other = client.post("/admin/clients", headers={"Authorization": "Bearer test-admin"},
-                        json={"name": "Vicino"}).json()
+                        json={"name": "Vicino", "allowed_origins": TENANT_ORIGIN}).json()
     email_service.send_visitor_reply("v@example.com", "Negozio", None, client_id=tenant["cid"])
 
     with Session(db.engine) as session:

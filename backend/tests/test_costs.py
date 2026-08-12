@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from sqlmodel import Session
 
 from app import db
+from conftest import TENANT_ORIGIN
 
 ADMIN = {"Authorization": "Bearer test-admin"}
 
@@ -27,7 +28,7 @@ def _plan(client, name, price_cents=100, yearly_price_cents=0):
 
 
 def _tenant(client, name, plan_id, *, status="active", interval="month"):
-    created = client.post("/admin/clients", headers=ADMIN, json={"name": name}).json()
+    created = client.post("/admin/clients", headers=ADMIN, json={"name": name, "allowed_origins": TENANT_ORIGIN}).json()
     with Session(db.engine) as session:
         row = session.get(db.Client, created["id"])
         row.plan_id = plan_id

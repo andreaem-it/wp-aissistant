@@ -32,7 +32,7 @@ from sqlalchemy import func
 from sqlmodel import Session, select
 
 from ..billing import service_suspended as _service_suspended
-from .. import events, language, i18n, metrics, push as push_service, tagging, webhooks
+from .. import cors, events, language, i18n, metrics, origins, push as push_service, tagging, webhooks
 from .. import email as email_service
 from ..conversations import (
     emit_visitor_message as _emit_visitor_message,
@@ -205,14 +205,20 @@ def _out_of_scope_reply(language: str | None = None) -> str:
     return i18n.t("scope.out_of_scope", language)
 
 
-def _trusted_callback_origin(allowed_origins: str, site_url, request) -> str:
-    """The origin to call back for an order lookup — ONLY if it's one the client configured in
-    allowed_origins. `site_url` is an attacker-controllable body param, so validating the chosen
-    origin against the allowlist prevents SSRF (a spoofed site_url making the backend POST to an
+def _trusted_callback_origin(allowed_origins: list[str], site_url, request, *,
+                             bootstrap: bool = False) -> str:
+    """The origin to call back for an order lookup — ONLY if it's one of the tenant's registered
+    domains. `site_url` is an attacker-controllable body param, so validating the chosen origin
+    against the allowlist prevents SSRF (a spoofed site_url making the backend POST to an
     arbitrary/internal URL). Returns "" when nothing trusted matches (order lookup then fails
-    gracefully instead of hitting an untrusted host). Requires allowed_origins to be configured."""
-    allowed = set(_split_origins(allowed_origins))
-    if not allowed:
+    gracefully instead of hitting an untrusted host).
+
+    `bootstrap` accetta un candidato che non è ancora registrato, e serve al **solo** flusso di
+    registrazione del plugin: là la fiducia non viene dall'elenco ma dal challenge HMAC, che
+    prova il possesso del sito. Le protezioni SSRF restano tutte — indirizzi non pubblici
+    rifiutati qui, `webhooks.validate_url` e la risoluzione DNS controllata a valle."""
+    allowed = set(allowed_origins)
+    if not allowed and not bootstrap:
         return ""
     # Reject literal internal/link-local targets outright instead of silently falling back.
     # This keeps attacker-controlled callback candidates visible as a failed validation and
@@ -229,7 +235,12 @@ def _trusted_callback_origin(allowed_origins: str, site_url, request) -> str:
             pass  # regular DNS hostname; exact allowlist matching below remains authoritative
     for cand in (site_url, request.headers.get("origin"), request.headers.get("referer")):
         norm = _normalize_origins(cand or "")
-        if norm and norm in allowed:
+        if not norm:
+            continue
+        if norm in allowed:
+            return norm
+        if bootstrap and norm.startswith("https://"):
+            # Solo HTTPS: un sito in chiaro non è un posto dove mandare la richiesta di un ordine.
             return norm
     return ""
 
@@ -563,7 +574,7 @@ def chat_stream_endpoint(
 
             detected = _detect_order_lookup(history, message)
             if detected:
-                origin = _trusted_callback_origin(client.allowed_origins, site_url, request)
+                origin = _trusted_callback_origin(origins.registered(session, client.id), site_url, request)
                 data = _order_lookup(origin, client.api_key, detected[0], detected[1], wp_user_token)
                 reply_text, reply_msg = _save_order_lookup_reply(
                     s, client_id=client_id, conv=conv, data=data
@@ -678,7 +689,7 @@ def chat_stream_endpoint(
             if is_order_lookup:
                 lookup_match = ORDER_LOOKUP_RE.match(full)
                 order_number, identifier = lookup_match.group(1), lookup_match.group(2)
-                origin = _trusted_callback_origin(client.allowed_origins, site_url, request)
+                origin = _trusted_callback_origin(origins.registered(session, client.id), site_url, request)
                 data = _order_lookup(origin, client.api_key, order_number.strip(), identifier.strip(), wp_user_token)
                 reply_text, reply_msg = _save_order_lookup_reply(
                     s,
@@ -756,7 +767,7 @@ def chat_endpoint(
 
     detected = _detect_order_lookup(history, message)
     if detected:
-        origin = _trusted_callback_origin(client.allowed_origins, site_url, request)
+        origin = _trusted_callback_origin(origins.registered(session, client.id), site_url, request)
         data = _order_lookup(origin, client.api_key, detected[0], detected[1], wp_user_token)
         reply_text, reply_msg = _save_order_lookup_reply(
             session, client_id=client.id, conv=conv, data=data
@@ -866,7 +877,7 @@ def chat_endpoint(
 
     if "order_lookup" in result:
         order_number, _, identifier = result["order_lookup"].partition("|")
-        origin = _trusted_callback_origin(client.allowed_origins, site_url, request)
+        origin = _trusted_callback_origin(origins.registered(session, client.id), site_url, request)
         data = _order_lookup(origin, client.api_key, order_number.strip(), identifier.strip(), wp_user_token)
         reply_text, reply_msg = _save_order_lookup_reply(
             session,
@@ -1041,8 +1052,12 @@ def list_team_operators(operator: Operator = Depends(require_operator), session:
     return [{"id": row.id, "name": _operator_name(row), "email": row.email} for row in rows]
 
 
-def _trusted_plugin_proof_url(allowed_origins: str, value: str) -> str:
-    """Accept a WordPress REST proof URL only on one of the tenant's allowlisted origins."""
+def _trusted_plugin_proof_url(allowed_origins: list[str], value: str) -> str:
+    """Accept a WordPress REST proof URL only on one of the tenant's registered origins.
+
+    In bootstrap l'elenco è il solo dominio candidato, non l'insieme vuoto: la prova deve stare
+    **sullo stesso sito** che si sta registrando, altrimenti il challenge dimostrerebbe il
+    possesso di un server diverso da quello che finisce nella licenza."""
     from urllib.parse import urlparse
 
     try:
@@ -1052,7 +1067,7 @@ def _trusted_plugin_proof_url(allowed_origins: str, value: str) -> str:
     parsed = urlparse(clean)
     if parsed.username or parsed.password:
         return ""
-    if _normalize_origins(clean) not in set(_split_origins(allowed_origins)):
+    if _normalize_origins(clean) not in set(allowed_origins):
         return ""
     route = (parsed.path.rstrip("/") + "?" + parsed.query).lower()
     if "wpai/v1/site-proof" not in route:
@@ -1088,12 +1103,38 @@ def register_plugin_installation(
     secret = str(body.get("secret", ""))
     if len(secret) < 32 or len(secret) > 256:
         raise HTTPException(400, "Credenziale plugin non valida")
-    origin = _trusted_callback_origin(client.allowed_origins, body.get("site_url"), request)
-    proof_url = _trusted_plugin_proof_url(client.allowed_origins, body.get("proof_url", ""))
+    allowed = origins.registered(session, client.id)
+    origin = _trusted_callback_origin(allowed, body.get("site_url"), request)
+    proof_url = _trusted_plugin_proof_url(allowed, body.get("proof_url", ""))
+
+    # Bootstrap dell'onboarding. Con la licenza legata al dominio un cliente nuovo non ha ancora
+    # registrato niente, e senza questo ramo l'installazione del plugin — cioè il primo passo di
+    # ogni cliente WordPress — sarebbe impossibile senza un intervento del superadmin.
+    #
+    # Ci si può fidare perché la fiducia non viene dall'elenco ma dal **challenge**: il backend
+    # genera un nonce e pretende `HMAC(secret, nonce)` da una rotta di quel sito. Rispondere
+    # richiede di controllare il server di quel dominio, che è una prova più forte di un campo
+    # compilato in un form. Vale solo con uno slot libero: a slot pieno il dominio non viene
+    # sostituito di nascosto, si dice al cliente di cambiarlo dal pannello.
+    bootstrap = False
+    if (not origin or not proof_url) and not allowed and origins.slots(session, client)["live_available"] != 0:
+        candidate = _trusted_callback_origin([], body.get("site_url"), request, bootstrap=True)
+        candidate_proof = _trusted_plugin_proof_url([candidate] if candidate else [],
+                                                    body.get("proof_url", ""))
+        if candidate and candidate_proof:
+            origin, proof_url, bootstrap = candidate, candidate_proof, True
+
     if not origin or not proof_url:
         raise HTTPException(403, "Sito WordPress non presente nelle origini autorizzate")
     if not _verify_plugin_site(proof_url, secret):
         raise HTTPException(422, "Verifica del sito WordPress non riuscita")
+    if bootstrap:
+        try:
+            origins.register(session, client, origin, "live", source="plugin",
+                             enforce_cooldown=False)
+        except origins.OriginError as exc:
+            raise HTTPException(409, str(exc))
+        cors.rebuild_allowed_origins(session)
     digest = _plugin_secret_hash(secret)
     conflict = session.exec(select(PluginInstallation).where(
         PluginInstallation.secret_hash == digest,

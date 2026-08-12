@@ -6,6 +6,7 @@ import pytest
 
 from app import attachments as attachment_service
 from app import main
+from conftest import TENANT_ORIGIN
 
 ADMIN = {"Authorization": "Bearer test-admin"}
 PIXEL = b"\x89PNG\r\n\x1a\n fake image bytes"
@@ -18,7 +19,7 @@ def _conversation(client, tenant, visitor="attachment-test"):
 
 
 def _other_tenant(client):
-    other = client.post("/admin/clients", headers=ADMIN, json={"name": "Attachment Other"}).json()
+    other = client.post("/admin/clients", headers=ADMIN, json={"name": "Attachment Other", "allowed_origins": TENANT_ORIGIN}).json()
     client.post(
         f"/admin/clients/{other['id']}/operators",
         headers=ADMIN,

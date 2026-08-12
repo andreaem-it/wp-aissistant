@@ -1,4 +1,5 @@
 """Canned responses, info-field definitions, and per-conversation info values."""
+from conftest import TENANT_ORIGIN
 ADMIN = {"Authorization": "Bearer test-admin"}
 
 
@@ -28,7 +29,7 @@ def test_conversation_info_roundtrip(client, tenant):
 
 def test_operator_tools_scoped_to_client(client, tenant):
     r = client.post("/canned-responses", headers=tenant["op"], json={"title": "x", "body": "y"}).json()
-    other = client.post("/admin/clients", headers=ADMIN, json={"name": "Other"}).json()
+    other = client.post("/admin/clients", headers=ADMIN, json={"name": "Other", "allowed_origins": TENANT_ORIGIN}).json()
     client.post(f"/admin/clients/{other['id']}/operators", headers=ADMIN, json={"email": "o2@x.it", "password": "password1"})
     tok = client.post("/operator/login", json={"email": "o2@x.it", "password": "password1"}).json()["token"]
     other_op = {"Authorization": f"Bearer {tok}"}

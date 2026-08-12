@@ -1,5 +1,6 @@
 """Integration tests over the HTTP API. Require TEST_DATABASE_URL (Postgres+pgvector);
 skipped otherwise. The LLM is faked in the `client` fixture."""
+from conftest import TENANT_ORIGIN
 
 
 # ---- health / metrics ----
@@ -41,7 +42,7 @@ def test_metrics_counts_escalation(client, tenant):
 
 def test_admin_requires_key(client):
     assert client.post("/admin/clients", json={"name": "X"}).status_code == 401
-    ok = client.post("/admin/clients", headers={"Authorization": "Bearer test-admin"}, json={"name": "X"})
+    ok = client.post("/admin/clients", headers={"Authorization": "Bearer test-admin"}, json={"name": "X", "allowed_origins": TENANT_ORIGIN})
     assert ok.status_code == 200
     assert ok.json()["api_key"]
 
@@ -180,7 +181,7 @@ def test_ticket_reply_requires_ownership(client, tenant):
 
     # a different tenant's operator must not be able to reply
     admin = {"Authorization": "Bearer test-admin"}
-    other = client.post("/admin/clients", headers=admin, json={"name": "Other"}).json()
+    other = client.post("/admin/clients", headers=admin, json={"name": "Other", "allowed_origins": TENANT_ORIGIN}).json()
     client.post(f"/admin/clients/{other['id']}/operators", headers=admin,
                 json={"email": "op2@x.it", "password": "pw"})
     other_token = client.post("/operator/login", json={"email": "op2@x.it", "password": "pw"}).json()["token"]
@@ -214,7 +215,7 @@ def test_ingest_job_scoped_to_client(client, tenant):
                          json={"url": "http://s/y", "text": "t"}).json()["job_id"]
     # another client cannot read this job
     admin = {"Authorization": "Bearer test-admin"}
-    other = client.post("/admin/clients", headers=admin, json={"name": "Other"}).json()
+    other = client.post("/admin/clients", headers=admin, json={"name": "Other", "allowed_origins": TENANT_ORIGIN}).json()
     r = client.get(f"/ingest/jobs/{job_id}", headers={"Authorization": f"Bearer {other['api_key']}"})
     assert r.status_code == 404
 
@@ -234,7 +235,7 @@ def test_knowledge_base_lists_ingested_content(client, tenant, drain):
 
 def test_knowledge_base_scoped_to_client(client, tenant):
     admin = {"Authorization": "Bearer test-admin"}
-    other = client.post("/admin/clients", headers=admin, json={"name": "Other"}).json()
+    other = client.post("/admin/clients", headers=admin, json={"name": "Other", "allowed_origins": TENANT_ORIGIN}).json()
     client.post(f"/admin/clients/{other['id']}/operators", headers=admin,
                 json={"email": "op2@other.it", "password": "pw"})
     other_op = client.post("/operator/login", json={"email": "op2@other.it", "password": "pw"}).json()["token"]

@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 from sqlmodel import Session, select
 
 from app import db, whatsapp as whatsapp_service
+from conftest import TENANT_ORIGIN
 
 
 def _payload(**overrides):
@@ -108,7 +109,7 @@ def test_template_requires_consent_and_status_is_tenant_scoped(client, tenant, m
     assert response.status_code == 409
 
     admin = {"Authorization": "Bearer test-admin"}
-    other = client.post("/admin/clients", headers=admin, json={"name": "Status Other"}).json()
+    other = client.post("/admin/clients", headers=admin, json={"name": "Status Other", "allowed_origins": TENANT_ORIGIN}).json()
     client.post(
         f"/admin/clients/{other['id']}/operators", headers=admin,
         json={"email": "status-other@example.it", "password": "password1"},
@@ -134,7 +135,7 @@ def test_granted_consent_requires_a_source(client, tenant):
 def test_whatsapp_is_tenant_scoped_and_rejects_widget_key(client, tenant):
     first = client.post("/channels/whatsapp/inbound", headers=_channel_key(client, tenant), json=_payload()).json()
     admin = {"Authorization": "Bearer test-admin"}
-    other = client.post("/admin/clients", headers=admin, json={"name": "Other"}).json()
+    other = client.post("/admin/clients", headers=admin, json={"name": "Other", "allowed_origins": TENANT_ORIGIN}).json()
     client.post(f"/admin/clients/{other['id']}/operators", headers=admin, json={"email": "other-wa@example.it", "password": "password1"})
     token = client.post("/operator/login", json={"email": "other-wa@example.it", "password": "password1"}).json()["token"]
     second = client.post("/channels/whatsapp/inbound", headers=_channel_key(client, {"op": {"Authorization": f"Bearer {token}"}}), json=_payload()).json()

@@ -16,15 +16,28 @@ regalo. La deroga alle piattaforme di sviluppo esiste perché molte agenzie ospi
 altrove, e senza di essa rifiuteremmo installazioni oneste.
 """
 import logging
-from datetime import datetime
+import os
+from datetime import datetime, timedelta
 from urllib.parse import urlparse
 
 from sqlmodel import Session, select
 
-from .db import ClientOrigin
+from .db import Client, ClientOrigin, Plan
 from .metrics import widget_origin_checks_total
+from .util import normalize_origins as _normalize_origins
 
 logger = logging.getLogger("wpai")
+
+KINDS = ("live", "staging")
+
+# Quanti domini di staging: uno, e non dipende dal piano. Chi ne vuole due ha due siti.
+MAX_STAGING_ORIGINS = 1
+
+# Cambiare il dominio live è normale — rebrand, migrazioni, il passaggio da staging a live il
+# giorno del lancio — quindi si fa da soli. Il raffreddamento serve a rendere scomodo il solo uso
+# che vogliamo scoraggiare, ruotare la stessa licenza fra siti diversi; la cronologia in audit è
+# comunque il deterrente vero. Il superadmin non ne è soggetto: deve poter sbloccare un cliente.
+LIVE_CHANGE_COOLDOWN = timedelta(days=int(os.getenv("LIVE_ORIGIN_CHANGE_COOLDOWN_DAYS", "7")))
 
 # Etichette DNS che marcano un ambiente non di produzione. Vocabolario chiuso.
 STAGING_LABELS = frozenset({
@@ -141,15 +154,198 @@ def staging_rejection(origin: str, live_origin: str) -> str | None:
     return None
 
 
-def covered(origin: str, registered: list[str]) -> bool:
-    """Se questo Origin è coperto dalla licenza: locale, oppure uno dei domini registrati.
+# ---- La sorgente di verità -------------------------------------------------------------------
+#
+# Le decisioni leggono **queste** funzioni, mai `Client.allowed_origins`. Quella colonna
+# sopravvive solo come specchio per il pannello admin, scritta da `_mirror()` qui sotto e da
+# nessun altro: due sorgenti che si possono contraddire sono il modo in cui un cliente configura
+# quella sbagliata e il supporto guarda l'altra.
 
-    Non decide **se** applicare il vincolo — quello è del chiamante, e finché siamo in
-    osservazione non lo applica nessuno.
+
+def registered_rows(session: Session, client_id: int) -> list[ClientOrigin]:
+    """I domini che concedono qualcosa: `live` e `staging`. Gli `observed` non sono un permesso."""
+    return list(session.exec(
+        select(ClientOrigin)
+        .where(ClientOrigin.client_id == client_id, ClientOrigin.kind.in_(KINDS))
+        .order_by(ClientOrigin.kind, ClientOrigin.id)
+    ).all())
+
+
+def registered(session: Session, client_id: int) -> list[str]:
+    return [row.origin for row in registered_rows(session, client_id) if row.origin]
+
+
+def live_origin(session: Session, client_id: int) -> str:
+    rows = [r for r in registered_rows(session, client_id) if r.kind == "live"]
+    return rows[0].origin if rows else ""
+
+
+def _mirror(session: Session, client_id: int) -> None:
+    """Riallinea lo specchio `Client.allowed_origins`. Deprecato: si toglie quando il pannello
+    admin userà gli endpoint nuovi."""
+    client = session.get(Client, client_id)
+    if client:
+        client.allowed_origins = ",".join(registered(session, client_id))
+        session.add(client)
+
+
+def max_live_origins(session: Session, client: Client) -> int:
+    plan = session.get(Plan, client.plan_id) if client.plan_id else None
+    return plan.max_live_origins if plan else 1
+
+
+def slots(session: Session, client: Client) -> dict:
+    """Quanti siti concede la licenza e quanti ne restano: è ciò che il pannello mostra accanto
+    al campo, perché "slot esauriti" senza un numero non dice al cliente cosa fare."""
+    rows = registered_rows(session, client.id)
+    limit = max_live_origins(session, client)
+    used = len([r for r in rows if r.kind == "live"])
+    return {
+        "live_used": used,
+        "live_limit": limit,  # 0 = illimitato
+        "live_available": None if limit == 0 else max(0, limit - used),
+        "staging_used": len([r for r in rows if r.kind == "staging"]),
+        "staging_limit": MAX_STAGING_ORIGINS,
+    }
+
+
+class OriginError(ValueError):
+    """Un dominio rifiutato, con il motivo che arriva fino al cliente."""
+
+
+def register(session: Session, client: Client, value: str, kind: str, *,
+             source: str = "panel", enforce_cooldown: bool = True) -> ClientOrigin:
+    """Registra un dominio del tenant. Solleva `OriginError` con il motivo, mai un booleano.
+
+    Non fa commit: chi chiama decide la transazione, così la registrazione e la sua riga di audit
+    stanno o cadono insieme.
     """
+    if kind not in KINDS:
+        raise OriginError("Il tipo di dominio deve essere 'live' o 'staging'.")
+
+    origin = _normalize_origins(str(value or "").strip())
+    host = host_of(origin)
+    # I locali si riconoscono prima della forma: `localhost` non ha un punto e sarebbe scartato
+    # come indirizzo malformato, dicendo la cosa sbagliata a chi sta solo sviluppando.
+    if is_local(origin):
+        raise OriginError(
+            "Gli indirizzi locali funzionano sempre e non vanno registrati: non occupano slot."
+        )
+    if not host or "." not in host:
+        raise OriginError("Inserisci un dominio valido, per esempio https://esempio.it.")
+
+    rows = registered_rows(session, client.id)
+    existing = next((r for r in rows if r.host == host), None)
+    if existing and existing.kind == kind:
+        return existing  # già registrato: idempotente, non un errore
+
+    if kind == "staging":
+        reason = staging_rejection(origin, live_origin(session, client.id))
+        if reason:
+            raise OriginError(reason)
+        if len([r for r in rows if r.kind == "staging" and r.host != host]) >= MAX_STAGING_ORIGINS:
+            raise OriginError(
+                "Hai già un dominio di staging. Rimuovilo prima di registrarne un altro: la "
+                "licenza ne prevede uno."
+            )
+    else:
+        current = [r for r in rows if r.kind == "live" and r.host != host]
+        limit = max_live_origins(session, client)
+        if limit and len(current) >= limit:
+            if limit == 1 and enforce_cooldown:
+                _check_live_cooldown(current[0])
+            elif limit > 1:
+                raise OriginError(
+                    f"Il tuo piano copre {limit} domini di produzione e li hai già usati tutti. "
+                    f"Rimuovine uno o passa a un piano superiore."
+                )
+            # Un solo slot: il dominio nuovo sostituisce quello vecchio, che sparisce dalla
+            # licenza. È il caso normale — rebrand, migrazione, passaggio da staging a live.
+            for row in current:
+                session.delete(row)
+
+    now = datetime.utcnow()
+    if existing:
+        existing.kind = kind
+        existing.origin = origin
+        existing.source = source
+        existing.confirmed_at = now
+        existing.last_seen_at = now
+        session.add(existing)
+        row = existing
+    else:
+        row = ClientOrigin(client_id=client.id, origin=origin, host=host, kind=kind,
+                           source=source, first_seen_at=now, last_seen_at=now, confirmed_at=now)
+        session.add(row)
+    session.flush()
+    _mirror(session, client.id)
+    return row
+
+
+def _check_live_cooldown(current: ClientOrigin) -> None:
+    since = current.confirmed_at or current.first_seen_at
+    if not since or not LIVE_CHANGE_COOLDOWN:
+        return
+    ready = since + LIVE_CHANGE_COOLDOWN
+    if datetime.utcnow() < ready:
+        raise OriginError(
+            f"Hai cambiato il dominio di produzione da poco. Potrai cambiarlo di nuovo dal "
+            f"{ready.strftime('%d/%m/%Y')}. Se serve prima, scrivici."
+        )
+
+
+def remove(session: Session, client_id: int, origin_id: int) -> bool:
+    row = session.get(ClientOrigin, origin_id)
+    if row is None or row.client_id != client_id:
+        return False  # tenant-scoped: la risorsa di un altro tenant non esiste, non è vietata
+    session.delete(row)
+    session.flush()
+    _mirror(session, client_id)
+    return True
+
+
+def covered(origin: str, registered: list[str]) -> bool:
+    """Se questo Origin è coperto dalla licenza: locale, oppure uno dei domini registrati."""
     if is_local(origin):
         return True
     return any(same_site(origin, entry) for entry in registered)
+
+
+def licence_rejection(origin: str | None, registered: list[str]) -> str | None:
+    """Perché questa chiamata del widget non è coperta dalla licenza, o `None` se lo è.
+
+    Due rifiuti che prima non c'erano, ed è il senso del blocco:
+
+    - **Nessun dominio registrato → si rifiuta.** Prima l'assenza di configurazione disattivava
+      il controllo: una licenza senza domini valeva ovunque. Ora vale da nessuna parte finché il
+      cliente non dice dov'è il suo sito.
+    - **Nessun header `Origin` → si rifiuta.** Un browser lo manda sempre; una richiesta che non
+      ce l'ha non viene da una pagina web, e su di essa il vincolo per-dominio non può applicarsi
+      affatto. Era il varco che restava intero, ed è il modo realistico di usare una chiave
+      pubblica copiata da un sito. Chi integra da un server ha `/v1` con una `ApiKey` dotata di
+      scope, che è la porta giusta.
+
+    Il messaggio è esplicito perché arriva a chi installa, in console e nel pannello. Al
+    visitatore non arriva mai: il widget non mostra errori di licenza a chi sta scrivendo.
+    """
+    if not origin:
+        return (
+            "Questa chiamata non arriva da un browser: manca l'header Origin. Per un'integrazione "
+            "server-to-server usa l'API /v1 con una chiave dedicata."
+        )
+    if is_local(origin):
+        return None
+    if not registered:
+        return (
+            "Nessun dominio registrato per questa licenza: aggiungi il dominio del tuo sito "
+            "dalle impostazioni del pannello, poi ricarica la pagina."
+        )
+    if not covered(origin, registered):
+        return (
+            f"Il dominio {host_of(origin)} non è registrato per questa licenza. Aggiungilo dalle "
+            f"impostazioni del pannello, oppure usa il dominio già configurato."
+        )
+    return None
 
 
 # ---- Osservazione ----------------------------------------------------------------------------

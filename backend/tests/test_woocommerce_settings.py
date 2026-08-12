@@ -7,6 +7,7 @@ from sqlmodel import Session, select
 
 from app import db
 from app.woocommerce import render_settings
+from conftest import TENANT_ORIGIN
 
 SETTINGS = {
     "currency": "EUR",
@@ -140,7 +141,7 @@ def test_clearing_the_settings_removes_them(client, tenant, drain):
 
 def test_settings_are_tenant_scoped(client, tenant, drain):
     admin = {"Authorization": "Bearer test-admin"}
-    other = client.post("/admin/clients", headers=admin, json={"name": "Altro"}).json()
+    other = client.post("/admin/clients", headers=admin, json={"name": "Altro", "allowed_origins": TENANT_ORIGIN}).json()
     client.post("/ingest/woocommerce", headers=tenant["key"], json={"settings": SETTINGS})
     drain()
 
@@ -183,7 +184,7 @@ def test_clearing_empties_chunks_and_products(client, tenant, drain):
 
 def test_clearing_never_crosses_tenants(client, tenant, drain):
     admin = {"Authorization": "Bearer test-admin"}
-    other = client.post("/admin/clients", headers=admin, json={"name": "Vicino"}).json()
+    other = client.post("/admin/clients", headers=admin, json={"name": "Vicino", "allowed_origins": TENANT_ORIGIN}).json()
     client.post("/ingest/woocommerce", headers={"Authorization": f"Bearer {other['api_key']}"},
                 json={"settings": SETTINGS})
     client.post("/ingest/woocommerce", headers=tenant["key"], json={"settings": SETTINGS})

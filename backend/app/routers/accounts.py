@@ -19,11 +19,11 @@ from fastapi import APIRouter, Body, Depends, Header, HTTPException, Request
 from sqlalchemy import func
 from sqlmodel import Session, select
 
-from .. import billing, cors, email as email_service
+from .. import billing, cors, email as email_service, origins
 from ..billing import default_plan_id as _default_plan_id
 from ..db import (
-    AuthToken, Chunk, Client, Conversation, Operator, OperatorSession, Plan, PluginInstallation,
-    Product, get_session,
+    AuthToken, Chunk, Client, ClientOrigin, Conversation, Operator, OperatorSession, Plan,
+    PluginInstallation, Product, get_session,
 )
 from ..deps import (
     audit as _audit, bearer_token as _bearer_token, hash_session_token as _hash_session_token,
@@ -156,6 +156,85 @@ def get_me(operator: Operator = Depends(require_operator), session: Session = De
     }
 
 
+# ---- I siti coperti dalla licenza -------------------------------------------------------------
+#
+# Self-service, e non un'impostazione da superadmin: da quando il widget non parte su un dominio
+# non registrato, "aggiungi il tuo sito" è il primo passo dell'installazione. Lasciarlo dietro un
+# ticket significava trasformare ogni attivazione in una richiesta di supporto.
+
+
+def _origin_payload(row) -> dict:
+    return {
+        "id": row.id,
+        "origin": row.origin,
+        "host": row.host,
+        "kind": row.kind,
+        "source": row.source,
+        "first_seen_at": _iso(row.first_seen_at),
+        "last_seen_at": _iso(row.last_seen_at),
+        "confirmed_at": _iso(row.confirmed_at),
+    }
+
+
+@router.get("/account/origins")
+def list_own_origins(operator: Operator = Depends(require_operator), session: Session = Depends(get_session)):
+    """I domini del tenant e gli slot che restano.
+
+    Gli `observed` — traffico visto da un dominio non registrato — escono in un elenco separato:
+    non concedono nulla, ma sono ciò che permette di dire "abbiamo visto traffico da qui,
+    confermalo o rimuovilo" invece di far indovinare al cliente cosa scrivere.
+    """
+    client = session.get(Client, operator.client_id)
+    rows = session.exec(
+        select(ClientOrigin).where(ClientOrigin.client_id == operator.client_id)
+        .order_by(ClientOrigin.kind, ClientOrigin.id)
+    ).all()
+    return {
+        "origins": [_origin_payload(r) for r in rows if r.kind in origins.KINDS],
+        "observed": [_origin_payload(r) for r in rows if r.kind == "observed"],
+        "slots": origins.slots(session, client),
+        "staging_labels": sorted(origins.STAGING_LABELS),
+    }
+
+
+@router.post("/account/origins")
+def add_own_origin(
+    origin: str = Body(..., embed=True),
+    kind: str = Body("live", embed=True),
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
+    """Registra un dominio del tenant. Il motivo di un rifiuto arriva al cliente per esteso: è
+    quello che gli dice cosa correggere, e senza il widget resta invisibile senza spiegazione."""
+    client = session.get(Client, operator.client_id)
+    try:
+        row = origins.register(session, client, origin, kind, source="panel")
+    except origins.OriginError as exc:
+        raise HTTPException(400, str(exc))
+    _audit(session, "operator", operator.email, "origin.register",
+           target=f"client_origin:{row.id}", client_id=client.id,
+           detail={"origin": row.origin, "kind": row.kind})
+    session.commit()
+    cors.rebuild_allowed_origins(session)
+    return {"origin": _origin_payload(row), "slots": origins.slots(session, client)}
+
+
+@router.delete("/account/origins/{origin_id}")
+def remove_own_origin(
+    origin_id: int,
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
+    if not origins.remove(session, operator.client_id, origin_id):
+        raise HTTPException(404, "Dominio non trovato")
+    _audit(session, "operator", operator.email, "origin.remove",
+           target=f"client_origin:{origin_id}", client_id=operator.client_id)
+    session.commit()
+    cors.rebuild_allowed_origins(session)
+    client = session.get(Client, operator.client_id)
+    return {"ok": True, "slots": origins.slots(session, client)}
+
+
 @router.get("/onboarding/status")
 def onboarding_status(operator: Operator = Depends(require_operator), session: Session = Depends(get_session)):
     """Self-service activation checklist derived from real tenant data, never client flags."""
@@ -178,8 +257,8 @@ def onboarding_status(operator: Operator = Depends(require_operator), session: S
         },
         {
             "key": "origin",
-            "label": "Sito WordPress collegato",
-            "complete": bool(client.allowed_origins.strip()),
+            "label": "Dominio del sito registrato",
+            "complete": bool(origins.registered(session, operator.client_id)),
         },
         {
             "key": "knowledge",

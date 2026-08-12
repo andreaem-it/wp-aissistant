@@ -1,6 +1,7 @@
 from sqlmodel import Session, select
 
 from app import db
+from conftest import TENANT_ORIGIN
 
 
 ADMIN = {"Authorization": "Bearer test-admin"}
@@ -28,7 +29,7 @@ def test_web_conversations_reuse_tenant_contact(client, tenant):
 
 def test_contact_identity_is_isolated_between_tenants(client, tenant):
     first = _new_chat(client, tenant, "same-browser")
-    other = client.post("/admin/clients", headers=ADMIN, json={"name": "Other Channels"}).json()
+    other = client.post("/admin/clients", headers=ADMIN, json={"name": "Other Channels", "allowed_origins": TENANT_ORIGIN}).json()
     second = client.post(
         "/chat",
         headers={"Authorization": f"Bearer {other['api_key']}"},

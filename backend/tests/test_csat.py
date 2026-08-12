@@ -1,4 +1,5 @@
 """CSAT: the visitor's rating of the whole conversation and its reports."""
+from conftest import TENANT_ORIGIN
 
 ADMIN = {"Authorization": "Bearer test-admin"}
 
@@ -23,7 +24,7 @@ def _rate(client, tenant, chat, score, comment="", token=None):
 
 
 def _other_tenant(client, name="Csat Other"):
-    other = client.post("/admin/clients", headers=ADMIN, json={"name": name}).json()
+    other = client.post("/admin/clients", headers=ADMIN, json={"name": name, "allowed_origins": TENANT_ORIGIN}).json()
     email = f"{name.lower().replace(' ', '-')}@other.it"
     client.post(
         f"/admin/clients/{other['id']}/operators", headers=ADMIN, json={"email": email, "password": "password1"}

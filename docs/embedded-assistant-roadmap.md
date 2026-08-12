@@ -359,24 +359,43 @@ server-side** e misurare quanti tenant hanno davvero `allowed_origins` vuoto *e*
 recente — una query da fare in produzione prima di decidere la data di applicazione, non una
 supposizione.
 
-**La migrazione resta da fare a scaglioni, ma per una ragione più stretta.** Il rischio non è
-più "tutti", è la coda: i tenant che passano oggi grazie a un origin registrato da altri, e
-quelli che usano il widget da un server. La sequenza:
+### Cosa ha detto l'osservazione, e perché la gradualità è saltata
 
-1. **Osservazione.** Registrare l'origin visto a ogni chiamata come riga `observed`, e contare a
-   parte le chiamate **senza** `Origin` — che sono il segnale che conta, perché è l'unico
-   traffico su cui oggi non c'è alcun controllo. **Fatto** (migrazione `0054`, `app/origins.py`,
-   metrica `wpai_widget_origin_checks_total`).
-2. **Backfill.** Da `Client.allowed_origins` (il primo dominio di ciascuno diventa `live`, gli
-   altri restano da confermare: quale sia la produzione fra due voci di una stringa non lo sa
-   nessuno) e da `PluginInstallation.site_origin`, che sono origin **già verificati per
-   challenge** e vincono sugli altri. **Fatto** nella migrazione `0054`.
-3. **Conferma dal cliente.** Il panel mostra "abbiamo visto traffico da questi domini" e chiede
-   di confermarli. Trasforma l'osservazione in registrazione senza far indovinare niente a
-   nessuno, e fa emergere subito chi è già oltre gli slot del piano.
-4. **Preavviso** con una data: email e avviso nel panel.
-5. **Applicazione.** Fail closed dalla data. I tenant **nuovi nascono già fail-closed**: la
-   gradualità serve solo agli esistenti, non è il comportamento di regime.
+Tre giorni in produzione, e il risultato utile non è quello che l'osservazione doveva misurare
+ma un fatto che rende la misura inutile: **zero righe nuove, perché non è passato traffico chat
+dopo il rilascio.** Il parco è di quattro tenant, tutti di prova; l'unico che ha mai avuto
+traffico (6 messaggi il 4 agosto, 6 il 7) ha già il dominio registrato dall'installazione
+WordPress verificata. Nessuno usa oggi il prodotto in modo da poter essere interrotto.
+
+Aspettare altri giorni non avrebbe prodotto dati: **non c'è traffico da osservare**. E la stessa
+constatazione che rende inutile l'osservazione rende sicura l'applicazione, ora, prima dei
+clienti veri. La sequenza a scaglioni — osservazione, conferma, preavviso, data — era il modo
+giusto di trattare un parco popolato; applicarla a quattro tenant di prova sarebbe stato un
+rituale, non una cautela. **Applicato subito.** La sequenza resta scritta qui perché serve al
+prossimo cambiamento di questo tipo, non a questo.
+
+**Stato dopo l'applicazione** (blocco `domain-licence-enforcement`):
+
+- `deps.rate_limit_chat` fallisce **chiuso**: niente domini registrati o niente header `Origin`
+  → `403` con il motivo per esteso.
+- `ClientOrigin` è la sorgente di verità per licenza, allowlist CORS e callback dell'order
+  lookup. `Client.allowed_origins` sopravvive solo come **specchio** per il pannello admin,
+  scritto da `origins._mirror()` e letto da nessuna decisione: si toglie quando il pannello sarà
+  passato a `/account/origins`.
+- Entrambi i varchi di §4 sono chiusi: quello dell'allowlist globale (la copertura si valuta ora
+  sui domini **del chiamante**) e quello delle chiamate senza `Origin`.
+- Registrazione self-service da `/account/origins`, con slot visibili e cambio del dominio live
+  soggetto a raffreddamento e audit.
+- **L'installazione del plugin registra il dominio da sé.** Senza questo ramo il fail closed
+  avrebbe reso impossibile l'onboarding di ogni cliente WordPress nuovo: il primo passo è
+  installare il plugin, e per farlo serviva un dominio già registrato. La fiducia viene dal
+  challenge HMAC, che prova il possesso del sito ed è una prova più forte di un form. Vale solo
+  a slot libero: a slot pieno il dominio non viene sostituito di nascosto.
+
+**Cosa resta prima di dire che il cerchio è chiuso**, ed è la cosa che oggi manca davvero:
+l'errore è leggibile nella risposta HTTP, ma **il widget non lo mostra ancora a chi installa** e
+il pannello non ha la schermata dei domini. Finché non ci sono, un dominio sbagliato si
+manifesta come "il widget non c'è" — il rischio 3 di questo documento, e ora è armato.
 
 **Rifiuto leggibile, in tre posti.** Il messaggio HTTP dice quale dominio è stato rifiutato; il
 panel mostra lo stato della licenza (dominio non registrato, slot esauriti) senza far leggere

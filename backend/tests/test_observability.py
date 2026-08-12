@@ -3,6 +3,7 @@ and the admin debug/audit read endpoints. LLM + embeddings are mocked by the con
 from sqlmodel import Session, select
 
 from app import db
+from conftest import TENANT_ORIGIN
 
 ADMIN = {"Authorization": "Bearer test-admin"}
 
@@ -60,7 +61,7 @@ def test_admin_debug_requires_admin(client, tenant):
 
 
 def test_audit_log_records_admin_actions(client):
-    c = client.post("/admin/clients", headers=ADMIN, json={"name": "Acme"}).json()
+    c = client.post("/admin/clients", headers=ADMIN, json={"name": "Acme", "allowed_origins": TENANT_ORIGIN}).json()
     client.post(f"/admin/clients/{c['id']}/rotate-key", headers=ADMIN)
     audit = client.get("/admin/audit", headers=ADMIN).json()
     actions = [a["action"] for a in audit]
@@ -71,8 +72,8 @@ def test_audit_log_records_admin_actions(client):
 
 
 def test_audit_filter_by_client(client):
-    a = client.post("/admin/clients", headers=ADMIN, json={"name": "A"}).json()
-    b = client.post("/admin/clients", headers=ADMIN, json={"name": "B"}).json()
+    a = client.post("/admin/clients", headers=ADMIN, json={"name": "A", "allowed_origins": TENANT_ORIGIN}).json()
+    b = client.post("/admin/clients", headers=ADMIN, json={"name": "B", "allowed_origins": TENANT_ORIGIN}).json()
     only_b = client.get("/admin/audit", headers=ADMIN, params={"client_id": b["id"]}).json()
     assert only_b
     assert all(x["client_id"] == b["id"] for x in only_b)

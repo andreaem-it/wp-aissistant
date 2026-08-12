@@ -1,6 +1,7 @@
 from sqlmodel import Session, select
 
 from app import db, email as email_service
+from conftest import TENANT_ORIGIN
 
 
 def _payload(**overrides):
@@ -107,7 +108,7 @@ def test_operator_reply_is_delivered_as_threaded_email(client, tenant, monkeypat
 
 def test_email_threads_are_tenant_scoped(client, tenant):
     admin = {"Authorization": "Bearer test-admin"}
-    other = client.post("/admin/clients", headers=admin, json={"name": "Other"}).json()
+    other = client.post("/admin/clients", headers=admin, json={"name": "Other", "allowed_origins": TENANT_ORIGIN}).json()
     first = client.post("/channels/email/inbound", headers=_channel_key(client, tenant), json=_payload()).json()
     client.post(
         f"/admin/clients/{other['id']}/operators",

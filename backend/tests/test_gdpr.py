@@ -4,6 +4,7 @@ import datetime as _dt
 from sqlmodel import Session, select
 
 from app import db, main
+from conftest import TENANT_ORIGIN
 
 ADMIN = {"Authorization": "Bearer test-admin"}
 
@@ -40,7 +41,7 @@ def test_delete_conversation_cascades(client, tenant):
 
 def test_delete_scoped_to_client(client, tenant):
     conv_id = _escalated_with_email(client, tenant, "v@x.it")
-    other = client.post("/admin/clients", headers=ADMIN, json={"name": "Other"}).json()
+    other = client.post("/admin/clients", headers=ADMIN, json={"name": "Other", "allowed_origins": TENANT_ORIGIN}).json()
     client.post(f"/admin/clients/{other['id']}/operators", headers=ADMIN, json={"email": "o2@x.it", "password": "password1"})
     tok = client.post("/operator/login", json={"email": "o2@x.it", "password": "password1"}).json()["token"]
     assert client.delete(f"/conversations/{conv_id}", headers={"Authorization": f"Bearer {tok}"}).status_code == 404
@@ -70,7 +71,7 @@ def test_gdpr_export_is_complete_case_insensitive_and_tenant_scoped(client, tena
     assert item["tickets"][0]["status"] == "open"
     assert "access_token_hash" not in item["conversation"]
 
-    other = client.post("/admin/clients", headers=ADMIN, json={"name": "Other Export"}).json()
+    other = client.post("/admin/clients", headers=ADMIN, json={"name": "Other Export", "allowed_origins": TENANT_ORIGIN}).json()
     client.post(
         f"/admin/clients/{other['id']}/operators",
         headers=ADMIN,

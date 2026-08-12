@@ -5,12 +5,13 @@ from datetime import datetime, timedelta
 from sqlmodel import Session
 
 from app import db
+from conftest import TENANT_ORIGIN
 
 ADMIN = {"Authorization": "Bearer test-admin"}
 
 
 def _client(client, name, *, age_days=1, paid_days_ago=None, status="active"):
-    created = client.post("/admin/clients", headers=ADMIN, json={"name": name}).json()
+    created = client.post("/admin/clients", headers=ADMIN, json={"name": name, "allowed_origins": TENANT_ORIGIN}).json()
     with Session(db.engine) as session:
         row = session.get(db.Client, created["id"])
         row.created_at = datetime.utcnow() - timedelta(days=age_days)
@@ -85,7 +86,7 @@ def test_clients_without_a_creation_date_are_reported_separately(client):
     """They predate the field: excluded from the cohort, counted out loud, never invented."""
     known = _client(client, "Datato", age_days=2)
     _conversation(known, answered=True)
-    unknown = client.post("/admin/clients", headers=ADMIN, json={"name": "Ignoto"}).json()["id"]
+    unknown = client.post("/admin/clients", headers=ADMIN, json={"name": "Ignoto", "allowed_origins": TENANT_ORIGIN}).json()["id"]
     with Session(db.engine) as session:
         row = session.get(db.Client, unknown)
         row.created_at = None

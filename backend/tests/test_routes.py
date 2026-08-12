@@ -188,6 +188,8 @@ ACCOUNT_ROUTES = {
     "/me/password": {"POST"},
     "/me/rotate-key": {"POST"},
     "/onboarding/status": {"GET"},
+    "/account/origins": {"GET", "POST"},
+    "/account/origins/{origin_id}": {"DELETE"},
     "/auth/verify-email": {"POST"},
     "/auth/resend-verification": {"POST"},
     "/auth/forgot": {"POST"},

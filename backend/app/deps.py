@@ -209,18 +209,16 @@ def plan_limit(session: Session, client: Client, attr: str, fallback: int) -> in
 
 
 def rate_limit_chat(request: Request, client: Client = Depends(require_client), session: Session = Depends(get_session)) -> Client:
-    # enforceable per-client binding: a browser call with this client's key must come from
-    # one of its configured origins (skipped when unconfigured or for server-side calls)
-    allowed = split_origins(client.allowed_origins)
+    # La licenza è legata al dominio: questa chiave vale sui siti che il tenant ha registrato,
+    # più gli indirizzi locali. È il punto in cui il vincolo è **applicabile** — qui si vede la
+    # chiave, cosa che il livello CORS non può fare — e fallisce chiuso: senza domini registrati
+    # o senza header Origin non si passa. Vedi `origins.licence_rejection`.
+    allowed = origins.registered(session, client.id)
     origin = request.headers.get("origin")
-    # Osservazione della licenza per dominio: annota e conta, **non rifiuta**. Il rifiuto arriva
-    # in un blocco successivo, quando sapremo chi si romperebbe. Le due maglie larghe qui sopra
-    # — nessun controllo senza origin configurati, controllo saltato senza header Origin —
-    # restano com'erano di proposito: cambiarle adesso, senza dati, è il modo per spegnere il
-    # widget a qualcuno senza accorgersene.
     origins.observe(session, client.id, origin, allowed)
-    if allowed and origin and origin not in allowed:
-        raise HTTPException(403, "origin not allowed for this client")
+    rejection = origins.licence_rejection(origin, allowed)
+    if rejection:
+        raise HTTPException(403, rejection)
     ip = request.client.host if request.client else "unknown"
     limit = plan_limit(session, client, "chat_rate_limit", chat_limiter.limit)
     chat_limiter.check(f"chat:{client.id}:{ip}", limit=limit)

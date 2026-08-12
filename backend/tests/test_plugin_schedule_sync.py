@@ -4,7 +4,7 @@ import io
 
 from sqlmodel import Session, select
 
-from app import db
+from app import db, origins
 # plugin verification moved with the widget router when main.py was split
 from app.routers import widget as main
 from test_leads import _other_tenant
@@ -21,10 +21,15 @@ SCHEDULE = {
 
 
 def _allow_site(tenant):
+    """Il sito coperto dalla licenza del tenant. Passa dalla tabella `ClientOrigin`, che è la
+    sorgente di verità: scrivere la vecchia colonna di testo non autorizzerebbe più nulla."""
     with Session(db.engine) as session:
-        row = session.get(db.Client, tenant["cid"])
-        row.allowed_origins = "https://shop.example.it"
-        session.add(row)
+        client = session.get(db.Client, tenant["cid"])
+        for row in origins.registered_rows(session, tenant["cid"]):
+            session.delete(row)
+        session.flush()
+        origins.register(session, client, "https://shop.example.it", "live",
+                         source="admin", enforce_cooldown=False)
         session.commit()
 
 
@@ -116,7 +121,7 @@ def test_site_challenge_verification_uses_hmac_and_public_address(monkeypatch):
 
 def test_proof_url_must_use_allowlisted_origin_and_expected_rest_route(monkeypatch):
     monkeypatch.setattr(main.webhooks, "ALLOW_PRIVATE", True)
-    allowed = "https://shop.example.it"
+    allowed = ["https://shop.example.it"]
     assert main._trusted_plugin_proof_url(
         allowed, "https://shop.example.it/testfb/wp-json/wpai/v1/site-proof",
     ).endswith("/testfb/wp-json/wpai/v1/site-proof")
@@ -124,3 +129,85 @@ def test_proof_url_must_use_allowlisted_origin_and_expected_rest_route(monkeypat
         allowed, "https://evil.example/wp-json/wpai/v1/site-proof",
     ) == ""
     assert main._trusted_plugin_proof_url(allowed, "https://shop.example.it/admin") == ""
+
+
+# ---- bootstrap dell'onboarding ----------------------------------------------------------------
+#
+# Con la licenza legata al dominio un cliente nuovo non ha registrato nulla, e senza questo ramo
+# installare il plugin — il primo passo di ogni cliente WordPress — richiederebbe un intervento
+# del superadmin. La fiducia non viene dall'elenco ma dal challenge, che prova il possesso.
+
+
+def _fresh_tenant(client):
+    """Un tenant appena creato: nessun dominio, come dopo un signup."""
+    admin = {"Authorization": "Bearer test-admin"}
+    return client.post("/admin/clients", headers=admin, json={"name": "Appena nato"}).json()
+
+
+def test_a_new_tenant_registers_its_domain_by_installing_the_plugin(client, monkeypatch):
+    fresh = _fresh_tenant(client)
+    monkeypatch.setattr(main, "_verify_plugin_site", lambda url, secret: True)
+    key = {"Authorization": f"Bearer {fresh['api_key']}"}
+
+    response = client.post("/plugin/register", headers=key, json={
+        "site_url": "https://nuovo-negozio.it",
+        "proof_url": "https://nuovo-negozio.it/wp-json/wpai/v1/site-proof",
+        "secret": SECRET,
+    })
+
+    assert response.status_code == 200
+    with Session(db.engine) as session:
+        rows = origins.registered_rows(session, fresh["id"])
+    assert [(r.host, r.kind, r.source) for r in rows] == [("nuovo-negozio.it", "live", "plugin")]
+
+
+def test_the_widget_works_right_after_the_plugin_registered_the_domain(client, monkeypatch):
+    """La prova che il bootstrap chiude davvero l'onboarding: prima di questa chiamata il
+    widget di quel sito riceveva 403."""
+    fresh = _fresh_tenant(client)
+    monkeypatch.setattr(main, "_verify_plugin_site", lambda url, secret: True)
+    key = {"Authorization": f"Bearer {fresh['api_key']}"}
+    client.post("/plugin/register", headers=key, json={
+        "site_url": "https://nuovo-negozio.it",
+        "proof_url": "https://nuovo-negozio.it/wp-json/wpai/v1/site-proof",
+        "secret": SECRET,
+    })
+
+    chat = client.post("/chat", headers={**key, "Origin": "https://nuovo-negozio.it"},
+                       json={"message": "ciao", "visitor_id": "v-appena-installato"})
+
+    assert chat.status_code == 200
+
+
+def test_a_failed_challenge_registers_no_domain(client, monkeypatch):
+    """Il challenge è l'unica cosa che regge il bootstrap: se non passa, non deve restare
+    nulla — altrimenti chiunque si registrerebbe il dominio di un altro."""
+    fresh = _fresh_tenant(client)
+    monkeypatch.setattr(main, "_verify_plugin_site", lambda url, secret: False)
+    key = {"Authorization": f"Bearer {fresh['api_key']}"}
+
+    response = client.post("/plugin/register", headers=key, json={
+        "site_url": "https://non-mio.it",
+        "proof_url": "https://non-mio.it/wp-json/wpai/v1/site-proof",
+        "secret": SECRET,
+    })
+
+    assert response.status_code == 422
+    with Session(db.engine) as session:
+        assert origins.registered_rows(session, fresh["id"]) == []
+
+
+def test_bootstrap_does_not_silently_replace_an_existing_domain(client, tenant, monkeypatch):
+    """A slot pieno il dominio registrato non viene sostituito di nascosto da un'installazione
+    su un altro sito: il cliente deve cambiarlo di proposito dal pannello."""
+    monkeypatch.setattr(main, "_verify_plugin_site", lambda url, secret: True)
+
+    response = client.post("/plugin/register", headers=tenant["key"], json={
+        "site_url": "https://altro-sito.it",
+        "proof_url": "https://altro-sito.it/wp-json/wpai/v1/site-proof",
+        "secret": SECRET,
+    })
+
+    assert response.status_code == 403
+    with Session(db.engine) as session:
+        assert [r.host for r in origins.registered_rows(session, tenant["cid"])] == ["acme.example"]

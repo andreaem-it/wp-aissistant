@@ -18,7 +18,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException
 from sqlalchemy import and_, func, or_
 from sqlmodel import Session, select
 
-from .. import billing, cors, email as email_service, metrics, webhooks
+from .. import billing, cors, email as email_service, metrics, origins, webhooks
 from ..analytics import build_stats as _build_stats
 from ..billing import default_plan_id as _default_plan_id
 from .. import retention
@@ -32,7 +32,7 @@ from ..llm import CHAT_MODEL, EMBED_MODEL
 from ..production_config import production_warnings
 from ..rag import embed
 from ..security import hash_password
-from ..util import iso as _iso, normalize_origins as _normalize_origins
+from ..util import iso as _iso, normalize_origins as _normalize_origins, split_origins as _split_origins
 
 logger = logging.getLogger("wpai")
 
@@ -163,18 +163,25 @@ def create_client(
     session: Session = Depends(get_session),
 ):
     """Provision a new client and return its generated api_key. The key is shown only here —
-    it's not stored in a recoverable form for listing, so capture it now. allowed_origins is a
-    comma-separated list of widget origins (empty = no per-client origin enforcement).
-    Defaults to the Free plan if plan_id isn't given."""
+    it's not stored in a recoverable form for listing, so capture it now. `allowed_origins` è
+    l'elenco dei siti coperti dalla licenza: il primo è il dominio live. **Vuoto significa che
+    il widget non funziona da nessuna parte** — non più "nessun controllo", che è il default
+    ribaltato da questo blocco. Defaults to the bootstrap plan if plan_id isn't given."""
     client = Client(
         name=name,
         api_key=secrets.token_urlsafe(32),
-        allowed_origins=_normalize_origins(allowed_origins),
         plan_id=plan_id or _default_plan_id(session),
     )
     session.add(client)
     session.commit()
     session.refresh(client)
+    for index, value in enumerate(_split_origins(_normalize_origins(allowed_origins))):
+        try:
+            origins.register(session, client, value, "live" if index == 0 else "staging",
+                             source="admin", enforce_cooldown=False)
+        except origins.OriginError as exc:
+            raise HTTPException(400, str(exc))
+    session.commit()
     cors.rebuild_allowed_origins(session)
     _audit(session, "admin", "admin", "client.create", target=f"client:{client.id}", client_id=client.id, detail={"name": name})
     return {"id": client.id, "name": client.name, "api_key": client.api_key, "allowed_origins": client.allowed_origins, "plan_id": client.plan_id}
@@ -422,15 +429,34 @@ def delete_operator(operator_id: int, session: Session = Depends(get_session)):
 
 @router.post("/admin/clients/{client_id}/origins", dependencies=[Depends(require_admin)])
 def set_client_origins(client_id: int, allowed_origins: str = Body(..., embed=True), session: Session = Depends(get_session)):
-    """Set the comma-separated widget origins allowed to use this client's key from a browser."""
+    """Riscrive i siti coperti dalla licenza di questo tenant, dal superadmin.
+
+    Sostituisce l'elenco invece di aggiungersi, perché è ciò che il pannello admin fa da sempre.
+    Il primo dominio è il `live`, i successivi sono staging solo se rispettano le regole di
+    `origins.py`: qui il superadmin **non** scavalca la validazione — un dominio che il cliente
+    non potrebbe registrare da sé non deve poter entrare da questa porta, o l'assistenza
+    diventerebbe il modo per aggirare la licenza. Scavalca solo il raffreddamento sul cambio del
+    dominio live, che esiste per scoraggiare la rotazione, non per bloccare chi ci chiede aiuto.
+    """
     client = session.get(Client, client_id)
     if not client:
         raise HTTPException(404, "client not found")
-    client.allowed_origins = _normalize_origins(allowed_origins)
-    session.add(client)
+
+    wanted = _split_origins(_normalize_origins(allowed_origins))
+    for row in origins.registered_rows(session, client_id):
+        session.delete(row)
+    session.flush()
+    saved = []
+    try:
+        for index, value in enumerate(wanted):
+            saved.append(origins.register(session, client, value, "live" if index == 0 else "staging",
+                                          source="admin", enforce_cooldown=False).origin)
+    except origins.OriginError as exc:
+        session.rollback()
+        raise HTTPException(400, str(exc))
     session.commit()
     cors.rebuild_allowed_origins(session)
-    _audit(session, "admin", "admin", "client.set_origins", target=f"client:{client_id}", client_id=client_id, detail={"allowed_origins": client.allowed_origins})
+    _audit(session, "admin", "admin", "client.set_origins", target=f"client:{client_id}", client_id=client_id, detail={"allowed_origins": ",".join(saved)})
     return {"id": client.id, "name": client.name, "allowed_origins": client.allowed_origins}
 
 

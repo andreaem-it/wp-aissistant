@@ -83,17 +83,28 @@ def client(monkeypatch):
     except Exception as exc:  # noqa: BLE001
         pytest.skip(f"test database not reachable: {exc}")
 
-    with TestClient(main.app) as test_client:
+    # Il widget gira in una pagina, quindi ogni sua chiamata porta un header Origin: da quando
+    # la licenza è legata al dominio, una richiesta che non ce l'ha viene rifiutata perché non
+    # arriva da un browser. Il default qui rende il TestClient realistico; i test che verificano
+    # proprio quel rifiuto passano `headers={"Origin": ...}` o lo rimuovono esplicitamente.
+    with TestClient(main.app, headers={"Origin": TENANT_ORIGIN}) as test_client:
         yield test_client
 
     SQLModel.metadata.drop_all(db.engine)
+
+
+# Il dominio dei tenant di prova. Non un `.test`/`.local`: quelli sono indirizzi locali, sempre
+# ammessi e mai contati, e userarli qui nasconderebbe il controllo della licenza invece di
+# esercitarlo.
+TENANT_ORIGIN = "https://acme.example"
 
 
 @pytest.fixture
 def tenant(client):
     """Create a client + operator and return ready-made auth headers."""
     admin = {"Authorization": "Bearer test-admin"}
-    c = client.post("/admin/clients", headers=admin, json={"name": "Acme"}).json()
+    c = client.post("/admin/clients", headers=admin,
+                    json={"name": "Acme", "allowed_origins": TENANT_ORIGIN}).json()
     client.post(
         f"/admin/clients/{c['id']}/operators",
         headers=admin,

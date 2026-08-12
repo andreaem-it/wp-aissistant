@@ -11,6 +11,7 @@ import pytest
 from sqlmodel import Session, select
 
 from app import billing, db, email as email_service, retention
+from conftest import TENANT_ORIGIN
 
 
 ADMIN = {"Authorization": "Bearer test-admin"}
@@ -226,7 +227,7 @@ def test_a_tenant_without_a_due_date_is_never_touched(client, tenant):
 
 
 def test_a_purge_never_touches_another_tenant(client, tenant):
-    other = client.post("/admin/clients", headers=ADMIN, json={"name": "Vicino"}).json()
+    other = client.post("/admin/clients", headers=ADMIN, json={"name": "Vicino", "allowed_origins": TENANT_ORIGIN}).json()
     other_key = {"Authorization": f"Bearer {other['api_key']}"}
     client.post("/chat", headers=other_key, json={"visitor_id": "v", "message": "ciao"})
 

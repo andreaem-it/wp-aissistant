@@ -83,6 +83,38 @@ verificata — mai con la `api_key`, che sta in ogni pagina pubblica). L'equival
 operatori è `DELETE /knowledge-base`; entrambi richiedono la parola di conferma `svuota` e
 finiscono nell'audit.
 
+## La licenza è legata al dominio
+
+Una licenza copre **un sito**, non un elenco di siti. Il widget parte solo su un dominio
+registrato: senza, la chiamata riceve `403` con il motivo scritto per esteso — al visitatore non
+arriva mai nulla di tutto questo.
+
+| Tipo | Quanti | Regola |
+|---|---|---|
+| **Live** | `Plan.max_live_origins` (1 di default, 0 = illimitato) | Il dominio di produzione. `esempio.it` e `www.esempio.it` sono lo stesso sito e occupano un solo slot |
+| **Staging** | 1 | Deve essere un **sottodominio del live** con un'etichetta di sviluppo (`staging`, `dev`, `demo`, `test`, `preprod`, `uat`…), oppure stare su una piattaforma riconosciuta (`*.wpengine.com`, `*.vercel.app`, `*.ddev.site`…) |
+| **Locali** | illimitati, non contati | `localhost`, `127.0.0.1`, `*.local`, `*.test`: sempre ammessi, mai da registrare |
+
+Due dettagli che sembrano minori e non lo sono, entrambi in `app/origins.py`:
+
+- Le etichette di sviluppo si confrontano **per etichetta DNS, mai per sottostringa**:
+  `devoto.it` contiene "dev" ed è un sito vero.
+- Lo staging deve stare **sotto il dominio live**: `demo.altrosito.it` rispetta la convenzione
+  ed è un secondo sito commerciale. Con la sola parola chiave lo slot sarebbe una licenza in
+  regalo.
+
+Il vincolo è applicato lato server in `deps.rate_limit_chat`, che è il punto in cui si vede la
+`api_key` — la CORS, che il preflight lo blocca prima, non può essere scoped per cliente.
+**Fallisce chiuso**: nessun dominio registrato o nessun header `Origin` significa nessun accesso.
+Una richiesta senza `Origin` non viene da un browser: per le integrazioni server-to-server c'è
+`/v1` con una `ApiKey` dotata di scope.
+
+Il cliente registra i propri domini da sé (`/account/origins`); il dominio live si cambia da soli
+con un raffreddamento (`LIVE_ORIGIN_CHANGE_COOLDOWN_DAYS`, 7 giorni) e traccia in audit, perché
+rebrand e migrazioni sono normali e non devono diventare un ticket. **Installare il plugin
+WordPress registra il dominio da sé**: il challenge HMAC prova il possesso del sito, ed è una
+prova più forte di un campo compilato in un form.
+
 ## Help desk: assegnazione, reparti e SLA
 
 - **Reparti** — code di supporto del tenant (Vendite, Ordini, Resi…). Gli operatori assegnati a
@@ -631,7 +663,10 @@ Auth via header `Authorization: Bearer <token>`. La colonna *Auth* indica quale 
 | `/mentions/read` | POST | 👤 | Segna come lette alcune menzioni o tutte |
 | `/saved-views` | GET/POST | 👤 | Viste salvate dell'inbox (proprie + condivise nel tenant) |
 | `/saved-views/{id}` | PATCH/DELETE | 👤 | Aggiorna o elimina una vista salvata (solo il proprietario) |
-| `/onboarding/status` | GET | 👤 | Checklist di attivazione calcolata da billing, origin, knowledge base e prima chat |
+| `/onboarding/status` | GET | 👤 | Checklist di attivazione calcolata da billing, dominio registrato, knowledge base e prima chat |
+| `/account/origins` | GET | 👤 | I siti coperti dalla licenza, i domini osservati e gli slot residui |
+| `/account/origins` | POST | 👤 | Registra il dominio live o quello di staging (validato) |
+| `/account/origins/{id}` | DELETE | 👤 | Rimuove un dominio dalla licenza |
 | `/me/password` | POST | 👤 | Cambia la propria password |
 | `/me/rotate-key` | POST | 👤 | Rigenera l'api_key del proprio client |
 | `/operator/login` | POST | — | Login operatore (email+password) → token |
@@ -640,7 +675,7 @@ Auth via header `Authorization: Bearer <token>`. La colonna *Auth* indica quale 
 | `/admin/clients/{id}/rotate-key` | POST | 🛡️ | Rigenera l'api_key di un client |
 | `/admin/clients/{id}/operators` | GET/POST | 🛡️ | Elenca/crea operatori per un client |
 | `/admin/operators/{id}` | DELETE | 🛡️ | Rimuove un operatore (e le sue sessioni attive) |
-| `/admin/clients/{id}/origins` | POST | 🛡️ | Imposta gli origin widget ammessi per un client |
+| `/admin/clients/{id}/origins` | POST | 🛡️ | Riscrive i siti coperti dalla licenza di un client (primo = live, gli altri staging) |
 | `/admin/clients/{id}/plan` | POST | 🛡️ | Assegna un piano a un client |
 | `/admin/plans` | GET/POST | 🛡️ | Elenca/crea piani (prezzo, limiti chat/ingest) |
 | `/admin/reembed` | POST | 🛡️ | Ri-embedda i contenuti senza embedding (dopo un cambio modello/dim) |
