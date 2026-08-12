@@ -92,3 +92,20 @@ test("optionNames elenca tutto ciò che un altro produttore deve conoscere", () 
   assert.ok(names.includes("color"));
   assert.equal(new Set(names).size, names.length, "nomi duplicati");
 });
+
+test("schema.json versionato coincide con schema.js", async () => {
+  // L'anello che chiude il giro. Il backend legge `schema.json`, e un test Python confronta la
+  // sua copia in memoria con quel file: se però qualcuno tocca `schema.js` senza rifare la
+  // build, l'artefatto resta vecchio e **entrambi** leggono la versione superata, in accordo fra
+  // loro e in disaccordo con il widget. Qui si confronta il file versionato con ciò che il
+  // generatore produrrebbe adesso.
+  const { readFile } = await import("node:fs/promises");
+  const committed = JSON.parse(await readFile(new URL("../schema.json", import.meta.url), "utf8"));
+
+  assert.deepEqual(committed.appearance, schema.APPEARANCE,
+    "schema.json è vecchio: esegui `npm run build` in sdk/widget");
+  assert.deepEqual(committed.classPrefix, schema.CLASS_PREFIX);
+  assert.deepEqual(committed.flags, schema.FLAGS);
+  assert.deepEqual(committed.withoutRootClass, Object.keys(schema.WITHOUT_ROOT_CLASS));
+  assert.equal(committed.defaultColor, schema.DEFAULT_COLOR);
+});

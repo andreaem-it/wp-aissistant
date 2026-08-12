@@ -190,6 +190,7 @@ ACCOUNT_ROUTES = {
     "/onboarding/status": {"GET"},
     "/account/origins": {"GET", "POST"},
     "/account/origins/{origin_id}": {"DELETE"},
+    "/account/widget-config": {"GET", "PUT"},
     "/auth/verify-email": {"POST"},
     "/auth/resend-verification": {"POST"},
     "/auth/forgot": {"POST"},

@@ -199,6 +199,11 @@ prova più forte di un campo compilato in un form.
   concede nulla) e `internal_unlimited` (il piano con cui serviamo noi stessi, concede tutto).
   Entrambi sono `internal`, cioè non vendibili e invisibili ai clienti; solo il secondo esclude
   il tenant dalle viste commerciali, perché sul primo ci stanno i clienti da attivare.
+- **WidgetConfig** — aspetto e testi del widget di un tenant, una riga per cliente. Esiste perché
+  la configurazione viveva **solo dentro WordPress**: senza, un cliente senza plugin non poteva
+  personalizzare niente e il pannello non poteva mostrare cosa fosse configurato. Il JSON non è
+  libero: passa da `app/widget_config.py`, che valida contro il vocabolario condiviso con il
+  widget (`sdk/widget/schema.json`, generato dalla build) invece di riscriverlo.
 - **ClientOrigin** — i siti coperti dalla licenza del tenant: un dominio `live` (quanti ne
   concede il piano, `Plan.max_live_origins`), uno `staging` vincolato dalle regole di
   `app/origins.py`, e le righe `observed` — traccia di traffico che **non concede nulla**,
@@ -675,6 +680,8 @@ Auth via header `Authorization: Bearer <token>`. La colonna *Auth* indica quale 
 | `/account/origins` | GET | 👤 | I siti coperti dalla licenza, i domini osservati e gli slot residui |
 | `/account/origins` | POST | 👤 | Registra il dominio live o quello di staging (validato) |
 | `/account/origins/{id}` | DELETE | 👤 | Rimuove un dominio dalla licenza |
+| `/account/widget-config` | GET | 👤 | Aspetto e testi del widget, con il vocabolario dei valori ammessi |
+| `/account/widget-config` | PUT | 👤 | Salva aspetto e testi; un valore fuori vocabolario è rifiutato, non corretto |
 | `/me/password` | POST | 👤 | Cambia la propria password |
 | `/me/rotate-key` | POST | 👤 | Rigenera l'api_key del proprio client |
 | `/operator/login` | POST | — | Login operatore (email+password) → token |

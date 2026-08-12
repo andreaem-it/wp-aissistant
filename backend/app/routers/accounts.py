@@ -9,6 +9,7 @@ address are answered identically, so neither can be used to enumerate accounts.
 Final phase of the main.py split — see `docs/handoff.md`.
 """
 import hashlib
+import json
 import logging
 import os
 import secrets
@@ -19,11 +20,11 @@ from fastapi import APIRouter, Body, Depends, Header, HTTPException, Request
 from sqlalchemy import func
 from sqlmodel import Session, select
 
-from .. import billing, cors, email as email_service, origins
+from .. import billing, cors, email as email_service, origins, widget_config
 from ..billing import default_plan_id as _default_plan_id
 from ..db import (
     AuthToken, Chunk, Client, ClientOrigin, Conversation, Operator, OperatorSession, Plan,
-    PluginInstallation, Product, get_session,
+    PluginInstallation, Product, WidgetConfig, get_session,
 )
 from ..deps import (
     audit as _audit, bearer_token as _bearer_token, hash_session_token as _hash_session_token,
@@ -233,6 +234,70 @@ def remove_own_origin(
     cors.rebuild_allowed_origins(session)
     client = session.get(Client, operator.client_id)
     return {"ok": True, "slots": origins.slots(session, client)}
+
+
+# ---- Aspetto e testi del widget ---------------------------------------------------------------
+#
+# Serve ai clienti che WordPress non ce l'hanno — e a quelli che ce l'hanno ma vogliono
+# configurare da un posto solo. Il vocabolario esce insieme alla configurazione: il pannello
+# costruisce i menu a tendina da lì invece di riscrivere la lista, che è il modo in cui le due
+# divergono senza che nessuno se ne accorga.
+
+
+def _widget_payload(row) -> dict:
+    if not row or not row.payload:
+        return widget_config.defaults()
+    try:
+        return widget_config.normalise(json.loads(row.payload))
+    except (ValueError, TypeError):
+        # Una riga illeggibile non deve rendere inutilizzabile la schermata: si riparte dai
+        # default, che è ciò che il widget userebbe comunque.
+        logger.warning("widget config illeggibile per il client %s", row.client_id)
+        return widget_config.defaults()
+
+
+@router.get("/account/widget-config")
+def get_widget_config(operator: Operator = Depends(require_operator), session: Session = Depends(get_session)):
+    row = session.exec(
+        select(WidgetConfig).where(WidgetConfig.client_id == operator.client_id)
+    ).first()
+    return {
+        "config": _widget_payload(row),
+        "vocabulary": widget_config.vocabulary(),
+        "configured": bool(row and row.payload),
+        "updated_at": _iso(row.updated_at) if row else None,
+    }
+
+
+@router.put("/account/widget-config")
+def set_widget_config(
+    payload: dict = Body(...),
+    operator: Operator = Depends(require_operator),
+    session: Session = Depends(get_session),
+):
+    """Salva l'aspetto e i testi.
+
+    Un valore fuori vocabolario viene **rifiutato**, non corretto in silenzio: il widget ripiega
+    sul default perché deve funzionare comunque, il configuratore no — un'impostazione salvata
+    che non ha alcun effetto è peggio di un errore.
+    """
+    try:
+        clean = widget_config.normalise(payload)
+    except widget_config.ConfigError as exc:
+        raise HTTPException(400, str(exc))
+
+    row = session.exec(
+        select(WidgetConfig).where(WidgetConfig.client_id == operator.client_id)
+    ).first()
+    if row is None:
+        row = WidgetConfig(client_id=operator.client_id)
+    row.payload = json.dumps(clean)
+    row.updated_at = datetime.utcnow()
+    session.add(row)
+    _audit(session, "operator", operator.email, "widget_config.save",
+           target=f"client:{operator.client_id}", client_id=operator.client_id)
+    session.commit()
+    return {"config": clean, "configured": True, "updated_at": _iso(row.updated_at)}
 
 
 @router.get("/onboarding/status")

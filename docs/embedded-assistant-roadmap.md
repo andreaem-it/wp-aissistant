@@ -391,10 +391,27 @@ il precedente da seguire: gli **orari di supporto** salgono già al backend (`Su
 
 **Cosa costruire**
 
-1. Tabella `WidgetConfig` per tenant, migrazione reversibile, stesse opzioni e stessi default.
-   Non duplica WordPress: è la sorgente per chi WordPress **non** ce l'ha.
-2. Endpoint tenant-scoped di lettura e scrittura dal panel (sessione operatore). Lettura
-   pubblica per `api_key` solo se si abilita la modalità gestita (sotto).
+1. ~~Tabella `WidgetConfig` per tenant~~ **fatta** (migrazione `0056`): una riga per cliente,
+   configurazione in JSON perché il vocabolario cambia con il widget e una colonna per opzione
+   trasformerebbe ogni stile del pulsante in una migrazione. Nessun backfill dai siti WordPress:
+   inventare una riga con i default farebbe apparire "configurato" ciò che non lo è, e al primo
+   salvataggio dal pannello sovrascriverebbe l'aspetto vero del loro widget con valori mai scelti.
+2. ~~Endpoint tenant-scoped di lettura e scrittura~~ **fatti**: `GET`/`PUT /account/widget-config`,
+   sessione operatore — la chiave pubblica del widget sta in ogni pagina e non deve poter
+   riconfigurare niente. Il **vocabolario viaggia con la configurazione**, così il pannello
+   costruisce i menu a tendina da lì invece di riscrivere la lista.
+
+> **Il vocabolario è uno solo, in tre linguaggi.** `sdk/widget/src/schema.js` resta la
+> dichiarazione; la build genera `sdk/widget/schema.json`, versionato, che il backend legge. Due
+> test chiudono il giro: uno in Python confronta la copia in memoria con l'artefatto, uno in
+> JavaScript confronta l'artefatto con lo schema — senza il secondo, una modifica a `schema.js`
+> senza rebuild lascerebbe backend e artefatto d'accordo fra loro e in disaccordo con il widget.
+> Verificato provocando la divergenza: il test fallisce.
+
+> **Rifiutare, non correggere.** Il widget ripiega sul default per un valore fuori vocabolario,
+> perché deve funzionare comunque; il configuratore lo rifiuta con il motivo. Un'impostazione
+> salvata che non ha alcun effetto è peggio di un errore — il cliente crede di aver scelto
+> qualcosa e vede il widget di prima.
 3. Pagina **Installazione** nel panel, con la scelta esplicita:
    - **WordPress** → download dello zip, chiave da incollare, e stato reale dell'installazione
      (`PluginInstallation` esiste già e sa se il sito è verificato).

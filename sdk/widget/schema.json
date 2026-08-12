@@ -1,0 +1,115 @@
+{
+  "_comment": "Generato da sdk/widget/build.mjs a partire da src/schema.js. Non modificare a mano.",
+  "appearance": {
+    "theme": {
+      "values": [
+        "light",
+        "dark",
+        "auto"
+      ],
+      "default": "light"
+    },
+    "position": {
+      "values": [
+        "right",
+        "left"
+      ],
+      "default": "right"
+    },
+    "motion": {
+      "values": [
+        "subtle",
+        "playful",
+        "none"
+      ],
+      "default": "subtle"
+    },
+    "launcherStyle": {
+      "values": [
+        "bubble",
+        "pill",
+        "square",
+        "outline"
+      ],
+      "default": "bubble"
+    },
+    "launcherIcon": {
+      "values": [
+        "comment-dots",
+        "comments",
+        "sparkles",
+        "headset"
+      ],
+      "default": "comment-dots"
+    },
+    "launcherSize": {
+      "values": [
+        "small",
+        "standard",
+        "large"
+      ],
+      "default": "standard"
+    },
+    "windowStyle": {
+      "values": [
+        "soft",
+        "flat",
+        "glass",
+        "compact"
+      ],
+      "default": "soft"
+    },
+    "windowSize": {
+      "values": [
+        "compact",
+        "standard",
+        "large"
+      ],
+      "default": "standard"
+    },
+    "headerStyle": {
+      "values": [
+        "tint",
+        "solid",
+        "minimal"
+      ],
+      "default": "tint"
+    },
+    "cornerStyle": {
+      "values": [
+        "soft",
+        "rounded",
+        "square"
+      ],
+      "default": "soft"
+    },
+    "fontSize": {
+      "values": [
+        "small",
+        "standard",
+        "large"
+      ],
+      "default": "standard"
+    }
+  },
+  "classPrefix": {
+    "theme": "wpai-theme-",
+    "motion": "wpai-motion-",
+    "launcherStyle": "wpai-launcher-",
+    "launcherSize": "wpai-launcher-size-",
+    "windowStyle": "wpai-window-",
+    "windowSize": "wpai-size-",
+    "headerStyle": "wpai-header-",
+    "cornerStyle": "wpai-corners-",
+    "fontSize": "wpai-font-"
+  },
+  "withoutRootClass": [
+    "position",
+    "launcherIcon"
+  ],
+  "flags": {
+    "showAvatar": true,
+    "showStatus": true
+  },
+  "defaultColor": "#635bff"
+}

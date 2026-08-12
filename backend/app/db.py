@@ -156,6 +156,26 @@ class ClientOrigin(SQLModel, table=True):
     confirmed_at: Optional[datetime] = None
 
 
+class WidgetConfig(SQLModel, table=True):
+    """L'aspetto e i testi del widget di un tenant, lato server.
+
+    Esiste perché la configurazione viveva **solo dentro WordPress**: un cliente senza plugin non
+    aveva modo di personalizzare il widget, e il pannello non poteva mostrare cosa fosse
+    configurato. Una riga per tenant, con la configurazione in JSON invece che in venti colonne —
+    il vocabolario cambia con il widget, e una colonna per opzione trasformerebbe ogni stile del
+    pulsante in una migrazione.
+
+    Il JSON **non è libero**: passa da `widget_config.normalise()`, che valida contro il
+    vocabolario condiviso con il widget. Quello che entra qui è già stato accettato.
+    """
+    __table_args__ = (UniqueConstraint("client_id", name="uq_widget_config_client"),)
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    client_id: int = Field(index=True, foreign_key="client.id")
+    payload: str = ""  # JSON: {"appearance": {...}, "texts": {...}}
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 class Chunk(SQLModel, table=True):
     """One embedded piece of content, from an uploaded doc or a synced site page."""
     id: Optional[int] = Field(default=None, primary_key=True)
