@@ -391,7 +391,7 @@ entrambe con questa regola: fail closed sul primo, e sul percorso widget una ric
 scope, che è la porta giusta). La licenza per dominio e la chiusura del buco sono lo stesso
 lavoro.
 
-## 6. Fase 3 — Installazione nel panel: plugin WordPress o JavaScript
+## 6. Fase 3 — Installazione nel panel: plugin WordPress o JavaScript — **fatta**
 
 Il cliente sceglie come installare, e se sceglie JavaScript configura l'aspetto dal panel e
 riceve lo snippet già personalizzato.
@@ -468,6 +468,23 @@ il precedente da seguire: gli **orari di supporto** salgono già al backend (`Su
    - **test d'installazione** che dice se quel dominio risponde davvero;
    - nel widget, errore leggibile su `403` invece di un fallimento muto (regola 6) — in console
      per lo sviluppatore, **mai** al visitatore.
+
+**Rilasciata** con i blocchi `widget-config-server` e `widget-configurator`. La schermata sta in
+*Impostazioni → Installazione*: scelta esplicita fra le due strade, controlli costruiti dal
+vocabolario che arriva dal backend, anteprima che monta il **widget vero** e snippet generato con
+le sole opzioni cambiate rispetto ai default.
+
+Due cose emerse costruendola:
+
+1. **L'anteprima aveva bisogno di una modalità che non chiamasse niente.** Montare il widget vero
+   era la scelta giusta — un facsimile diverge il giorno dopo e mostrerebbe al cliente qualcosa
+   che il suo sito non fa — ma senza `preview: true` ogni sguardo alla schermata avrebbe aperto
+   una conversazione nell'inbox del cliente e l'avrebbe contata nelle sue statistiche.
+2. **`</script>` dentro un testo spaccava lo snippet.** Il parser HTML chiude il blocco al primo
+   `</script>` che incontra, senza guardare se sta dentro una stringa JavaScript: un titolo con
+   quella sequenza avrebbe rotto in due lo snippet incollato nel sito del cliente.
+   `JSON.stringify` non lo copre, perché è una regola dell'HTML e non del JavaScript. Trovato
+   perché un mio test era scritto male e non verificava quello che dichiarava.
 
 **La conseguenza da dire subito, non dopo.** Con le opzioni in chiaro nello snippet, cambiare
 l'aspetto significa **ricopiare lo snippet**. Per un'agenzia va bene; per l'utente finale è
