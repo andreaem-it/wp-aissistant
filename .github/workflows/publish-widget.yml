@@ -91,6 +91,29 @@ jobs:
         if: steps.creds.outputs.ready != 'true' && github.event_name == 'push'
         run: exit 1
 
+      # Il token esiste: ma è quello giusto? Un token creato con i permessi di Pages supera ogni
+      # controllo di configurazione — il segreto c'è, il workflow parte — e fallisce solo al
+      # `put`, cioè mentre si sta già pubblicando una versione. Una lettura del bucket lo dice
+      # prima, e non scrive niente.
+      - name: The token can actually reach the bucket
+        if: steps.creds.outputs.ready == 'true'
+        working-directory: sdk/widget
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_R2_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if ! npx wrangler r2 bucket list > /tmp/buckets.txt 2>&1; then
+            echo "::error::il token non riesce a leggere R2. Serve il permesso «Workers R2 Storage: Edit»; quello di Pages non basta."
+            sed -n '1,20p' /tmp/buckets.txt
+            exit 1
+          fi
+          if ! grep -q "${{ env.BUCKET }}" /tmp/buckets.txt; then
+            echo "::error::il bucket ${{ env.BUCKET }} non è visibile con questo token."
+            sed -n '1,20p' /tmp/buckets.txt
+            exit 1
+          fi
+          echo "::notice::token valido, bucket ${{ env.BUCKET }} raggiungibile"
+
       - name: Publish the immutable version
         if: steps.creds.outputs.ready == 'true' && !inputs.dry_run
         working-directory: sdk/widget
