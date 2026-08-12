@@ -1,0 +1,40 @@
+{
+  "name": "@wp-aissistant/widget",
+  "version": "0.1.0",
+  "description": "Widget di chat di WP AIssistant: bundle framework-agnostic configurabile con coppie proprietà/valore.",
+  "license": "MIT",
+  "author": "WP AIssistant",
+  "type": "module",
+  "main": "./src/index.js",
+  "module": "./src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./schema": "./src/schema.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "src",
+    "dist",
+    "README.md"
+  ],
+  "sideEffects": [
+    "./src/index.js"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "node --test test/*.test.js",
+    "check": "node build.mjs && node --test test/"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0",
+    "jsdom": "^29.1.1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/andreaem-it/wp-aissistant.git",
+    "directory": "sdk/widget"
+  }
+}

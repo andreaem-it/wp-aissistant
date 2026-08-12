@@ -487,45 +487,74 @@ add_filter('style_loader_tag', function ($tag, $handle) {
 }, 10, 2);
 
 // ---- Floating chat widget ----
+//
+// Il plugin non possiede più il widget: lo carica. Il codice sta in `sdk/widget` ed è lo stesso
+// artefatto che serviremo dal CDN e che useranno i siti non WordPress — un widget solo, non due
+// che divergono alla prima correzione fatta da una parte sola.
+//
+// Qui resta ciò che è davvero di WordPress: produrre l'oggetto di opzioni dalle impostazioni del
+// sito, e l'adapter `wp-host.js` con carrello e identità. L'ordine di caricamento è dichiarato
+// come dipendenza: prima l'adapter, che attacca `host` alla configurazione, poi il bundle.
 
 add_action('wp_enqueue_scripts', function () {
     if (!wpai_opt('api_key')) return;
     wp_enqueue_style('wpai-fontawesome', WPAI_FONTAWESOME_URL, [], null);
-    wp_enqueue_style('wpai-chat', plugins_url('assets/chat-widget.css', __FILE__), [], WPAI_VERSION);
-    // il catalogo dei testi è una dipendenza del widget: caricato prima, senza bundler
-    wp_enqueue_script('wpai-chat-i18n', plugins_url('assets/chat-i18n.js', __FILE__), [], WPAI_VERSION, true);
-    // le regole (orari, proattivi) devono essere caricate prima del widget che le usa
-    wp_enqueue_script('wpai-chat-rules', plugins_url('assets/chat-rules.js', __FILE__), [], WPAI_VERSION, true);
-    wp_enqueue_script('wpai-chat', plugins_url('assets/chat-widget.js', __FILE__), ['wpai-chat-i18n', 'wpai-chat-rules'], WPAI_VERSION, true);
-    wp_localize_script('wpai-chat', 'WPAI', [
+    wp_enqueue_style('wpai-chat', plugins_url('assets/wpai-widget.css', __FILE__), [], WPAI_VERSION);
+
+    wp_enqueue_script('wpai-host', plugins_url('assets/wp-host.js', __FILE__), [], WPAI_VERSION, true);
+    wp_enqueue_script('wpai-chat', plugins_url('assets/wpai-widget.js', __FILE__), ['wpai-host'], WPAI_VERSION, true);
+
+    // La configurazione va emessa **prima** dell'adapter, che la completa con `host`.
+    wp_localize_script('wpai-host', 'WPAissistantConfig', wpai_widget_config());
+    wp_localize_script('wpai-host', 'WPAI_HOST', [
+        'ajaxUrl' => admin_url('admin-ajax.php'),
+        'cartNonce' => function_exists('wc_get_cart_url') ? wp_create_nonce('wpai_cart') : '',
+        'loggedIn' => is_user_logged_in(),
+        'siteUrl' => home_url(),
+    ]);
+});
+
+/**
+ * Le opzioni del widget, nella forma che il bundle si aspetta.
+ *
+ * Coppie proprietà/valore e basta: la stessa forma che genererà il configuratore del pannello,
+ * così l'integrazione JavaScript e quella WordPress non divergono. I valori ammessi li conosce
+ * `sdk/widget/src/schema.js`, che è l'unico posto dove sono dichiarati; qui si leggono le
+ * impostazioni del sito senza ripetere la lista.
+ */
+function wpai_widget_config() {
+    return [
         'backendUrl' => rtrim(WPAI_BACKEND_URL, '/'),
         'apiKey' => wpai_opt('api_key'),
+        // La licenza è legata al dominio: senza questo valore il widget non parte, e lo dice in
+        // console invece di lasciare il visitatore davanti a una chat che non risponde.
+        'site' => home_url(),
+        // lingua del sito: suggerimento iniziale, il backend rileva poi la lingua dai messaggi
+        'locale' => determine_locale(),
         'title' => wpai_widget_title(),
         'image' => wpai_widget_image(),
-        'ajaxUrl' => admin_url('admin-ajax.php'),
-        'cartNonce' => wp_create_nonce('wpai_cart'),
-        'cartUrl' => function_exists('wc_get_cart_url') ? wc_get_cart_url() : '',
-        'loggedIn' => is_user_logged_in(),
         'privacyUrl' => wpai_opt('widget_privacy_url'),
         'subtitle' => wpai_setting('widget_subtitle', 'Di solito risponde subito'),
         'welcome' => wpai_setting('widget_welcome', 'Ciao! Come posso aiutarti oggi?'),
         'aiDisclosure' => wpai_setting('widget_ai_disclosure', 'Stai parlando con un assistente virtuale basato su intelligenza artificiale.'),
         'launcherLabel' => wpai_setting('widget_launcher_label'),
-        'color' => wpai_setting('widget_color', '#635bff'),
-        'theme' => wpai_setting('widget_theme', 'light'),
-        'position' => wpai_setting('widget_position', 'right'),
-        'motion' => wpai_setting('widget_motion', 'subtle'),
-        'launcherStyle' => wpai_setting('widget_launcher_style', 'bubble'),
-        'windowStyle' => wpai_setting('widget_window_style', 'soft'),
-        'windowSize' => wpai_setting('widget_window_size', 'standard'),
-        'launcherIcon' => wpai_setting('widget_launcher_icon', 'comment-dots'),
-        'launcherSize' => wpai_setting('widget_launcher_size', 'standard'),
-        'headerStyle' => wpai_setting('widget_header_style', 'tint'),
-        'cornerStyle' => wpai_setting('widget_corner_style', 'soft'),
-        'fontSize' => wpai_setting('widget_font_size', 'standard'),
         'inputPlaceholder' => wpai_setting('widget_input_placeholder', ''),
-        'showAvatar' => wpai_setting('widget_show_avatar', '1') === '1',
-        'showStatus' => wpai_setting('widget_show_status', '1') === '1',
+        'appearance' => [
+            'color' => wpai_setting('widget_color', '#635bff'),
+            'theme' => wpai_setting('widget_theme', 'light'),
+            'position' => wpai_setting('widget_position', 'right'),
+            'motion' => wpai_setting('widget_motion', 'subtle'),
+            'launcherStyle' => wpai_setting('widget_launcher_style', 'bubble'),
+            'launcherIcon' => wpai_setting('widget_launcher_icon', 'comment-dots'),
+            'launcherSize' => wpai_setting('widget_launcher_size', 'standard'),
+            'windowStyle' => wpai_setting('widget_window_style', 'soft'),
+            'windowSize' => wpai_setting('widget_window_size', 'standard'),
+            'headerStyle' => wpai_setting('widget_header_style', 'tint'),
+            'cornerStyle' => wpai_setting('widget_corner_style', 'soft'),
+            'fontSize' => wpai_setting('widget_font_size', 'standard'),
+            'showAvatar' => wpai_setting('widget_show_avatar', '1') === '1',
+            'showStatus' => wpai_setting('widget_show_status', '1') === '1',
+        ],
         'support' => [
             'enabled' => wpai_setting('support_hours_enabled', '0') === '1',
             'days' => array_map('intval', (array) wpai_setting('support_days', [1, 2, 3, 4, 5])),
@@ -533,14 +562,8 @@ add_action('wp_enqueue_scripts', function () {
             'end' => wpai_setting('support_end', '18:00'),
             'timezone' => wp_timezone_string(),
         ],
-        // The Origin/Referer header the backend would otherwise fall back to never carries a
-        // path, so a subdirectory install (e.g. example.com/shop/) would build a wrong
-        // order-lookup callback URL. Send the real site URL explicitly instead.
-        'siteUrl' => home_url(),
-        // lingua del sito: suggerimento iniziale, il backend rileva poi la lingua dai messaggi
-        'locale' => determine_locale(),
-    ]);
-});
+    ];
+}
 
 // Add a product from a chat card through WooCommerce itself. The widget only shows a
 // success state after WC()->cart->add_to_cart() has returned a real cart item key.

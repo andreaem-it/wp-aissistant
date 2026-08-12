@@ -1,7 +1,7 @@
-const test = require("node:test");
-const assert = require("node:assert");
+import test from "node:test";
+import assert from "node:assert";
 
-const RULES = require("../wp-aissistant/assets/chat-rules.js");
+import * as RULES from "../src/rules.js";
 
 // A fixed instant, so "adesso" means the same thing on every machine and in CI.
 // 2026-03-04 is a Wednesday; 14:30 UTC is 15:30 in Rome (winter time).

@@ -4,10 +4,10 @@
  * Finora la CI verificava solo la sintassi del JavaScript del plugin: qui c'è la prima logica
  * del widget abbastanza pura da poter essere verificata davvero.
  */
-const test = require("node:test");
-const assert = require("node:assert");
+import test from "node:test";
+import assert from "node:assert";
 
-const i18n = require("../wp-aissistant/assets/chat-i18n.js");
+import * as i18n from "../src/i18n.js";
 
 test("normalize accetta le varianti di locale e rifiuta le lingue non supportate", () => {
   assert.strictEqual(i18n.normalize("it-IT"), "it");

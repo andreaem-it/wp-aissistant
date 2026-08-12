@@ -11,3 +11,9 @@ wp-plugin/dist/
 wp-plugin/vendor/
 .wrangler/
 .claude/
+
+# Artefatto del widget copiato nel plugin da build.sh: si genera, non si versiona
+wp-plugin/wp-aissistant/assets/wpai-widget.js
+wp-plugin/wp-aissistant/assets/wpai-widget.css
+sdk/widget/dist/
+sdk/widget/node_modules/

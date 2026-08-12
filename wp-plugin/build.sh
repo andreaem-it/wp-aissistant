@@ -22,6 +22,17 @@ if [ "$header_version" != "$const_version" ]; then
 fi
 
 version="$header_version"
+
+# Il widget non vive più qui: si costruisce da sdk/widget e si copia nel pacchetto. È lo stesso
+# artefatto che servirà il CDN, quindi il plugin e i siti non WordPress caricano lo stesso
+# codice — un widget solo, non due che divergono alla prima correzione fatta da una parte sola.
+# La convenzione «nessun bundler» resta vera dove conta: sul sito del cliente, a runtime.
+WIDGET_DIR="$SCRIPT_DIR/../sdk/widget"
+echo "building the widget bundle from sdk/widget"
+( cd "$WIDGET_DIR" && npm run --silent build )
+cp "$WIDGET_DIR/dist/wpai-widget.js" "$PLUGIN_DIR/assets/wpai-widget.js"
+cp "$WIDGET_DIR/dist/wpai-widget.css" "$PLUGIN_DIR/assets/wpai-widget.css"
+
 mkdir -p "$DIST_DIR"
 ZIP="$DIST_DIR/wp-aissistant-$version.zip"
 rm -f "$ZIP"

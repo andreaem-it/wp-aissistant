@@ -60,87 +60,48 @@ Rilasciata con il blocco `internal-tenant-plan`. Cosa è in produzione:
 un'operazione sui dati, non una migrazione — un tenant con la sua `api_key` non si semina in uno
 script che gira su ogni ambiente.
 
-## 2. Fase 1 — Estrarre il widget da WordPress (`sdk/widget`)
+## 2. Fase 1 — Estrarre il widget da WordPress (`sdk/widget`) — **fatta**
 
-Il blocco più grosso, e quello che decide se manterremo un widget o due. Fonte unica: il plugin
-consuma lo stesso bundle del CDN.
+Rilasciata con il blocco `widget-extraction`. Il widget vive in `sdk/widget`, si costruisce con
+esbuild in un IIFE senza dipendenze, e il plugin lo **carica** invece di possederlo.
 
-**L'accoppiamento a WordPress è minimo.** Ricerca su `chat-widget.js`: sei riferimenti a globali
-WP, tutti raggruppabili in tre capacità opzionali.
+Cosa è cambiato di sostanziale:
 
-| Punto | Riga | Capacità |
-|---|---|---|
-| `WPAI.loggedIn` + `WPAI.ajaxUrl` | 40, 42 | identità del visitatore (token firmato per l'order lookup) |
-| `WPAI.ajaxUrl` + `WPAI.cartNonce` | 115, 120 | aggiunta al carrello |
-| `WPAI.siteUrl` | 731, 790 | callback dell'order lookup |
+- **Il vocabolario delle opzioni è dichiarato una volta**, in `src/schema.js`. Prima esisteva in
+  due posti — la whitelist PHP e dieci liste `.includes(...)` scritte a mano dentro la funzione
+  che costruiva il DOM — e la fase 3 ne avrebbe aggiunto un terzo. Un valore fuori vocabolario
+  ricade sul default invece di finire nel DOM.
+- **Il plugin è un produttore di opzioni** (`wpai_widget_config()`) più l'adapter
+  `assets/wp-host.js`, che è l'unico posto rimasto a sapere di carrello WooCommerce, token
+  d'identità e frammenti jQuery. Il widget riceve quattro capacità e funziona anche senza:
+  niente carrello e niente dati completi dell'ordine, che è il comportamento giusto su un sito
+  che non vende da sé.
+- **`build.sh` costruisce il bundle e lo copia nel pacchetto.** La convenzione «nessun bundler»
+  resta vera dove conta — a runtime, sul sito del cliente — e cade solo in fase di build.
 
-Tutto il resto — temi, proattivi, lead form, CSAT, escalation, card prodotto, i18n, orari — è
-già indipendente dalla piattaforma.
+**Il metodo, che è la ragione per cui è andata bene.** Il codice è stato spostato con una
+trasformazione meccanica invece che riscritto: stesso criterio della divisione di `main.py`, uno
+spostamento non cambia niente di osservabile. Sono cambiati solo i globali (`window.WPAI`,
+`WPAI_I18N`, `WPAI_RULES`) e i quattro punti accoppiati alla piattaforma.
 
-**Disegno**
+**Due cose trovate dai test, che senza non si sarebbero viste.**
 
-```js
-window.WPAissistant.init({
-  apiBase: "https://backend.wpaissistant.it",
-  apiKey: "CHIAVE_PUBBLICA",
-  site:    "https://esempio.it",   // OBBLIGATORIO: senza, il widget non parte (§5)
-  locale: "it-IT",
-  appearance: { color, theme, position, launcherStyle, windowSize, /* … */ },
-  support:    { enabled, days, start, end, timezone },
-  texts:      { title, subtitle, welcome, aiDisclosure, inputPlaceholder },
-  host: {                       // opzionale: l'adapter della piattaforma ospite
-    siteUrl,
-    identityToken: () => Promise<string|null>,
-    addToCart:     (productId, qty) => Promise<{ ok, message }>,
-  },
-});
-```
+1. **Il polling non si fermava mai.** `destroy()` rimuoveva il DOM e lasciava vivo l'intervallo
+   che interroga il backend. Su un sito non si nota, perché la pagina cambia; dentro il pannello
+   della fase 5 — dove il widget monta e smonta a ogni navigazione — sarebbe rimasto un poller
+   per ogni visita, tutti attivi insieme. Il test che monta e smonta l'ha fatto vedere subito.
+2. **`cartUrl` era configurato e non usato da nessuno**, e `cartHasItems()` leggeva un cookie
+   WooCommerce dentro il widget. Il primo è sparito, il secondo è diventato una capacità
+   dell'adapter: senza, le regole proattive che dipendono dal carrello semplicemente non
+   scattano, invece di indovinare.
 
-Senza `host` il widget funziona: niente carrello, niente order lookup con dati completi. Il
-plugin WordPress diventa **un produttore di opzioni**: `wp_localize_script` costruisce l'oggetto
-e passa un `host` che chiama `admin-ajax.php` come fa oggi. Nessuna perdita di funzionalità.
+La rete è `test/mount.test.js`: monta in jsdom, verifica classi, chiamata al backend, dominio nel
+corpo, rifiuto di licenza che non arriva al visitatore, carrello con e senza adapter, e che il
+**codice** del widget non nomini più WordPress — i commenti sì, ed è giusto che lo facciano.
 
-**Struttura**
-
-```
-sdk/widget/
-  src/{index.js, ui.js, i18n.js, rules.js, styles.css}
-  schema.js                                # vocabolario chiuso delle opzioni: valori e default
-  dist/{wpai-widget.js, wpai-widget.css}   # artefatto buildato, versionato, pubblicato sul CDN
-```
-
-**Build.** La convenzione del plugin è "nessun bundler" — vale a *runtime*, ed è giusta: un
-plugin WordPress non deve dipendere da un passo di build sul sito del cliente. Si introduce
-`esbuild` in `sdk/widget` che produce un IIFE senza dipendenze.
-
-**Il plugin diventa uno shim.** Con il widget servito dal CDN, il PHP smette di conoscere il
-widget: niente più `wp_enqueue_script` dei quattro asset, niente `wp_localize_script` con 24
-campi. Resta la pagina delle impostazioni, che produce **un oggetto di opzioni** — coppie
-proprietà/valore, la stessa forma che genera il configuratore del panel — e un loader che
-inietta la configurazione e lo script. Le funzionalità WooCommerce restano nell'adapter `host`
-descritto sopra, che è l'unica cosa che il PHP deve ancora fornire.
-
-```php
-// tutto ciò che il plugin emette nella pagina pubblica
-window.WPAissistantConfig = { apiKey, apiBase, appearance, texts, support, host };
-<script async src="https://cdn.wpaissistant.it/widget/1.4.0/wpai-widget.js" integrity="…">
-```
-
-**Copia di riserva nel pacchetto.** Il plugin continua a spedire l'artefatto nello zip e lo
-carica se il CDN non risponde (`onerror` sul tag). Costa pochi KB e compra tre cose: il sito del
-cliente non sparisce se il nostro CDN ha un problema (§4), la revisione WordPress.org ha molto
-meno da obiettare (§4), e uno sviluppatore può lavorare offline. Il CDN resta la sorgente
-primaria — quindi le correzioni arrivano subito — e la copia locale è solo il fallback, per
-definizione più vecchia.
-
-**Test.** I 22 test Node su i18n e regole seguono i moduli nella nuova posizione: sono la prova
-che l'estrazione non ha cambiato comportamento. La parte DOM resta senza test, come oggi — il
-debito 2 dell'handoff viene pagato solo a metà, ed è corretto dichiararlo così invece di
-introdurre jsdom in una fase già larga.
-
-**Criterio di fine fase:** il plugin, ricostruito con `build.sh`, si comporta esattamente come
-prima su un sito WooCommerce reale — carrello e order lookup inclusi. Se una delle due
-funzionalità si degrada, l'adapter è sbagliato: non si va avanti.
+> Il debito 2 dell'handoff («widget: 1130 righe in un file») è chiuso in modo diverso da come era
+> previsto: non è stato diviso, è stato spostato e reso configurabile. La parte che disegna resta
+> lunga, ma ora è verificabile — che era il vero motivo per cui il debito esisteva.
 
 ## 3. Fase 2 — Distribuzione da CDN
 

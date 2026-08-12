@@ -242,13 +242,18 @@ jobs:
         run: composer lint
       - name: Lint PHP
         run: php -l wp-plugin/wp-aissistant/wp-aissistant.php
-      - name: Check widget JavaScript syntax
+      - name: Check plugin JavaScript syntax
         run: |
-          node --check wp-plugin/wp-aissistant/assets/chat-widget.js
-          node --check wp-plugin/wp-aissistant/assets/chat-i18n.js
+          node --check wp-plugin/wp-aissistant/assets/wp-host.js
           node --check wp-plugin/wp-aissistant/assets/admin-sync.js
-      - name: Widget unit tests
-        run: node --test wp-plugin/tests/*.test.js
+          node --check wp-plugin/wp-aissistant/assets/admin-settings.js
+      # Il widget vive in sdk/widget e non è più codice del plugin: qui si installa, si verifica
+      # e si costruisce, perché è build.sh a copiarne l'artefatto dentro il pacchetto.
+      - name: Widget package
+        working-directory: sdk/widget
+        run: |
+          npm ci
+          npm test
       - name: Build zip
         working-directory: wp-plugin
         run: ./build.sh

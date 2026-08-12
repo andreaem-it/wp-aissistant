@@ -1,4 +1,35 @@
-(function () {
+/**
+ * Il widget di chat: la parte che disegna.
+ *
+ * Estratto da `wp-plugin/wp-aissistant/assets/chat-widget.js` **senza riscriverlo** — stesso
+ * criterio della divisione di `main.py`: uno spostamento non deve cambiare niente di
+ * osservabile. È cambiato solo ciò che doveva: i globali `window.WPAI`, `window.WPAI_I18N` e
+ * `window.WPAI_RULES` sono diventati configurazione e import.
+ *
+ * Tutto ciò che sa di WordPress è uscito di qui e vive nell'adapter `host`, che la piattaforma
+ * ospite fornisce e che è **opzionale**: senza, il widget funziona: niente carrello e niente
+ * dati completi dell'ordine, che è il comportamento giusto su un sito che non vende da sé.
+ *
+ * | Capacità dell'host | A cosa serve |
+ * |---|---|
+ * | `siteUrl` | la callback della ricerca ordini; l'header Origin non basta, un'installazione in sottocartella darebbe una URL sbagliata |
+ * | `identityToken()` | prova d'identità del visitatore, per i dati completi dell'ordine invece del solo stato |
+ * | `addToCart(product, button)` | aggiunta al carrello e ciò che ne segue sulla piattaforma |
+ */
+import * as I18N from "./i18n.js";
+import * as RULES from "./rules.js";
+import * as schema from "./schema.js";
+
+/**
+ * Monta il widget nella pagina.
+ *
+ * `config` sono coppie proprietà/valore — la stessa forma che producono la pagina delle
+ * impostazioni del plugin e il configuratore del pannello — e `config.host` l'adapter.
+ */
+export function mount(config) {
+  const cfg = config || {};
+  const host = cfg.host || {};
+  const look = schema.appearance(cfg.appearance || cfg);
   const VISITOR_KEY = "wpai_visitor_id";
   const CONV_KEY = "wpai_conversation_id";
   const CONV_TOKEN_KEY = "wpai_conversation_token";
@@ -8,7 +39,7 @@
   const TICKET_OFFER_KEY = "wpai_ticket_offer";
   const RATED_KEY = "wpai_conversation_rated";
   const LEAD_KEY = "wpai_lead_form_shown";
-  const RULES = window.WPAI_RULES;
+
   const PROACTIVE_KEY = "wpai_proactive_seen";
   const PROACTIVE_SESSION_KEY = "wpai_proactive_session_";
   const PROACTIVE_OPTOUT_KEY = "wpai_proactive_optout";
@@ -17,10 +48,9 @@
   // Lingua del widget: impostazione del sito WordPress, poi browser, poi italiano. Il backend
   // riceve comunque il locale come suggerimento e rileva la lingua da ciò che il visitatore
   // scrive davvero.
-  const I18N = window.WPAI_I18N;
-  const LANG = I18N ? I18N.resolve(WPAI.locale, navigator.language) : "it";
+  const LANG = I18N.resolve(cfg.locale, navigator.language);
   function t(key, values) {
-    return I18N ? I18N.t(key, LANG, values) : key;
+    return I18N.t(key, LANG, values);
   }
 
   function visitorId() {
@@ -32,20 +62,17 @@
     return id;
   }
 
-  // Logged-in WP users get a short-lived signed token proving their identity, so the backend
-  // can offer full order data instead of the basic status-only tier. Fetched once and cached
-  // for the page's lifetime (it's valid 5 minutes, plenty for a chat session).
+  // L'identità del visitatore, quando la piattaforma ospite sa provarla: un token firmato di
+  // breve durata con cui il backend offre i dati completi dell'ordine invece del solo stato.
+  // Chi la fornisce è l'adapter `host` — su WordPress è un utente loggato, altrove sarà altro —
+  // e senza adapter il widget funziona lo stesso, con il livello base.
+  // Richiesto una volta sola e tenuto per la vita della pagina: vale 5 minuti, che bastano.
   let userTokenPromise = null;
   function userToken() {
-    if (!WPAI.loggedIn) return Promise.resolve(null);
+    if (!host.identityToken) return Promise.resolve(null);
     if (!userTokenPromise) {
-      userTokenPromise = fetch(WPAI.ajaxUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({ action: "wpai_user_token" }),
-      })
-        .then((r) => r.json())
-        .then((res) => (res && res.success ? res.data.token : null))
+      userTokenPromise = Promise.resolve()
+        .then(() => host.identityToken())
         .catch(() => null);
     }
     return userTokenPromise;
@@ -127,59 +154,43 @@
       productLink.appendChild(info);
       card.appendChild(productLink);
 
-      const addButton = document.createElement("button");
-      addButton.type = "button";
-      addButton.className = "wpai-add-to-cart";
-      addButton.textContent = t("cart.add");
-      let optionsUrl = "";
-      addButton.addEventListener("click", async () => {
-        if (optionsUrl) {
-          window.location.assign(optionsUrl);
-          return;
-        }
-        if (addButton.disabled) return;
-        addButton.disabled = true;
-        addButton.textContent = t("cart.adding");
-        try {
-          const response = await fetch(WPAI.ajaxUrl, {
-            method: "POST",
-            headers: {"Content-Type": "application/x-www-form-urlencoded"},
-            body: new URLSearchParams({
-              action: "wpai_add_to_cart",
-              nonce: WPAI.cartNonce,
-              product_url: p.product_url,
-            }),
-          });
-          const result = await response.json();
-          if (!response.ok || !result.success) {
-            const error = result && result.data ? result.data : {};
-            if (error.product_url) {
-              optionsUrl = error.product_url;
+      // Il carrello esiste solo se la piattaforma ospite ne ha uno: senza adapter la card resta
+      // un collegamento al prodotto, che è la cosa giusta su un sito che non vende da sé.
+      if (host.addToCart) {
+        const addButton = document.createElement("button");
+        addButton.type = "button";
+        addButton.className = "wpai-add-to-cart";
+        addButton.textContent = t("cart.add");
+        let optionsUrl = "";
+        addButton.addEventListener("click", async () => {
+          if (optionsUrl) {
+            window.location.assign(optionsUrl);
+            return;
+          }
+          if (addButton.disabled) return;
+          addButton.disabled = true;
+          addButton.textContent = t("cart.adding");
+          try {
+            // L'adapter decide come si aggiunge al carrello e cosa succede dopo (su WooCommerce:
+            // i frammenti jQuery). Qui resta solo lo stato del pulsante, che è disegno.
+            const result = await host.addToCart(p, addButton);
+            if (result && result.optionsUrl) {
+              optionsUrl = result.optionsUrl;
               addButton.textContent = t("cart.options");
               addButton.disabled = false;
               return;
             }
-            throw new Error(error.message || "Aggiunta non riuscita");
+            addButton.textContent = t("cart.added");
+            addButton.classList.add("is-added");
+            addMessage(container, "assistant", t("cart.added_message", { product: p.title || t("cart.product") }));
+          } catch (error) {
+            addButton.textContent = t("common.retry");
+            addButton.disabled = false;
+            addButton.title = error.message || "";
           }
-          addButton.textContent = t("cart.added");
-          addButton.classList.add("is-added");
-          if (window.jQuery) {
-            window.jQuery(document.body).trigger("added_to_cart", [
-              result.data.fragments || {},
-              result.data.cart_hash || "",
-              window.jQuery(addButton),
-            ]);
-            window.jQuery(document.body).trigger("wc_fragment_refresh");
-          }
-          document.body.dispatchEvent(new CustomEvent("wpai_cart_updated", {detail: result.data}));
-          addMessage(container, "assistant", t("cart.added_message", { product: p.title || t("cart.product") }));
-        } catch (error) {
-          addButton.textContent = t("common.retry");
-          addButton.disabled = false;
-          addButton.title = error.message || "";
-        }
-      });
-      card.appendChild(addButton);
+        });
+        card.appendChild(addButton);
+      }
       wrap.appendChild(card);
     }
     container.appendChild(wrap);
@@ -188,9 +199,9 @@
 
   async function sendFeedback(conversationId, messageId, value, wrap) {
     try {
-      await fetch(`${WPAI.backendUrl}/chat/feedback`, {
+      await fetch(`${cfg.backendUrl}/chat/feedback`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${WPAI.apiKey}` },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${cfg.apiKey}` },
         body: JSON.stringify({
           conversation_id: Number(conversationId),
           conversation_token: localStorage.getItem(CONV_TOKEN_KEY),
@@ -244,9 +255,9 @@
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
       try {
-        await fetch(`${WPAI.backendUrl}/chat/contact`, {
+        await fetch(`${cfg.backendUrl}/chat/contact`, {
           method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${WPAI.apiKey}` },
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${cfg.apiKey}` },
           body: JSON.stringify({
             conversation_id: Number(conversationId),
             conversation_token: localStorage.getItem(CONV_TOKEN_KEY),
@@ -298,9 +309,9 @@
     const send = async () => {
       if (!chosen) return;
       try {
-        const res = await fetch(`${WPAI.backendUrl}/chat/rating`, {
+        const res = await fetch(`${cfg.backendUrl}/chat/rating`, {
           method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${WPAI.apiKey}` },
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${cfg.apiKey}` },
           body: JSON.stringify({
             conversation_id: Number(conversationId),
             conversation_token: localStorage.getItem(CONV_TOKEN_KEY),
@@ -360,8 +371,8 @@
     if (!conversationId || leadFormShown(conversationId)) return;
     let form;
     try {
-      const res = await fetch(`${WPAI.backendUrl}/widget/lead-form?trigger=escalation`, {
-        headers: { Authorization: `Bearer ${WPAI.apiKey}` },
+      const res = await fetch(`${cfg.backendUrl}/widget/lead-form?trigger=escalation`, {
+        headers: { Authorization: `Bearer ${cfg.apiKey}` },
       });
       if (!res.ok) return;
       form = (await res.json()).form;
@@ -437,9 +448,9 @@
       const data = {};
       for (const [key, control] of Object.entries(inputs)) data[key] = control.value;
       try {
-        const res = await fetch(`${WPAI.backendUrl}/widget/leads`, {
+        const res = await fetch(`${cfg.backendUrl}/widget/leads`, {
           method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${WPAI.apiKey}` },
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${cfg.apiKey}` },
           body: JSON.stringify({
             form_id: form.id,
             conversation_id: Number(conversationId),
@@ -499,9 +510,10 @@
   }
 
   function cartHasItems() {
-    // cookie standard di WooCommerce: presente e > 0 quando il carrello non è vuoto
-    const match = document.cookie.match(/(?:^|;\s*)woocommerce_items_in_cart=(\d+)/);
-    return Boolean(match && Number(match[1]) > 0);
+    // Quante cose ha nel carrello lo sa la piattaforma ospite, non il widget: su WooCommerce è
+    // un cookie, altrove sarà altro. Senza adapter la risposta è "non lo so", e le regole
+    // proattive che dipendono dal carrello semplicemente non scattano — meglio che indovinare.
+    return host.cartItemCount ? host.cartItemCount() > 0 : false;
   }
 
   function proactiveMatches(rule) {
@@ -526,9 +538,9 @@
 
   async function proactiveEvent(ruleId, kind, variant) {
     try {
-      await fetch(`${WPAI.backendUrl}/widget/proactive/${ruleId}/event`, {
+      await fetch(`${cfg.backendUrl}/widget/proactive/${ruleId}/event`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${WPAI.apiKey}` },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${cfg.apiKey}` },
         body: JSON.stringify({ kind, variant }),
       });
     } catch (e) {
@@ -597,8 +609,8 @@
 
   function startProactive(root, isOpen, openChat, messages, hasConversation) {
     if (localStorage.getItem(PROACTIVE_OPTOUT_KEY) === "1") return;
-    fetch(`${WPAI.backendUrl}/widget/proactive`, {
-      headers: { Authorization: `Bearer ${WPAI.apiKey}` },
+    fetch(`${cfg.backendUrl}/widget/proactive`, {
+      headers: { Authorization: `Bearer ${cfg.apiKey}` },
     })
       .then((res) => (res.ok ? res.json() : { rules: [] }))
       .then((data) => {
@@ -634,7 +646,7 @@
   }
 
   function supportAvailable() {
-    return RULES.supportAvailable(WPAI.support, new Date());
+    return RULES.supportAvailable(cfg.support, new Date());
   }
 
   function rememberTicketOffer(conversationId, reason) {
@@ -687,9 +699,9 @@
       button.disabled = true;
       button.textContent = "Apertura…";
       try {
-        const res = await fetch(`${WPAI.backendUrl}/chat/ticket`, {
+        const res = await fetch(`${cfg.backendUrl}/chat/ticket`, {
           method: "POST",
-          headers: {"Content-Type": "application/json", Authorization: `Bearer ${WPAI.apiKey}`},
+          headers: {"Content-Type": "application/json", Authorization: `Bearer ${cfg.apiKey}`},
           body: JSON.stringify({
             conversation_id: Number(conversationId),
             conversation_token: localStorage.getItem(CONV_TOKEN_KEY),
@@ -721,7 +733,7 @@
         el = document.createElement("div");
         el.id = "wpai-typing";
         el.className = "wpai-msg assistant wpai-typing";
-        el.setAttribute("aria-label", `${WPAI.title} sta scrivendo`);
+        el.setAttribute("aria-label", `${cfg.title} sta scrivendo`);
         for (let i = 0; i < 3; i++) el.appendChild(document.createElement("span"));
         container.appendChild(el);
         container.scrollTop = container.scrollHeight;
@@ -745,11 +757,11 @@
     if (!isEscalated(conversationId)) setTyping(messages, true);
     let res;
     try {
-      res = await fetch(`${WPAI.backendUrl}/chat`, {
+      res = await fetch(`${cfg.backendUrl}/chat`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${WPAI.apiKey}`,
+          Authorization: `Bearer ${cfg.apiKey}`,
         },
         body: JSON.stringify({
           visitor_id: visitorId(),
@@ -757,7 +769,7 @@
           conversation_id: conversationId ? Number(conversationId) : null,
           conversation_token: conversationId ? localStorage.getItem(CONV_TOKEN_KEY) : null,
           wp_user_token: await userToken(),
-          site_url: WPAI.siteUrl,
+          site_url: host.siteUrl || "",
           support_available: supportAvailable(),
           locale: LANG,
         }),
@@ -808,16 +820,16 @@
     if (!isEscalated(conversationId)) setTyping(messages, true);
     let res;
     try {
-      res = await fetch(`${WPAI.backendUrl}/chat/stream`, {
+      res = await fetch(`${cfg.backendUrl}/chat/stream`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${WPAI.apiKey}` },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${cfg.apiKey}` },
         body: JSON.stringify({
           visitor_id: visitorId(),
           message,
           conversation_id: conversationId ? Number(conversationId) : null,
           conversation_token: conversationId ? localStorage.getItem(CONV_TOKEN_KEY) : null,
           wp_user_token: await userToken(),
-          site_url: WPAI.siteUrl,
+          site_url: host.siteUrl || "",
           support_available: supportAvailable(),
           locale: LANG,
         }),
@@ -924,10 +936,10 @@
     pollTimer = setInterval(async () => {
       try {
         const res = await fetch(
-          `${WPAI.backendUrl}/conversations/${conversationId}/messages?after_id=${lastMessageId}`,
+          `${cfg.backendUrl}/conversations/${conversationId}/messages?after_id=${lastMessageId}`,
           {
             headers: {
-              Authorization: `Bearer ${WPAI.apiKey}`,
+              Authorization: `Bearer ${cfg.apiKey}`,
               "X-Conversation-Token": localStorage.getItem(CONV_TOKEN_KEY) || "",
             },
           }
@@ -953,10 +965,10 @@
 
     try {
       const res = await fetch(
-        `${WPAI.backendUrl}/conversations/${conversationId}/messages?after_id=0`,
+        `${cfg.backendUrl}/conversations/${conversationId}/messages?after_id=0`,
         {
           headers: {
-            Authorization: `Bearer ${WPAI.apiKey}`,
+            Authorization: `Bearer ${cfg.apiKey}`,
             "X-Conversation-Token": conversationToken,
           },
         }
@@ -993,19 +1005,11 @@
   function init() {
     const root = document.createElement("div");
     root.id = "wpai-root";
-    root.className = [
-      WPAI.position === "left" ? "wpai-left" : "wpai-right",
-      "wpai-theme-" + (["light", "dark", "auto"].includes(WPAI.theme) ? WPAI.theme : "light"),
-      "wpai-motion-" + (["subtle", "playful", "none"].includes(WPAI.motion) ? WPAI.motion : "subtle"),
-      "wpai-launcher-" + (["bubble", "pill", "square", "outline"].includes(WPAI.launcherStyle) ? WPAI.launcherStyle : "bubble"),
-      "wpai-window-" + (["soft", "flat", "glass", "compact"].includes(WPAI.windowStyle) ? WPAI.windowStyle : "soft"),
-      "wpai-size-" + (["compact", "standard", "large"].includes(WPAI.windowSize) ? WPAI.windowSize : "standard"),
-      "wpai-launcher-size-" + (["small", "standard", "large"].includes(WPAI.launcherSize) ? WPAI.launcherSize : "standard"),
-      "wpai-header-" + (["tint", "solid", "minimal"].includes(WPAI.headerStyle) ? WPAI.headerStyle : "tint"),
-      "wpai-corners-" + (["soft", "rounded", "square"].includes(WPAI.cornerStyle) ? WPAI.cornerStyle : "soft"),
-      "wpai-font-" + (["small", "standard", "large"].includes(WPAI.fontSize) ? WPAI.fontSize : "standard"),
-    ].join(" ");
-    root.style.setProperty("--wpai-accent", /^#[0-9a-f]{6}$/i.test(WPAI.color || "") ? WPAI.color : "#635bff");
+    // Il vocabolario delle opzioni sta in `schema.js`, una volta sola: qui c'erano dieci
+    // liste di valori ammessi scritte a mano, e la fase 3 ne avrebbe aggiunta un'altra nel
+    // pannello. Vedi il debito 5 dell'handoff per come finisce quando divergono.
+    root.className = schema.rootClasses(look).join(" ");
+    root.style.setProperty("--wpai-accent", look.color);
     document.body.appendChild(root);
 
     const toggle = document.createElement("button");
@@ -1015,11 +1019,11 @@
     toggle.setAttribute("aria-expanded", "false");
     toggle.setAttribute("aria-controls", "wpai-window");
     const toggleLabel = document.createElement("span");
-    toggleLabel.textContent = WPAI.launcherLabel || "";
+    toggleLabel.textContent = cfg.launcherLabel || "";
     const toggleIcon = document.createElement("i");
-    toggleIcon.className = "fa-solid fa-" + (["comment-dots", "comments", "sparkles", "headset"].includes(WPAI.launcherIcon) ? WPAI.launcherIcon : "comment-dots");
+    toggleIcon.className = "fa-solid fa-" + look.launcherIcon;
     toggleIcon.setAttribute("aria-hidden", "true");
-    if (WPAI.launcherLabel) {
+    if (cfg.launcherLabel) {
       toggle.classList.add("has-label");
       toggle.appendChild(toggleLabel);
     }
@@ -1030,21 +1034,21 @@
     win.id = "wpai-window";
     win.setAttribute("role", "dialog");
     win.setAttribute("aria-modal", "false");
-    win.setAttribute("aria-label", "Chat con " + WPAI.title);
+    win.setAttribute("aria-label", "Chat con " + cfg.title);
 
     const header = document.createElement("div");
     header.id = "wpai-header";
     const avatar = document.createElement("img");
-    avatar.src = safeHttpUrl(WPAI.image);
+    avatar.src = safeHttpUrl(cfg.image);
     avatar.alt = "";
     const headerCopy = document.createElement("div");
     headerCopy.className = "wpai-header-copy";
     const heading = document.createElement("strong");
-    heading.textContent = WPAI.title;
+    heading.textContent = cfg.title;
     const subtitle = document.createElement("small");
-    subtitle.textContent = WPAI.subtitle;
+    subtitle.textContent = cfg.subtitle;
     headerCopy.appendChild(heading);
-    if (WPAI.showStatus !== false) headerCopy.appendChild(subtitle);
+    if (look.showStatus) headerCopy.appendChild(subtitle);
     const close = document.createElement("button");
     close.id = "wpai-close";
     close.type = "button";
@@ -1053,7 +1057,7 @@
     closeIcon.className = "fa-solid fa-xmark";
     closeIcon.setAttribute("aria-hidden", "true");
     close.appendChild(closeIcon);
-    if (WPAI.showAvatar !== false) header.appendChild(avatar);
+    if (look.showAvatar) header.appendChild(avatar);
     header.appendChild(headerCopy);
     header.appendChild(close);
 
@@ -1063,12 +1067,12 @@
     const disclosure = document.createElement("div");
     disclosure.className = "wpai-disclosure";
     disclosure.appendChild(document.createTextNode(
-      WPAI.aiDisclosure || "Stai parlando con un assistente virtuale basato su intelligenza artificiale."
+      cfg.aiDisclosure || "Stai parlando con un assistente virtuale basato su intelligenza artificiale."
     ));
-    if (WPAI.privacyUrl) {
+    if (cfg.privacyUrl) {
       disclosure.appendChild(document.createTextNode(" Proseguendo accetti la nostra "));
       const privacyLink = document.createElement("a");
-      privacyLink.href = safeHttpUrl(WPAI.privacyUrl);
+      privacyLink.href = safeHttpUrl(cfg.privacyUrl);
       privacyLink.target = "_blank";
       privacyLink.rel = "noopener";
       privacyLink.textContent = "privacy policy";
@@ -1082,7 +1086,7 @@
     const input = document.createElement("input");
     input.id = "wpai-input";
     input.type = "text";
-    input.placeholder = WPAI.inputPlaceholder || t("chat.placeholder");
+    input.placeholder = cfg.inputPlaceholder || t("chat.placeholder");
     input.autocomplete = "off";
     input.setAttribute("aria-label", "Messaggio");
     const send = document.createElement("button");
@@ -1121,7 +1125,7 @@
     let hasHistory = false;
     restoreConversation(messages).then((restored) => {
       hasHistory = restored;
-      if (!restored && WPAI.welcome) addMessage(messages, "assistant", WPAI.welcome);
+      if (!restored && cfg.welcome) addMessage(messages, "assistant", cfg.welcome);
       startProactive(
         root,
         () => win.classList.contains("open"),
@@ -1157,9 +1161,23 @@
     });
   }
 
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", init);
-  } else {
-    init();
-  }
-})();
+  init();
+
+  /**
+   * Smonta il widget: via il DOM **e** il polling.
+   *
+   * Fermare il timer non è pulizia formale: senza, un widget rimosso continua a interrogare il
+   * backend per sempre. Sulla pagina di un sito non si nota perché la pagina cambia; dentro un
+   * pannello a pagina singola — dove il widget monta e smonta a ogni navigazione — resterebbe un
+   * poller per ogni visita, tutti attivi insieme.
+   */
+  return {
+    destroy() {
+      if (pollTimer) {
+        clearInterval(pollTimer);
+        pollTimer = null;
+      }
+      document.getElementById("wpai-root")?.remove();
+    },
+  };
+}

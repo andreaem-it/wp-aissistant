@@ -37,8 +37,9 @@ Componenti indipendenti, collegati da API autenticate:
 |-----------|------|-------|-------|
 | **Backend** | `backend/` | FastAPI, SQLModel, Postgres + pgvector, LiteLLM | API RAG, chat, ticketing, ingest |
 | **Panel** | `panel/` | React 18, Vite | Dashboard operatori con navigazione guidata (conversazioni, ticket, contenuti AI, statistiche, automazioni e impostazioni) |
-| **Plugin WP** | `wp-plugin/` | PHP (WordPress), JS/CSS vanilla | Widget di chat + sincronizzazione automatica dei contenuti |
+| **Plugin WP** | `wp-plugin/` | PHP (WordPress), JS vanilla | Produce le opzioni del widget e l'adapter WooCommerce; sincronizza i contenuti. Il widget lo carica da `sdk/widget` |
 | **SDK browser** | `sdk/browser/` | JavaScript ESM | Client headless per siti non WordPress, sessione e API visitatore ([guida](docs/browser-sdk.md)) |
+| **Widget** | `sdk/widget/` | JavaScript ESM + esbuild | Il widget di chat, un artefatto solo per il plugin e per i siti non WordPress ([guida](sdk/widget/README.md)) |
 | **Sito marketing** | `website/` | HTML/CSS statico (zero build) | Landing promozionale: feature, prezzi, login/registrazione |
 | **Adapter canali** | `cloudflare/` | Cloudflare Workers | Normalizzazione email, WhatsApp e canali Meta, verifica webhook e isolamento delle credenziali provider |
 
