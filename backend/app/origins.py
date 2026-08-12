@@ -294,6 +294,28 @@ def _check_live_cooldown(current: ClientOrigin) -> None:
         )
 
 
+def assign(session: Session, client: Client, values: list[str], *, source: str) -> list[str]:
+    """Registra un elenco di domini scegliendo il tipo da sé: **live finché il piano lo
+    consente**, poi staging.
+
+    Sostituisce la convenzione «il primo è live, tutti gli altri sono staging», che descriveva
+    bene un piano da un sito solo e mentiva su ogni altro. Il caso che l'ha fatta cadere:
+    `wpaissistant.it` e `panel.wpaissistant.it` sono due siti di produzione, non un sito e il suo
+    staging — `panel` non è un'etichetta di sviluppo, e la validazione lo rifiutava giustamente.
+
+    Non scavalca la validazione: un dominio che il cliente non potrebbe registrare da sé non deve
+    poter entrare da questa porta, o l'assistenza diventerebbe il modo di aggirare la licenza.
+    """
+    saved: list[str] = []
+    for value in values:
+        slot = slots(session, client)
+        limit = slot["live_limit"]
+        kind = "live" if (limit == 0 or slot["live_used"] < limit) else "staging"
+        saved.append(register(session, client, value, kind, source=source,
+                              enforce_cooldown=False).origin)
+    return saved
+
+
 def remove(session: Session, client_id: int, origin_id: int) -> bool:
     row = session.get(ClientOrigin, origin_id)
     if row is None or row.client_id != client_id:

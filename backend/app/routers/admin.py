@@ -175,12 +175,11 @@ def create_client(
     session.add(client)
     session.commit()
     session.refresh(client)
-    for index, value in enumerate(_split_origins(_normalize_origins(allowed_origins))):
-        try:
-            origins.register(session, client, value, "live" if index == 0 else "staging",
-                             source="admin", enforce_cooldown=False)
-        except origins.OriginError as exc:
-            raise HTTPException(400, str(exc))
+    try:
+        origins.assign(session, client, _split_origins(_normalize_origins(allowed_origins)),
+                       source="admin")
+    except origins.OriginError as exc:
+        raise HTTPException(400, str(exc))
     session.commit()
     cors.rebuild_allowed_origins(session)
     _audit(session, "admin", "admin", "client.create", target=f"client:{client.id}", client_id=client.id, detail={"name": name})
@@ -432,8 +431,8 @@ def set_client_origins(client_id: int, allowed_origins: str = Body(..., embed=Tr
     """Riscrive i siti coperti dalla licenza di questo tenant, dal superadmin.
 
     Sostituisce l'elenco invece di aggiungersi, perché è ciò che il pannello admin fa da sempre.
-    Il primo dominio è il `live`, i successivi sono staging solo se rispettano le regole di
-    `origins.py`: qui il superadmin **non** scavalca la validazione — un dominio che il cliente
+    Il tipo lo sceglie `origins.assign()`: live finché il piano lo consente, poi staging — e uno
+    staging deve comunque rispettare le regole. Qui il superadmin **non** scavalca la validazione — un dominio che il cliente
     non potrebbe registrare da sé non deve poter entrare da questa porta, o l'assistenza
     diventerebbe il modo per aggirare la licenza. Scavalca solo il raffreddamento sul cambio del
     dominio live, che esiste per scoraggiare la rotazione, non per bloccare chi ci chiede aiuto.
@@ -446,11 +445,8 @@ def set_client_origins(client_id: int, allowed_origins: str = Body(..., embed=Tr
     for row in origins.registered_rows(session, client_id):
         session.delete(row)
     session.flush()
-    saved = []
     try:
-        for index, value in enumerate(wanted):
-            saved.append(origins.register(session, client, value, "live" if index == 0 else "staging",
-                                          source="admin", enforce_cooldown=False).origin)
+        saved = origins.assign(session, client, wanted, source="admin")
     except origins.OriginError as exc:
         session.rollback()
         raise HTTPException(400, str(exc))

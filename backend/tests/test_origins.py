@@ -418,3 +418,61 @@ def test_removing_the_live_domain_stops_the_widget(client, tenant):
                            json={"message": "ciao", "visitor_id": "v-dopo-rimozione"})
 
     assert response.status_code == 403
+
+
+# ---- come il superadmin assegna i tipi ---------------------------------------------------------
+
+
+def test_the_admin_fills_the_live_slots_before_using_staging(client, tenant):
+    """Prima la regola era «il primo è live, tutti gli altri staging»: descriveva bene un piano
+    da un sito solo e mentiva su ogni altro.
+
+    Il caso che l'ha fatta cadere è il nostro tenant: `wpaissistant.it` e `panel.wpaissistant.it`
+    sono due siti di produzione, non un sito e il suo staging — `panel` non è un'etichetta di
+    sviluppo, e la validazione lo rifiutava giustamente.
+    """
+    with Session(db.engine) as session:
+        plan = session.get(db.Plan, session.get(db.Client, tenant["cid"]).plan_id)
+        plan.max_live_origins = 0  # illimitati, come il piano interno
+        session.add(plan)
+        session.commit()
+
+    response = client.post(f"/admin/clients/{tenant['cid']}/origins", headers=ADMIN,
+                           json={"allowed_origins": "https://esempio.it, https://panel.esempio.it"})
+
+    assert response.status_code == 200
+    with Session(db.engine) as session:
+        rows = origins.registered_rows(session, tenant["cid"])
+    assert sorted((r.host, r.kind) for r in rows) == [
+        ("esempio.it", "live"), ("panel.esempio.it", "live"),
+    ]
+
+
+def test_with_a_single_live_slot_the_second_domain_must_be_a_valid_staging(client, tenant):
+    """Il piano da un sito non cambia comportamento: il secondo dominio è staging, e deve
+    rispettare le regole — il superadmin non è una porta di servizio per aggirare la licenza."""
+    refused = client.post(f"/admin/clients/{tenant['cid']}/origins", headers=ADMIN,
+                          json={"allowed_origins": "https://esempio.it, https://panel.esempio.it"})
+    assert refused.status_code == 400
+    assert "ambiente di prova" in refused.json()["detail"]
+
+    accepted = client.post(f"/admin/clients/{tenant['cid']}/origins", headers=ADMIN,
+                           json={"allowed_origins": "https://esempio.it, https://staging.esempio.it"})
+    assert accepted.status_code == 200
+    with Session(db.engine) as session:
+        rows = origins.registered_rows(session, tenant["cid"])
+    assert sorted((r.host, r.kind) for r in rows) == [
+        ("esempio.it", "live"), ("staging.esempio.it", "staging"),
+    ]
+
+
+def test_a_refused_list_leaves_the_previous_one_intact(client, tenant):
+    """Metà elenco applicato sarebbe peggio di nessuno: il cliente resterebbe con un dominio
+    registrato e uno no, senza sapere quale."""
+    before = client.get("/account/origins", headers=tenant["op"]).json()["origins"]
+
+    client.post(f"/admin/clients/{tenant['cid']}/origins", headers=ADMIN,
+                json={"allowed_origins": "https://nuovo.it, https://panel.nuovo.it"})
+
+    after = client.get("/account/origins", headers=tenant["op"]).json()["origins"]
+    assert [o["host"] for o in after] == [o["host"] for o in before]
