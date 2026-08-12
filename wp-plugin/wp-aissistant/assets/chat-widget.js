@@ -51,6 +51,35 @@
     return userTokenPromise;
   }
 
+  // ---- Licenza legata al dominio ----
+  //
+  // Il backend risponde 403 quando il widget gira su un dominio non registrato, o quando la
+  // chiamata non porta un header Origin. È un problema di **installazione**, non del visitatore:
+  // il motivo vero va a chi può correggerlo, cioè in console, mentre in chat compare un testo
+  // neutro che non invita a riprovare — riprovare non cambierebbe nulla.
+  //
+  // `licenceBlocked` è vischioso di proposito: una volta accertato, si smette di chiamare il
+  // backend. Senza, ogni messaggio del visitatore genererebbe due 403 (stream + fallback) per
+  // un problema che nessuna ripetizione può risolvere.
+  let licenceBlocked = false;
+
+  async function noteLicenceRefusal(res) {
+    if (res.status !== 403) return false;
+    let detail = "";
+    try {
+      const payload = await res.clone().json();
+      detail = payload && typeof payload.detail === "string" ? payload.detail : "";
+    } catch (e) {
+      detail = "";
+    }
+    licenceBlocked = true;
+    console.error(
+      "[WP AIssistant] Il widget non è attivo su questo dominio. " +
+      (detail || "Registra il dominio del sito dal pannello, in Impostazioni → Siti e licenza.")
+    );
+    return true;
+  }
+
   function addMessage(container, role, text) {
     const el = document.createElement("div");
     el.className = "wpai-msg " + role;
@@ -744,6 +773,7 @@
         localStorage.removeItem(ESCALATED_KEY);
         return sendMessage(message, messages, true);
       }
+      if (await noteLicenceRefusal(res)) throw new Error("licence");
       throw new Error(`chat request failed: ${res.status}`);
     }
     const data = await res.json();
@@ -805,6 +835,9 @@
         localStorage.removeItem(ESCALATED_KEY);
         return sendMessageStream(message, messages, true);
       }
+      // 403 di licenza: non ha senso ripiegare sul percorso bloccante, che riceverebbe lo
+      // stesso rifiuto. Si ferma qui e lo si dice a chi installa.
+      if (await noteLicenceRefusal(res)) throw new Error("licence");
       throw new Error(`stream failed: ${res.status}`);
     }
 
@@ -1109,13 +1142,16 @@
       addMessage(messages, "user", text);
       input.value = "";
       try {
+        if (licenceBlocked) throw new Error("licence");
         await sendMessageStream(text, messages);
       } catch (err) {
-        // streaming unavailable (old backend / buffering proxy) — fall back to blocking /chat
+        // streaming unavailable (old backend / buffering proxy) — fall back to blocking /chat.
+        // Un rifiuto di licenza non è una di quelle cause: riprovare darebbe lo stesso esito.
         try {
+          if (licenceBlocked) throw new Error("licence");
           await sendMessage(text, messages);
         } catch (err2) {
-          addMessage(messages, "system", t("chat.error"));
+          addMessage(messages, "system", t(licenceBlocked ? "chat.unavailable" : "chat.error"));
         }
       }
     });

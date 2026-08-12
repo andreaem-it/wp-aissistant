@@ -392,10 +392,24 @@ prossimo cambiamento di questo tipo, non a questo.
   challenge HMAC, che prova il possesso del sito ed è una prova più forte di un form. Vale solo
   a slot libero: a slot pieno il dominio non viene sostituito di nascosto.
 
-**Cosa resta prima di dire che il cerchio è chiuso**, ed è la cosa che oggi manca davvero:
-l'errore è leggibile nella risposta HTTP, ma **il widget non lo mostra ancora a chi installa** e
-il pannello non ha la schermata dei domini. Finché non ci sono, un dominio sbagliato si
-manifesta come "il widget non c'è" — il rischio 3 di questo documento, e ora è armato.
+**Il cerchio è chiuso** (blocco `domain-licence-visibility`). Il rifiuto non è più muto:
+
+- **Pannello**, *Impostazioni → Siti e licenza*, prima scheda e predefinita perché è dove si
+  finisce quando il widget non compare: domini registrati con la loro provenienza, slot residui,
+  domini **visti in uso ma non registrati**, e il motivo del backend mostrato per esteso quando
+  una registrazione viene rifiutata. Sostituire il dominio di produzione chiede conferma
+  nominando il sito che perderà il widget — con un solo slot "aggiungi" **sostituisce**, e
+  chiamarlo aggiunta è il modo di far perdere a qualcuno il proprio sito senza volerlo.
+- **Widget**: su un `403` di licenza scrive il motivo in console per chi installa, e al
+  visitatore mostra un testo neutro che **non** lo invita a riprovare — riprovare non
+  cambierebbe nulla — e non nomina licenza, dominio né codici di errore. Verificato nelle sei
+  lingue, con la controprova che l'errore di rete generico continua invece a invitare al
+  ritentativo.
+- Il client del pannello conserva ora il `detail` del backend (`api.js`): senza, la spiegazione
+  scritta lato server moriva nel trasporto e la UI doveva inventarsi un messaggio generico.
+
+Resta fuori, come previsto, l'errore leggibile nel widget **standalone**: nascerà con
+l'estrazione in `sdk/widget` (fase 1), che è dove quel codice andrà a vivere.
 
 **Rifiuto leggibile, in tre posti.** Il messaggio HTTP dice quale dominio è stato rifiutato; il
 panel mostra lo stato della licenza (dominio non registrato, slot esauriti) senza far leggere
@@ -623,8 +637,10 @@ Licenza  osservazione → backfill → conferma → preavviso → applicazione
    tenant e chi usa il widget da un server. Resta il motivo per cui osservazione, backfill,
    conferma e preavviso vengono prima dell'applicazione, ma la data si decide su una query, non
    su una paura.
-3. **Il `403` silenzioso sull'origin.** Il fallimento più probabile in installazione, e si
-   manifesta come "il widget non c'è". Errore leggibile e test d'installazione nel panel.
+3. ~~**Il `403` silenzioso sull'origin.**~~ **Disinnescato** per il plugin: il widget scrive il
+   motivo in console e il pannello ha la schermata dei domini (§5). Torna vivo con il widget
+   standalone, che quel codice non ce l'ha ancora: va portato con l'estrazione della fase 1, non
+   dopo — è il fallimento più probabile in installazione, e si manifesta come "il widget non c'è".
 4. **Contesto tenant troppo generoso.** Un blocco di contesto che cresce a ogni richiesta di
    feature finisce per mettere dati di un cliente nel prompt di un modello. Whitelist, e la
    whitelist si allarga con una decisione esplicita.

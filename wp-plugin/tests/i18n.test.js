@@ -62,3 +62,27 @@ test("i segnaposto sono coerenti fra le traduzioni della stessa chiave", () => {
   }
   assert.deepStrictEqual(incoerenti, []);
 });
+
+test("il testo di licenza non spiega al visitatore un problema che non è suo", () => {
+  // Il motivo vero — dominio non registrato — va a chi installa, in console. In chat resta un
+  // testo neutro: il visitatore non può correggere nulla, e citargli la licenza è sia inutile
+  // sia una fuga di dettagli interni verso il browser di un estraneo.
+  for (const lang of ["it", "en", "es", "fr", "de", "pt"]) {
+    const text = i18n.t("chat.unavailable", lang).toLowerCase();
+    assert.ok(text.length > 0, `manca chat.unavailable in ${lang}`);
+    for (const leak of ["licen", "dominio", "domain", "origin", "403", "api"]) {
+      assert.ok(!text.includes(leak), `chat.unavailable (${lang}) rivela "${leak}": ${text}`);
+    }
+  }
+});
+
+test("il testo di licenza non invita a riprovare: riprovare non cambia nulla", () => {
+  const retryWords = { it: "riprova", en: "try again", es: "inténtalo", fr: "réessaye", de: "versuche", pt: "tenta novamente" };
+  for (const [lang, word] of Object.entries(retryWords)) {
+    const text = i18n.t("chat.unavailable", lang).toLowerCase();
+    assert.ok(!text.includes(word), `chat.unavailable (${lang}) invita a riprovare: ${text}`);
+    // controprova: è il testo di errore generico a doverlo fare, e continua a farlo
+    assert.ok(i18n.t("chat.error", lang).toLowerCase().includes(word),
+      `chat.error (${lang}) dovrebbe invitare a riprovare`);
+  }
+});

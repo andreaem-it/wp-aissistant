@@ -39,6 +39,16 @@ async function call(path, { method = "GET", params = {}, body, auth = true } = {
     // preserve the HTTP status so callers can branch (e.g. 403 = email not verified)
     const err = new Error(`${method} ${path} -> ${res.status}`);
     err.status = res.status;
+    // e il `detail` del backend, che è il messaggio scritto per l'utente: senza, resta solo un
+    // codice HTTP e la UI deve inventarsi una spiegazione generica al posto di quella vera.
+    // Es. "Il dominio di staging deve essere un sottodominio di esempio.it" diventerebbe
+    // "operazione non riuscita", cioè la differenza fra sapere cosa correggere e non saperlo.
+    try {
+      const payload = await res.clone().json();
+      if (payload && typeof payload.detail === "string") err.detail = payload.detail;
+    } catch (parseError) {
+      // corpo non JSON (proxy, 502): resta lo status, che è comunque più di niente
+    }
     throw err;
   }
   return res.json();
@@ -130,6 +140,11 @@ export const api = {
   presence: (id, composing = false) =>
     call(`/conversations/${id}/presence`, { method: "POST", body: { composing } }),
   conversationActivity: (id) => call(`/conversations/${id}/activity`),
+  // I siti coperti dalla licenza. Il widget parte solo su un dominio registrato, quindi questa
+  // schermata è parte dell'installazione, non un'impostazione avanzata.
+  origins: () => call("/account/origins"),
+  addOrigin: (origin, kind) => call("/account/origins", { method: "POST", body: { origin, kind } }),
+  deleteOrigin: (id) => call(`/account/origins/${id}`, { method: "DELETE" }),
   savedViews: () => call("/saved-views"),
   createSavedView: (body) => call("/saved-views", { method: "POST", body }),
   updateSavedView: (id, body) => call(`/saved-views/${id}`, { method: "PATCH", body }),

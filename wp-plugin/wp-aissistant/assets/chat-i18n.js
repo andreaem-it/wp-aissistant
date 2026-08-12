@@ -26,6 +26,17 @@
       de: "Verbindungsfehler, bitte versuche es gleich noch einmal.",
       pt: "Erro de ligação, tenta novamente daqui a pouco.",
     },
+    // Un problema di licenza non è un problema del visitatore: non può risolverlo e riprovare
+    // non serve a niente, quindi il testo non lo invita a farlo e non spiega perché. Il motivo
+    // vero va in console, per chi ha installato il widget.
+    "chat.unavailable": {
+      it: "La chat non è al momento disponibile su questo sito.",
+      en: "The chat is currently unavailable on this site.",
+      es: "El chat no está disponible en este sitio en este momento.",
+      fr: "Le chat n'est pas disponible sur ce site pour le moment.",
+      de: "Der Chat ist auf dieser Website derzeit nicht verfügbar.",
+      pt: "O chat não está disponível neste site de momento.",
+    },
     "chat.escalated": {
       it: "La tua richiesta è stata inoltrata a un operatore, ti risponderemo qui appena possibile.",
       en: "Your request has been passed to an operator, we'll reply here as soon as possible.",

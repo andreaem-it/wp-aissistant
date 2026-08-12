@@ -1,13 +1,17 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   Download, Plus, Trash2, MessageSquareText, ListChecks, ShieldX, Timer, Shuffle, Tag as TagIcon, Clock3,
-  MessagesSquare, Users, Headphones, ShieldCheck,
+  MessagesSquare, Users, Headphones, ShieldCheck, Globe,
 } from "lucide-react";
 import { api } from "./api.js";
 import Loading from "./Loading.jsx";
 import { PageHeader, SectionTabs, TabPanel } from "./PageLayout.jsx";
+import Sites from "./Sites.jsx";
 
 const SETTINGS_TABS = [
+  // Primo, e non in fondo fra le voci avanzate: senza un dominio registrato il widget non parte
+  // su nessun sito, quindi è il punto di partenza dell'installazione.
+  { key: "sites", label: "Siti e licenza", description: "Dove funziona il widget", Icon: Globe },
   { key: "content", label: "Conversazioni", description: "Campi, risposte e tag", Icon: MessagesSquare },
   { key: "team", label: "Team e reparti", description: "Code e assegnazioni", Icon: Users },
   { key: "service", label: "Orari e SLA", description: "Tempi del supporto", Icon: Headphones },
@@ -571,7 +575,8 @@ function TagsManager() {
 export default function Settings() {
   const [departments, setDepartments] = useState([]);
   const [operators, setOperators] = useState([]);
-  const [section, setSection] = useState("content");
+  // La prima scheda è anche quella predefinita: è dove si finisce quando il widget non compare.
+  const [section, setSection] = useState("sites");
 
   const loadDepartments = useCallback(
     () => api.departments().then(setDepartments).catch(() => setDepartments([])),
@@ -590,6 +595,17 @@ export default function Settings() {
         description="Personalizza il lavoro del team e il modo in cui vengono gestite le richieste dei clienti. Le impostazioni sono raggruppate per obiettivo."
       />
       <SectionTabs items={SETTINGS_TABS} active={section} onChange={setSection} label="Aree delle impostazioni" />
+
+      <TabPanel active={section} name="sites" className="wpai-single-col">
+        <div className="wpai-section-intro">
+          <h2>Dove funziona il widget</h2>
+          <p>
+            La licenza copre un sito di produzione e uno di staging. Su un dominio non registrato
+            il widget non parte: se hai appena cambiato indirizzo, aggiornalo qui.
+          </p>
+        </div>
+        <Sites />
+      </TabPanel>
 
       <TabPanel active={section} name="content" className="wpai-two-col">
         <div className="wpai-section-intro">

@@ -109,7 +109,9 @@ Il vincolo è applicato lato server in `deps.rate_limit_chat`, che è il punto i
 Una richiesta senza `Origin` non viene da un browser: per le integrazioni server-to-server c'è
 `/v1` con una `ApiKey` dotata di scope.
 
-Il cliente registra i propri domini da sé (`/account/origins`); il dominio live si cambia da soli
+Il cliente registra i propri domini da sé dal pannello, in **Impostazioni → Siti e licenza**
+(`/account/origins`): l'elenco dei domini, gli slot residui, i domini visti in uso ma non
+registrati, e il motivo per esteso quando una registrazione viene rifiutata. Il dominio live si cambia da soli
 con un raffreddamento (`LIVE_ORIGIN_CHANGE_COOLDOWN_DAYS`, 7 giorni) e traccia in audit, perché
 rebrand e migrazioni sono normali e non devono diventare un ticket. **Installare il plugin
 WordPress registra il dominio da sé**: il challenge HMAC prova il possesso del sito, ed è una
