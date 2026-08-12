@@ -84,6 +84,26 @@ verificata — mai con la `api_key`, che sta in ogni pagina pubblica). L'equival
 operatori è `DELETE /knowledge-base`; entrambi richiedono la parola di conferma `svuota` e
 finiscono nell'audit.
 
+## Installare l'assistente: plugin o JavaScript
+
+Due strade, **stesso assistente**: caricano lo stesso artefatto (`sdk/widget`) e producono lo
+stesso oggetto di opzioni. Cambia solo chi scrive le opzioni.
+
+- **Plugin WordPress** — le opzioni le produce la pagina delle impostazioni del plugin, che
+  fornisce anche l'adapter WooCommerce: carrello, schede prodotto e ricerca ordini con i dati
+  completi. Il dominio si registra da sé alla prima connessione, perché il plugin dimostra di
+  essere su quel sito.
+- **Integrazione JavaScript** — le opzioni le produce il pannello, in *Impostazioni →
+  Installazione*, che genera lo snippet già personalizzato. Nessuna piattaforma richiesta.
+
+Il configuratore costruisce i controlli dal **vocabolario che arriva dal backend**
+(`/account/widget-config`), non da una lista riscritta nel frontend: sarebbe la terza copia della
+stessa cosa. L'anteprima monta il **widget vero** in modalità anteprima — disegna tutto e non
+chiama niente, così guardarla non apre conversazioni nell'inbox del cliente.
+
+> Lo snippet porta le opzioni in chiaro: cambiarle nel pannello richiede di **ricopiarlo**. È
+> detto nella schermata, perché è la causa tipica di «l'ho cambiato e sul sito è rimasto uguale».
+
 ## La licenza è legata al dominio
 
 Una licenza copre **un sito**, non un elenco di siti. Il widget parte solo su un dominio

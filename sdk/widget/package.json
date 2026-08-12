@@ -1,7 +1,7 @@
 {
   "name": "@wp-aissistant/widget",
   "version": "0.1.0",
-  "description": "Widget di chat di WP AIssistant: bundle framework-agnostic configurabile con coppie proprietà/valore.",
+  "description": "Widget di chat di WP AIssistant: bundle framework-agnostic configurabile con coppie propriet\u00e0/valore.",
   "license": "MIT",
   "author": "WP AIssistant",
   "type": "module",
@@ -10,7 +10,9 @@
   "exports": {
     ".": "./src/index.js",
     "./schema": "./src/schema.js",
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./widget": "./src/widget.js",
+    "./styles.css": "./src/styles.css"
   },
   "files": [
     "src",

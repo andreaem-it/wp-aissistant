@@ -35,6 +35,25 @@ const STRINGS = {
     de: "Der Chat ist auf dieser Website derzeit nicht verfügbar.",
     pt: "O chat não está disponível neste site de momento.",
   },
+  // Testi della sola anteprima nel pannello: non li vede mai un visitatore.
+  "preview.question": {
+    it: "Avete la spedizione gratuita?", en: "Do you offer free shipping?",
+    es: "¿Tenéis envío gratuito?", fr: "Proposez-vous la livraison gratuite ?",
+    de: "Bieten Sie kostenlosen Versand an?", pt: "Têm portes grátis?",
+  },
+  "preview.answer": {
+    it: "Sì, sopra i 49 € la spedizione è gratuita in tutta Italia.",
+    en: "Yes, shipping is free on orders over €49.",
+    es: "Sí, el envío es gratuito en pedidos superiores a 49 €.",
+    fr: "Oui, la livraison est gratuite au-delà de 49 €.",
+    de: "Ja, ab 49 € ist der Versand kostenlos.",
+    pt: "Sim, os portes são grátis acima de 49 €.",
+  },
+  "preview.placeholder": {
+    it: "Anteprima: la chat è disattivata", en: "Preview: chat is disabled",
+    es: "Vista previa: el chat está desactivado", fr: "Aperçu : le chat est désactivé",
+    de: "Vorschau: Chat ist deaktiviert", pt: "Pré-visualização: chat desativado",
+  },
   "chat.escalated": {
     it: "La tua richiesta è stata inoltrata a un operatore, ti risponderemo qui appena possibile.",
     en: "Your request has been passed to an operator, we'll reply here as soon as possible.",

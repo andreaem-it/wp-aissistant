@@ -30,6 +30,10 @@ export function mount(config) {
   const cfg = config || {};
   const host = cfg.host || {};
   const look = schema.appearance(cfg.appearance || cfg);
+  // Anteprima: si disegna tutto, non si chiama niente. Serve al configuratore del pannello, e
+  // senza di essa ogni sguardo alla schermata aprirebbe una conversazione vera nell'inbox del
+  // cliente e la conterebbe nelle sue statistiche.
+  const preview = Boolean(cfg.preview);
   const VISITOR_KEY = "wpai_visitor_id";
   const CONV_KEY = "wpai_conversation_id";
   const CONV_TOKEN_KEY = "wpai_conversation_token";
@@ -1123,6 +1127,17 @@ export function mount(config) {
     });
 
     let hasHistory = false;
+    if (preview) {
+      // Uno scambio d'esempio, così si vede come stanno insieme i colori delle due bolle.
+      if (cfg.welcome) addMessage(messages, "assistant", cfg.welcome);
+      addMessage(messages, "user", t("preview.question"));
+      addMessage(messages, "assistant", t("preview.answer"));
+      input.placeholder = t("preview.placeholder");
+      input.disabled = true;
+      send.disabled = true;
+      setOpen(true);
+      return;
+    }
     restoreConversation(messages).then((restored) => {
       hasHistory = restored;
       if (!restored && cfg.welcome) addMessage(messages, "assistant", cfg.welcome);

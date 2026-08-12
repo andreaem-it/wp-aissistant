@@ -1,17 +1,19 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   Download, Plus, Trash2, MessageSquareText, ListChecks, ShieldX, Timer, Shuffle, Tag as TagIcon, Clock3,
-  MessagesSquare, Users, Headphones, ShieldCheck, Globe,
+  MessagesSquare, Users, Headphones, ShieldCheck, Globe, Code2,
 } from "lucide-react";
 import { api } from "./api.js";
 import Loading from "./Loading.jsx";
 import { PageHeader, SectionTabs, TabPanel } from "./PageLayout.jsx";
 import Sites from "./Sites.jsx";
+import Install from "./Install.jsx";
 
 const SETTINGS_TABS = [
   // Primo, e non in fondo fra le voci avanzate: senza un dominio registrato il widget non parte
   // su nessun sito, quindi è il punto di partenza dell'installazione.
   { key: "sites", label: "Siti e licenza", description: "Dove funziona il widget", Icon: Globe },
+  { key: "install", label: "Installazione", description: "Plugin o JavaScript", Icon: Code2 },
   { key: "content", label: "Conversazioni", description: "Campi, risposte e tag", Icon: MessagesSquare },
   { key: "team", label: "Team e reparti", description: "Code e assegnazioni", Icon: Users },
   { key: "service", label: "Orari e SLA", description: "Tempi del supporto", Icon: Headphones },
@@ -605,6 +607,17 @@ export default function Settings() {
           </p>
         </div>
         <Sites />
+      </TabPanel>
+
+      <TabPanel active={section} name="install" className="wpai-single-col">
+        <div className="wpai-section-intro">
+          <h2>Metti l'assistente sul tuo sito</h2>
+          <p>
+            Due strade, stesso assistente: il plugin WordPress o due righe di JavaScript. La
+            seconda si configura da qui e ti dà lo snippet già personalizzato.
+          </p>
+        </div>
+        <Install />
       </TabPanel>
 
       <TabPanel active={section} name="content" className="wpai-two-col">

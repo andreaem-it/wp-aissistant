@@ -1516,3 +1516,38 @@ button.wpai-view-chip { padding: 6px 12px; }
 
 .wpai-conv-toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
 .wpai-conv-toolbar .wpai-btn.ghost { margin-left: auto; }
+
+/* ---- Installazione: scelta fra plugin e JavaScript ---------------------------------------- */
+
+.wpai-choice {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.wpai-choice-card {
+  display: grid;
+  gap: 6px;
+  justify-items: start;
+  text-align: left;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: inherit;
+  cursor: pointer;
+}
+
+.wpai-choice-card:hover { border-color: var(--accent); }
+.wpai-choice-card.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.wpai-choice-card strong { font-size: 14px; }
+.wpai-choice-card span { font-size: 12.5px; color: var(--text-muted); }
+
+.wpai-config-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 10px;
+}
+
+.wpai-steps { margin: 8px 0 0; padding-left: 20px; font-size: 13px; display: grid; gap: 10px; }
