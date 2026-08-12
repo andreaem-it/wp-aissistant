@@ -223,6 +223,12 @@ def cost_summary(session: Session, days: int = 30) -> dict:
     rows, total_cost, total_revenue = [], 0.0, 0
     total_storage_bytes = 0
     any_estimated = False
+    # I nostri tenant (piano interno) hanno spesa reale e ricavo zero. Non vanno nel margine —
+    # ci comparirebbero come il cliente più in perdita del parco — ma nemmeno spariscono: la
+    # loro spesa è **costo di piattaforma** e si dichiara a parte, come i canali senza prezzo.
+    internal = billing.platform_client_ids(session)
+    internal_cost = 0.0
+    internal_rows = []
     for client_id, entry in per_client.items():
         client = clients.get(client_id)
         if not client:
@@ -237,8 +243,20 @@ def cost_summary(session: Session, days: int = 30) -> dict:
             (entry["cost"] + entry["embedding_cost"] + entry["messaging_cost"]) * 30 / window
             + (storage_cost or 0.0)
         )
+        fully_priced = entry["priced"] and entry["messaging_priced"]
+        if client_id in internal:
+            if fully_priced:
+                internal_cost += monthly_cost
+            internal_rows.append({
+                "client_id": client_id,
+                "name": client.name,
+                "plan": plan.name if plan else None,
+                "monthly_cost_cents": round(monthly_cost, 2),
+                "fully_priced": fully_priced,
+            })
+            continue
         # only tenants whose spend is fully priced can be summed into a trustworthy total
-        if entry["priced"] and entry["messaging_priced"]:
+        if fully_priced:
             total_cost += monthly_cost
         if client.billing_status in ("active", "past_due"):
             total_revenue += revenue
@@ -295,4 +313,9 @@ def cost_summary(session: Session, days: int = 30) -> dict:
         "embedding_estimated": any_estimated,
         "chars_per_token": CHARS_PER_TOKEN,
         "clients": rows,
+        # La nostra spesa, fuori dal margine e dichiarata: sostenere il widget sul nostro sito e
+        # l'assistenza dentro il pannello dei clienti costa, e nasconderlo renderebbe il margine
+        # più bello di quanto è.
+        "internal_cost_cents": round(internal_cost, 2),
+        "internal_clients": sorted(internal_rows, key=lambda r: r["monthly_cost_cents"], reverse=True),
     }

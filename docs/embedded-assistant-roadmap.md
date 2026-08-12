@@ -28,45 +28,37 @@ esistono **solo dentro WordPress** (`get_option(WPAI_OPTION)`). Il backend non l
 panel nemmeno. Un configuratore nel panel non è una schermata da disegnare sopra qualcosa che
 c'è: è una schermata più la cosa sotto.
 
-## 1. Fase 0 — Tenant interno e piano Illimitato
+## 1. Fase 0 — Tenant interno e piano Illimitato — **fatta**
 
-La più piccola, e sblocca tutte le altre: senza un nostro tenant non c'è widget sul sito né nel
-panel.
+Rilasciata con il blocco `internal-tenant-plan`. Cosa è in produzione:
 
-**Cosa fare**
+- Piano **`Interno — Illimitato`** (`code = internal_unlimited`, migrazione `0055`): interno,
+  gratuito, messaggi e domini illimitati, limiti di frequenza a 600 perché dietro un solo
+  `client_id` passerà il traffico di tutti i pannelli dei clienti. Il limitatore resta per IP
+  (`chat:{client}:{ip}`), quindi gli utenti restano separati fra loro.
+- I nostri tenant sono **esclusi** da ricavi, funnel di attivazione e clienti a rischio; la loro
+  spesa è dichiarata a parte in *Costi e margine* (`internal_cost_cents`, `internal_clients`)
+  invece di sparire dal margine.
+- Etichetta specifica nel pannello admin: un piano interno che concede tutto non può presentarsi
+  con la stessa dicitura del segnaposto che non concede niente.
 
-1. Migrazione `0054` reversibile: piano **`Interno — Illimitato`** con `internal=True`,
-   `price_cents=0`, `yearly_price_cents=0`, `monthly_message_limit=0` (già la semantica di
-   "illimitato"), `chat_rate_limit` e `ingest_rate_limit` alzati (600/600) perché il nostro
-   tenant serve sito + panel di tutti i clienti dallo stesso `client.id`.
-2. Nostro tenant `WP AIssistant` con `billing_status='active'`, nessun `stripe_subscription_id`,
-   `plan_id` = il piano sopra, `allowed_origins` = origin del sito marketing + del panel.
-3. `_reject_free_plan` in `routers/admin.py` **già esenta** i piani interni: nessuna modifica.
-4. Etichetta nel panel admin: oggi un piano interno è presentato come "segnaposto". Con due
-   piani interni di natura diversa l'etichetta va resa specifica, altrimenti il superadmin legge
-   "segnaposto" su un piano che invece concede tutto.
+**Due cose scoperte scrivendolo, entrambe più interessanti del piano in sé.**
 
-**Trappole verificate nel codice**
+1. **`default_plan_id()` sceglieva il piano con l'id più basso.** Con un solo piano interno era
+   innocuo; con due, su un database in cui l'illimitato nasce per primo — cioè qualunque
+   installazione nuova — **ogni nuovo iscritto avrebbe ricevuto accesso illimitato**. Il test
+   scritto per presidiare la fragilità l'ha trovata attiva al primo colpo. Rimediato con
+   `Plan.code`: un'identità stabile per i piani che il codice deve trovare, al posto di una
+   proprietà dell'ordinamento. Il nome non poteva farlo — è modificabile dal pannello.
+2. **"Escludere i piani interni" era la regola sbagliata.** Anche il segnaposto è `internal`, ma
+   sopra ci sta chi si è registrato e non ha ancora pagato: cioè esattamente la popolazione che
+   il funnel di attivazione esiste per misurare. La regola giusta esclude i piani interni **che
+   erogano servizio**, e la differenza fra le due è un funnel pulito e un funnel vuoto che mostra
+   zero senza dirlo.
 
-- `billing.default_plan_id()` restituisce `select(Plan).order_by(Plan.id).first()` — **il piano
-  con id più basso**, non "quello interno". Un piano nuovo prende un id alto e quindi non cambia
-  il comportamento, ma la funzione è fragile: serve un test che un account nuovo **non** finisca
-  su Illimitato. Se un giorno qualcuno riordina i piani, quel test è l'unica rete.
-- `backend/tests/test_plans.py:18` seleziona il piano interno con
-  `where(Plan.internal.is_(True)).first()`: con due piani interni la fixture diventa ambigua.
-  Va cambiata a selezione per nome **nello stesso commit**, non dopo.
-- **Il nostro tenant inquina le viste commerciali.** Genererà costo di inferenza, embedding e
-  storage con ricavo zero: in *Costi e margine* comparirebbe come il cliente più in perdita del
-  parco, e nelle statistiche di prodotto (conversazioni, funnel di attivazione, clienti a
-  rischio) come un cliente vero con numeri fuori scala. Decisione da prendere **prima** di
-  accendere il widget, non dopo aver visto i grafici sbagliati: i tenant su piano `internal`
-  vanno esclusi dagli aggregati e contati come **costo di piattaforma**, con la loro spesa
-  dichiarata separatamente. Coerente con la regola già in vigore — mai contare come gratis ciò
-  che un prezzo ce l'ha.
-
-**Vincolo da non rompere:** `internal` significa "non è un prodotto vendibile", non "non concede
-nulla". Dopo questa fase il docstring di `Plan.internal` va aggiornato, perché oggi dice il
-secondo.
+**Resta un passo manuale:** creare il nostro tenant in produzione e metterlo su questo piano. È
+un'operazione sui dati, non una migrazione — un tenant con la sua `api_key` non si semina in uno
+script che gira su ogni ambiente.
 
 ## 2. Fase 1 — Estrarre il widget da WordPress (`sdk/widget`)
 

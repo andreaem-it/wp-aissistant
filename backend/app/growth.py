@@ -24,6 +24,7 @@ from .db import (
     PluginInstallation,
     Plan,
 )
+from . import billing
 from .logging_config import log
 
 logger = logging.getLogger("wpai.growth")
@@ -51,7 +52,9 @@ def activation_funnel(session: Session, days: int = 90) -> dict:
     that skipped a step still counts for the later ones it did reach.
     """
     since = datetime.utcnow() - timedelta(days=max(days, 1))
-    clients = session.exec(select(Client)).all()
+    # I nostri tenant non sono clienti da attivare: contarli falserebbe ogni tasso del funnel.
+    internal = billing.platform_client_ids(session)
+    clients = [c for c in session.exec(select(Client)).all() if c.id not in internal]
     cohort = [c for c in clients if c.created_at and c.created_at >= since]
     undated = sum(1 for c in clients if not c.created_at)
 
@@ -128,7 +131,9 @@ def at_risk_clients(session: Session, days: int = 14) -> dict:
     current_start = now - timedelta(days=window)
     previous_start = now - timedelta(days=window * 2)
 
-    clients = {c.id: c for c in session.exec(select(Client)).all()}
+    # Un nostro tenant non può essere "a rischio": non c'è un abbonamento da perdere.
+    internal = billing.platform_client_ids(session)
+    clients = {c.id: c for c in session.exec(select(Client)).all() if c.id not in internal}
     plans = {p.id: p for p in session.exec(select(Plan)).all()}
     if not clients:
         return {"window_days": window, "clients": []}

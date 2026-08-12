@@ -503,8 +503,11 @@ function ClientDetail({ client, plans, onChanged }) {
  * Prima i piani si potevano solo creare: un prezzo sbagliato o un limite da correggere
  * obbligavano a toccare il database. L'endpoint esisteva già, mancava il modo di usarlo.
  *
- * I piani **interni** (il segnaposto per chi non ha ancora pagato) si vedono ma si dichiarano
- * per quello che sono: non sono prodotti, non compaiono ai clienti e non si vendono.
+ * I piani **interni** si vedono ma si dichiarano per quello che sono: non sono prodotti, non
+ * compaiono ai clienti e non si vendono. Sono di due nature opposte — il segnaposto per chi non
+ * ha ancora pagato non concede nulla, il piano con cui serviamo noi stessi concede tutto — e
+ * l'etichetta deve dirlo: «interno» su un piano che regala accesso illimitato, spiegato come
+ * «segnaposto», è il modo di assegnarlo a un cliente per sbaglio.
  */
 function PlanRow({ plan, onChanged }) {
   const [open, setOpen] = useState(false);
@@ -560,7 +563,17 @@ function PlanRow({ plan, onChanged }) {
         <strong style={{ flex: "1 1 160px" }}>
           {plan.name}
           {plan.internal && (
-            <span className="wpai-badge" style={{ marginLeft: 8 }} title="Segnaposto per gli account che non hanno ancora pagato: non è un prodotto e non è visibile ai clienti">interno</span>
+            <span
+              className={plan.monthly_message_limit === 0 && plan.chat_rate_limit > 100 ? "wpai-badge warn" : "wpai-badge"}
+              style={{ marginLeft: 8 }}
+              title={
+                plan.monthly_message_limit === 0 && plan.chat_rate_limit > 100
+                  ? "Piano interno che concede accesso illimitato: è il nostro, non assegnarlo a un cliente"
+                  : "Segnaposto per gli account che non hanno ancora pagato: non è un prodotto e non è visibile ai clienti"
+              }
+            >
+              {plan.monthly_message_limit === 0 && plan.chat_rate_limit > 100 ? "interno · illimitato" : "interno"}
+            </span>
           )}
           {!plan.internal && !plan.stripe_price_id && (
             <span className="wpai-badge warn" style={{ marginLeft: 8 }} title="Senza price id di Stripe non è acquistabile">non su Stripe</span>

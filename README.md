@@ -193,6 +193,11 @@ prova più forte di un campo compilato in un form.
 ## Modello dati
 
 - **Client** — tenant, identificato da `api_key`.
+- **Plan** — piano di fatturazione. `code` dà un'identità stabile ai due piani che il codice deve
+  saper trovare: `bootstrap` (segnaposto per un account che esiste prima di aver pagato, non
+  concede nulla) e `internal_unlimited` (il piano con cui serviamo noi stessi, concede tutto).
+  Entrambi sono `internal`, cioè non vendibili e invisibili ai clienti; solo il secondo esclude
+  il tenant dalle viste commerciali, perché sul primo ci stanno i clienti da attivare.
 - **ClientOrigin** — i siti coperti dalla licenza del tenant: un dominio `live` (quanti ne
   concede il piano, `Plan.max_live_origins`), uno `staging` vincolato dalle regole di
   `app/origins.py`, e le righe `observed` — traccia di traffico che **non concede nulla**,

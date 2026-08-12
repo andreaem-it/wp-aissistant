@@ -259,6 +259,43 @@ _AT_RISK = ("past_due",)
 _TRIALING = ("trialing",)
 
 
+# I due piani che il codice deve saper trovare. I nomi sono modificabili dal pannello, i codici no.
+BOOTSTRAP_PLAN_CODE = "bootstrap"
+UNLIMITED_PLAN_CODE = "internal_unlimited"
+
+
+def platform_client_ids(session: Session) -> set[int]:
+    """I tenant che **siamo noi**, non clienti: quelli su un piano interno che eroga servizio.
+
+    Servono a tenerli fuori dalle viste commerciali. Il nostro tenant — quello che serve il
+    widget sul sito e l'assistenza dentro il pannello dei clienti — genera costo di inferenza,
+    embedding e storage con ricavo zero: lasciato negli aggregati comparirebbe come il cliente
+    più in perdita del parco e nel funnel di attivazione come un cliente vero con numeri fuori
+    scala.
+
+    Non è "contarlo gratis": la sua spesa esiste ed è **costo di piattaforma**, dichiarato a parte
+    da `costs.cost_summary`. È la stessa regola dei canali senza prezzo — ciò che non entra in un
+    totale va detto, non nascosto.
+
+    Il segnaposto `bootstrap` resta **fuori** da questo insieme, e la distinzione è tutt'altro che
+    formale: sul segnaposto ci sta chi si è registrato e non ha ancora pagato, cioè esattamente
+    la popolazione che il funnel di attivazione esiste per misurare. Escludere ogni piano
+    `internal` svuoterebbe la vista invece di ripulirla.
+    """
+    ours = [
+        plan.id
+        for plan in session.exec(
+            select(Plan).where(Plan.internal.is_(True), Plan.code != BOOTSTRAP_PLAN_CODE)
+        ).all()
+    ]
+    if not ours:
+        return set()
+    return {
+        client.id
+        for client in session.exec(select(Client).where(Client.plan_id.in_(ours))).all()
+    }
+
+
 def revenue_summary(session: Session, days: int = 30) -> dict:
     """Recurring revenue rebuilt from the plans and subscriptions as they stand right now.
 
@@ -271,7 +308,9 @@ def revenue_summary(session: Session, days: int = 30) -> dict:
     snapshots of the past customer base a rate would be invented, not measured.
     """
     plans = {plan.id: plan for plan in session.exec(select(Plan)).all()}
-    clients = session.exec(select(Client)).all()
+    # I nostri tenant non sono ricavo e non sono churn: un piano interno non è un prodotto.
+    internal = platform_client_ids(session)
+    clients = [c for c in session.exec(select(Client)).all() if c.id not in internal]
     since = datetime.utcnow() - timedelta(days=max(days, 1))
     soon = datetime.utcnow() + timedelta(days=7)
 
@@ -452,14 +491,26 @@ def default_plan_id(session: Session) -> int:
     elenco rivolto a un cliente e non è acquistabile. Esiste perché `Client.plan_id` non è
     nullable e un'installazione nuova deve poter creare un account prima che il listino sia
     compilato.
+
+    Si cerca per `code`, non per id più basso. La vecchia regola — "il primo piano che c'è" —
+    funzionava finché il segnaposto era l'unico piano interno: da quando esiste anche
+    «Interno — Illimitato», su un database dove quello nasce per primo ogni nuovo iscritto
+    riceverebbe accesso illimitato. Un piano che concede tutto non deve poter diventare il
+    default per un incidente di ordinamento.
     """
-    plan = session.exec(select(Plan).order_by(Plan.id)).first()
+    plan = session.exec(select(Plan).where(Plan.code == BOOTSTRAP_PLAN_CODE)).first()
+    if not plan:
+        # Database precedenti alla 0055: il segnaposto c'è ma non ha ancora un codice. Si ripiega
+        # sull'ordine di prima, **escludendo** i piani che concedono accesso illimitato.
+        plan = session.exec(
+            select(Plan).where(Plan.code != UNLIMITED_PLAN_CODE).order_by(Plan.id)
+        ).first()
     if not plan:
         # `monthly_message_limit` resta 0 (illimitato) di proposito: non è questo piano a
         # concedere il servizio — lo decide `billing_status` — e un tetto qui taglierebbe le
         # gambe a un cliente creato a mano dal superadmin, che finisce su questa riga.
-        plan = Plan(name="Nessun abbonamento", internal=True, price_cents=0,
-                    chat_rate_limit=30, ingest_rate_limit=60)
+        plan = Plan(name="Nessun abbonamento", code=BOOTSTRAP_PLAN_CODE, internal=True,
+                    price_cents=0, chat_rate_limit=30, ingest_rate_limit=60)
         session.add(plan)
         session.commit()
         session.refresh(plan)

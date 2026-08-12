@@ -18,6 +18,11 @@ class Plan(SQLModel, table=True):
     plans and gating work standalone; only checkout needs it."""
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str = Field(index=True, unique=True)
+    # Identità stabile dei piani che il codice deve saper trovare, invece di dedurli dall'ordine
+    # degli id: `bootstrap` è il segnaposto per chi non ha ancora pagato, `internal_unlimited` è
+    # il nostro. Vuoto per i piani commerciali, che nessuna logica deve cercare per nome — quello
+    # lo sceglie il cliente. Il nome è modificabile dal pannello, quindi non può essere la chiave.
+    code: str = Field(default="", index=True)
     price_cents: int = 0
     currency: str = "eur"
     chat_rate_limit: int = 30
@@ -32,9 +37,19 @@ class Plan(SQLModel, table=True):
     yearly_price_cents: int = 0
     stripe_price_id: str = ""
     stripe_yearly_price_id: str = ""
-    # Segnaposto interno, non un prodotto. Serve a dare dei limiti a un account che esiste prima
-    # di aver pagato (`Client.plan_id` non è nullable) e non compare in nessun elenco rivolto a
-    # un cliente. Non concede nulla: a decidere l'erogazione è `billing_status`.
+    # Piano interno: **non vendibile**, fuori da ogni elenco rivolto a un cliente, esente dal
+    # controllo sul prezzo e visibile al solo superadmin. Dice cosa il piano *non* è — un
+    # prodotto — non quanto concede: ce ne sono due di natura opposta.
+    #
+    # «Nessun abbonamento» è il segnaposto per un account che esiste prima di aver pagato
+    # (`Client.plan_id` non è nullable) e non concede nulla, perché a decidere l'erogazione è
+    # `billing_status`. «Interno — Illimitato» è il piano con cui serviamo noi stessi — il widget
+    # sul sito e l'assistenza dentro il pannello dei clienti — e concede tutto.
+    #
+    # Un tenant su un piano interno **che eroga servizio** (il nostro) è escluso dalle viste
+    # commerciali e la sua spesa è dichiarata a parte come costo di piattaforma: vedi
+    # `billing.platform_client_ids`. Il segnaposto no — chi non ha ancora pagato è un cliente da
+    # attivare, ed è proprio ciò che il funnel misura.
     internal: bool = False
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
