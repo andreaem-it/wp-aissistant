@@ -32,6 +32,8 @@ echo "building the widget bundle from sdk/widget"
 ( cd "$WIDGET_DIR" && npm run --silent build )
 cp "$WIDGET_DIR/dist/wpai-widget.js" "$PLUGIN_DIR/assets/wpai-widget.js"
 cp "$WIDGET_DIR/dist/wpai-widget.css" "$PLUGIN_DIR/assets/wpai-widget.css"
+node "$SCRIPT_DIR/generate-widget-build.mjs" \
+  "$WIDGET_DIR/dist/integrity.json" "$PLUGIN_DIR/widget-build.php"
 
 mkdir -p "$DIST_DIR"
 ZIP="$DIST_DIR/wp-aissistant-$version.zip"

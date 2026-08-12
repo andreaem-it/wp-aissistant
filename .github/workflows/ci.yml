@@ -253,6 +253,7 @@ jobs:
         working-directory: sdk/widget
         run: |
           npm ci
+          npm run build
           npm test
       - name: Build zip
         working-directory: wp-plugin

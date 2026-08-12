@@ -52,6 +52,26 @@ dell'ordine, che è il comportamento giusto su un sito che non vende da sé.
 
 L'adapter WordPress è in `wp-plugin/wp-aissistant/assets/wp-host.js`.
 
+## Distribuzione
+
+Il bundle si pubblica su R2 con percorsi **versionati e immutabili**:
+
+```
+https://cdn.wpaissistant.it/widget/0.1.0/wpai-widget.js   Cache-Control: immutable, con SRI
+https://cdn.wpaissistant.it/widget/v1/wpai-widget.js      alias mobile, cache breve, senza SRI
+```
+
+**La versione fissa è il default, non l'opzione avanzata.** Da quando ogni sito cliente carica
+il nostro script, un rilascio sbagliato sull'alias mobile non rompe un sito: li rompe tutti
+insieme, e non c'è niente che il cliente possa fare. Con la versione fissa il guasto resta
+per-sito e si annulla disinstallando. L'alias mobile è una scelta esplicita per chi vuole gli
+aggiornamenti automatici, e rinuncia all'SRI — nessuna impronta può descrivere un file che
+cambia.
+
+La pubblicazione avviene su tag `widget-v*` (`.github/workflows/publish-widget.yml`), dopo i
+test, e verifica che il file sia **davvero raggiungibile da un browser** e corrisponda all'SRI:
+un `put` riuscito non dimostra che il dominio del bucket sia collegato.
+
 ## Sviluppo
 
 ```sh

@@ -15,5 +15,6 @@ wp-plugin/vendor/
 # Artefatto del widget copiato nel plugin da build.sh: si genera, non si versiona
 wp-plugin/wp-aissistant/assets/wpai-widget.js
 wp-plugin/wp-aissistant/assets/wpai-widget.css
+wp-plugin/wp-aissistant/widget-build.php
 sdk/widget/dist/
 sdk/widget/node_modules/

@@ -109,3 +109,27 @@ test("schema.json versionato coincide con schema.js", async () => {
   assert.deepEqual(committed.withoutRootClass, Object.keys(schema.WITHOUT_ROOT_CLASS));
   assert.equal(committed.defaultColor, schema.DEFAULT_COLOR);
 });
+
+test("l'SRI descrive l'artefatto costruito, non uno ricostruito dopo", async () => {
+  // Il plugin carica una versione fissa con `integrity`: se l'impronta non corrispondesse al
+  // file, il browser rifiuterebbe di eseguirlo e il widget sparirebbe senza un errore che
+  // spieghi perché. Qui si verifica che ciò che la build dichiara sia ciò che ha prodotto.
+  const { readFile } = await import("node:fs/promises");
+  const { createHash } = await import("node:crypto");
+
+  let declared;
+  try {
+    declared = JSON.parse(await readFile(new URL("../dist/integrity.json", import.meta.url), "utf8"));
+  } catch {
+    return; // build non ancora eseguita: non è questo il test che deve lamentarsene
+  }
+
+  for (const [file, expected] of Object.entries(declared.files)) {
+    const bytes = await readFile(new URL(`../dist/${file}`, import.meta.url));
+    const actual = "sha384-" + createHash("sha384").update(bytes).digest("base64");
+    assert.equal(actual, expected, `${file}: l'impronta dichiarata non corrisponde al file`);
+  }
+
+  const { version } = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
+  assert.equal(declared.version, version, "la versione dichiarata non è quella del pacchetto");
+});

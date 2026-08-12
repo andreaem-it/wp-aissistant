@@ -21,6 +21,32 @@ if (!defined('WPAI_BACKEND_URL')) {
 // official Font Awesome CDN (cdnjs) rather than self-hosted — simplest to keep current,
 // at the cost of one extra external request on every page (incl. customer sites running
 // the widget).
+// Il widget si carica dal nostro CDN, a una **versione fissa**: così una correzione raggiunge
+// tutti i siti senza aspettare che ognuno aggiorni il plugin, e insieme un rilascio sbagliato
+// non può rompere tutti i clienti nello stesso istante — la versione la alza una release del
+// plugin, quindi il guasto resta per-sito e si annulla disinstallando.
+//
+// Vuoto disattiva il CDN e usa la copia dentro il pacchetto: è così finché il dominio non è
+// collegato al bucket, e resta la via d'uscita per chi non vuole richieste a terzi.
+if (!defined('WPAI_WIDGET_CDN')) {
+    define('WPAI_WIDGET_CDN', '');
+}
+/**
+ * Versione e impronte SRI dell'artefatto spedito con questo pacchetto.
+ *
+ * Le genera `build.sh` dallo stesso artefatto che copia negli assets, quindi non possono
+ * divergere. Se il file manca — un checkout senza build — si ripiega sulla copia locale senza
+ * SRI: meglio un widget che funziona di uno bloccato da un'impronta inventata.
+ */
+function wpai_widget_build() {
+    static $build = null;
+    if ($build === null) {
+        $path = __DIR__ . '/widget-build.php';
+        $build = file_exists($path) ? (array) include $path : [];
+    }
+    return $build;
+}
+
 define('WPAI_FONTAWESOME_URL', 'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css');
 define('WPAI_FONTAWESOME_SRI', 'sha512-SnH5WK+bZxgPHs44uWIX+LLJAJ9/2PkPKZ5QiAj6Ta86w+fsb2TkcmfRyVX3pBnMFcV7oQPJkl9QevSCWr3W6A==');
 
@@ -499,10 +525,10 @@ add_filter('style_loader_tag', function ($tag, $handle) {
 add_action('wp_enqueue_scripts', function () {
     if (!wpai_opt('api_key')) return;
     wp_enqueue_style('wpai-fontawesome', WPAI_FONTAWESOME_URL, [], null);
-    wp_enqueue_style('wpai-chat', plugins_url('assets/wpai-widget.css', __FILE__), [], WPAI_VERSION);
+    wp_enqueue_style('wpai-chat', wpai_widget_asset_url('wpai-widget.css'), [], WPAI_VERSION);
 
     wp_enqueue_script('wpai-host', plugins_url('assets/wp-host.js', __FILE__), [], WPAI_VERSION, true);
-    wp_enqueue_script('wpai-chat', plugins_url('assets/wpai-widget.js', __FILE__), ['wpai-host'], WPAI_VERSION, true);
+    wp_enqueue_script('wpai-chat', wpai_widget_asset_url('wpai-widget.js'), ['wpai-host'], WPAI_VERSION, true);
 
     // La configurazione va emessa **prima** dell'adapter, che la completa con `host`.
     wp_localize_script('wpai-host', 'WPAissistantConfig', wpai_widget_config());
@@ -513,6 +539,65 @@ add_action('wp_enqueue_scripts', function () {
         'siteUrl' => home_url(),
     ]);
 });
+
+/**
+ * Da dove si carica un file del widget: dal CDN se configurato, altrimenti dal pacchetto.
+ *
+ * La copia locale non è un residuo: è la rete. Da quando ogni sito cliente carica il nostro
+ * script, il nostro CDN è nel percorso critico di tutti insieme — e un sito che perde la chat
+ * perché abbiamo un problema noi è un danno che il cliente non può né prevedere né rimediare.
+ * Costa pochi KB nel pacchetto e toglie quel guasto dal tavolo.
+ */
+function wpai_widget_asset_url($file) {
+    $build = wpai_widget_build();
+    if (WPAI_WIDGET_CDN === '' || empty($build['version'])) {
+        return plugins_url('assets/' . $file, __FILE__);
+    }
+    return rtrim(WPAI_WIDGET_CDN, '/') . '/widget/' . $build['version'] . '/' . $file;
+}
+
+/**
+ * Aggiunge SRI e ripiego locale al tag del widget quando arriva dal CDN.
+ *
+ * Due protezioni distinte, e servono a cose diverse. **`integrity`** fa rifiutare al browser un
+ * file che non è quello che abbiamo pubblicato: se il CDN servisse altro — per un errore di
+ * pubblicazione o per una manomissione — non verrebbe eseguito niente, invece di eseguire codice
+ * che non abbiamo scritto noi. **`onerror`** copre il caso banale e più probabile: il CDN non
+ * risponde, e il sito del cliente perderebbe la chat per un problema nostro che lui non può né
+ * prevedere né rimediare.
+ *
+ * L'`onerror` è un gestore inline: una Content-Security-Policy stretta senza `unsafe-inline` lo
+ * blocca. In quel caso resta l'SRI e resta il file nel pacchetto, ma il ripiego automatico non
+ * scatta — chi ha quella CSP è meglio che imposti `WPAI_WIDGET_CDN` a vuoto e serva tutto da sé.
+ */
+add_filter('script_loader_tag', function ($tag, $handle) {
+    if ($handle !== 'wpai-chat' || WPAI_WIDGET_CDN === '') return $tag;
+    $build = wpai_widget_build();
+    if (empty($build['js'])) return $tag;
+    $local = plugins_url('assets/wpai-widget.js', __FILE__);
+    $fallback = "this.onerror=null;var s=document.createElement('script');"
+        . "s.src=" . wp_json_encode($local) . ";document.head.appendChild(s);";
+    return str_replace(
+        ' src=',
+        ' integrity="' . esc_attr($build['js']) . '" crossorigin="anonymous"'
+            . ' onerror="' . esc_attr($fallback) . '" src=',
+        $tag
+    );
+}, 10, 2);
+
+add_filter('style_loader_tag', function ($tag, $handle) {
+    if ($handle !== 'wpai-chat' || WPAI_WIDGET_CDN === '') return $tag;
+    $build = wpai_widget_build();
+    if (empty($build['css'])) return $tag;
+    $local = plugins_url('assets/wpai-widget.css', __FILE__);
+    $fallback = "this.onerror=null;this.href=" . wp_json_encode($local) . ";";
+    return str_replace(
+        ' href=',
+        ' integrity="' . esc_attr($build['css']) . '" crossorigin="anonymous"'
+            . ' onerror="' . esc_attr($fallback) . '" href=',
+        $tag
+    );
+}, 10, 2);
 
 /**
  * Le opzioni del widget, nella forma che il bundle si aspetta.

@@ -103,36 +103,43 @@ corpo, rifiuto di licenza che non arriva al visitatore, carrello con e senza ada
 > previsto: non è stato diviso, è stato spostato e reso configurabile. La parte che disegna resta
 > lunga, ma ora è verificabile — che era il vero motivo per cui il debito esisteva.
 
-## 3. Fase 2 — Distribuzione da CDN
+## 3. Fase 2 — Distribuzione da CDN — **preparata, non ancora attiva**
 
-**Cosa fare**
+Rilasciata con il blocco `widget-cdn`. **R2, non Pages**, e la ragione non è quella che
+sembrerebbe: Pages è già in uso per sito e pannello, ma `pages deploy` pubblica *il sito
+corrente* e sostituisce la produzione. Qui servono versioni che restano vive per anni — il
+plugin pinna una versione con SRI e i siti dei clienti non aggiornano da soli. Su R2 un `put`
+aggiunge senza togliere, che è la semantica di un artefatto immutabile.
 
-1. Progetto Cloudflare Pages (o R2 + Worker) su `cdn.wpaissistant.it`.
-2. Percorsi versionati immutabili — `/widget/1.4.0/wpai-widget.js`,
-   `Cache-Control: public, max-age=31536000, immutable` — più un alias mobile `/widget/v1/…` con
-   `max-age` breve e `stale-while-revalidate`.
-3. SRI pubblicata per ogni versione esatta. L'alias mobile **non può** avere SRI: va documentato
-   come scelta, non lasciato implicito.
-4. CI: build e pubblicazione su tag `widget-v*`, come già si fa per l'SDK.
-5. **URL stabile anche per lo zip del plugin.** Oggi lo zip è un *artifact* di GitHub Actions
-   (`wp-plugin/dist/*.zip`, `ci.yml:252`): lo scarica solo chi ha accesso al repository. Il
-   pulsante di download nel panel (fase 3) non ha dove puntare finché non c'è un asset di
-   release su tag `plugin-v*` o lo stesso CDN.
+Cosa è pronto:
 
-**La versione fissa è il default, non l'opzione avanzata.** Dal momento in cui ogni sito cliente
-carica il nostro script, un deploy sbagliato sull'alias mobile non rompe un sito: li rompe
-**tutti insieme**, e non c'è niente che il cliente possa fare. Quindi:
+- **SRI calcolata insieme al bundle** (`build.mjs` → `dist/integrity.json`) e riportata in un
+  file PHP generato da `build.sh`. Nessuna impronta scritta a mano: una che non corrisponde al
+  file fa rifiutare lo script al browser, e il sintomo è un widget che sparisce senza un errore
+  che spieghi perché.
+- **Workflow su tag `widget-v*`**: test, build, controllo che il tag dica la stessa versione del
+  pacchetto, pubblicazione della versione immutabile (`max-age` un anno, `immutable`) e
+  spostamento dell'alias mobile con cache breve.
+- **Verifica finale che il file sia raggiungibile da un browser** e corrisponda all'SRI. È il
+  controllo che distingue «il `put` non ha dato errore» da «il widget si carica»: il dominio
+  personalizzato del bucket è configurazione a parte, e senza di esso gli oggetti esistono ma
+  rispondono solo a richieste firmate.
+- **Il plugin carica dal CDN con ripiego locale**: `integrity` + `crossorigin` + `onerror` che
+  passa alla copia nel pacchetto. Due protezioni per due problemi diversi — l'SRI copre il file
+  sbagliato, l'`onerror` il CDN che non risponde, che è il caso banale e più probabile.
+- **`WPAI_WIDGET_CDN` vuoto disattiva tutto** e serve dal pacchetto. È lo stato attuale, ed è
+  anche la via d'uscita per chi non vuole richieste a terzi o ha una CSP che blocca l'`onerror`
+  inline.
 
-- il plugin punta a una **versione immutabile con SRI**, che si alza con le sue release: il
-  fallimento resta per-sito e reversibile disinstallando;
-- lo snippet standalone genera anch'esso una versione fissa; l'alias mobile è una scelta
-  esplicita per chi vuole gli aggiornamenti automatici, dichiarata nel panel per quello che è —
-  niente SRI e nessun controllo su quando cambia;
-- rilascio a scaglioni sull'alias mobile e una verifica sintetica su un sito di prova prima di
-  spostarlo.
+**Cosa manca, e non dipende dal codice:**
 
-Il plugin già carica Font Awesome da cdnjs **con SRI** (`WPAI_FONTAWESOME_SRI`): il nostro
-script non può avere uno standard più basso di quello che applichiamo a una dipendenza di terzi.
+1. `cdn.wpaissistant.it` **non è collegato al bucket**. Verificato: risolve su Cloudflare e
+   risponde `404` con l'HTML di un progetto Pages, non con l'errore XML di R2.
+2. Il segreto `CLOUDFLARE_R2_TOKEN` non esiste. Deliberatamente separato da quello di Pages: il
+   permesso di scrittura sul CDN non deve viaggiare nello stesso token che pubblica il sito.
+
+Finché mancano, il workflow **fallisce invece di riportare un successo**: un job verde che non ha
+pubblicato niente è peggio di uno rosso.
 
 ## 4. Perché dal CDN — e cosa il CDN non protegge
 

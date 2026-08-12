@@ -7,7 +7,12 @@
  * sul sito del cliente — e cade solo qui, in fase di build, dove abbiamo Node.
  */
 import { build } from "esbuild";
-import { copyFile, mkdir, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+
+// La versione dell'artefatto è quella del pacchetto: è ciò che finisce nel percorso immutabile
+// del CDN, e deve essere una sola cosa in un posto solo.
+const { version } = JSON.parse(await readFile(new URL("./package.json", import.meta.url), "utf8"));
 
 await mkdir(new URL("./dist/", import.meta.url), { recursive: true });
 
@@ -43,5 +48,19 @@ const schema = {
 };
 await writeFile("schema.json", JSON.stringify(schema, null, 2) + "\n");
 
+// L'SRI, calcolata qui perché deve descrivere **questo** artefatto e non uno ricostruito dopo.
+//
+// Il plugin carica una versione fissa con `integrity`: se il file sul CDN cambiasse — per un
+// errore di pubblicazione o per una manomissione — il browser rifiuterebbe di eseguirlo invece
+// di eseguire qualcosa che non abbiamo scritto noi. Il plugin già pretende SRI da una dipendenza
+// di terzi (Font Awesome da cdnjs): il nostro script non può avere uno standard più basso.
+const digests = {};
+for (const file of ["wpai-widget.js", "wpai-widget.css"]) {
+  const bytes = await readFile(`dist/${file}`);
+  digests[file] = "sha384-" + createHash("sha384").update(bytes).digest("base64");
+}
+await writeFile("dist/integrity.json", JSON.stringify({ version, files: digests }, null, 2) + "\n");
+
 const size = Object.values(result.metafile.outputs)[0].bytes;
-console.log(`dist/wpai-widget.js — ${(size / 1024).toFixed(1)} kB`);
+console.log(`dist/wpai-widget.js — ${(size / 1024).toFixed(1)} kB — versione ${version}`);
+for (const [file, digest] of Object.entries(digests)) console.log(`  ${file}  ${digest}`);

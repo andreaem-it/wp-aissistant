@@ -1,0 +1,164 @@
+name: Publish widget (Cloudflare R2)
+
+# Pubblica il bundle del widget su R2 con percorsi **versionati e immutabili**.
+#
+# Perché R2 e non Pages, che pure usiamo già per sito e pannello: `pages deploy` pubblica *il
+# sito corrente* e sostituisce la produzione, mentre qui servono versioni che restano vive per
+# anni — il plugin pinna una versione con SRI e i siti dei clienti non aggiornano da soli. Su R2
+# un `put` aggiunge senza togliere, che è la semantica di un artefatto immutabile.
+#
+# Si attiva su tag `widget-v*`, non a ogni push: pubblicare una versione è una decisione.
+#
+# Segreti richiesti:
+#   CLOUDFLARE_ACCOUNT_ID  — già presente (lo usano sito e pannello)
+#   CLOUDFLARE_R2_TOKEN    — token dedicato, permesso «Workers R2 Storage: Edit».
+#                            Deliberatamente **non** quello di Pages: il permesso di scrittura
+#                            sul CDN non deve viaggiare nello stesso token che pubblica il sito.
+
+on:
+  push:
+    tags:
+      - "widget-v*"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Costruisci e mostra cosa verrebbe pubblicato, senza caricare"
+        type: boolean
+        default: true
+
+env:
+  BUCKET: wp-aissistant-cdn
+
+jobs:
+  publish:
+    name: Build and publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: sdk/widget/package-lock.json
+
+      - name: Install
+        working-directory: sdk/widget
+        run: npm ci
+
+      # Si pubblica solo ciò che passa: un bundle rotto messo su un percorso immutabile ci resta.
+      - name: Test
+        working-directory: sdk/widget
+        run: npm test
+
+      - name: Build
+        working-directory: sdk/widget
+        run: npm run build
+
+      - name: Read version
+        id: meta
+        working-directory: sdk/widget
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "::notice::widget $version"
+          cat dist/integrity.json
+
+      # Il tag deve dire la stessa versione del pacchetto. Senza questo controllo si pubblica
+      # `widget-v1.2.0` con dentro l'artefatto 1.1.0, e da quel momento la versione immutabile
+      # mente — che è il modo peggiore di sbagliare, perché l'SRI continua a tornare.
+      - name: Tag matches the package version
+        if: startsWith(github.ref, 'refs/tags/widget-v')
+        run: |
+          tag="${GITHUB_REF_NAME#widget-v}"
+          if [ "$tag" != "${{ steps.meta.outputs.version }}" ]; then
+            echo "::error::il tag dice $tag, il pacchetto ${{ steps.meta.outputs.version }}"
+            exit 1
+          fi
+
+      - name: Check the credentials are configured
+        id: creds
+        run: |
+          if [ -n "${{ secrets.CLOUDFLARE_R2_TOKEN }}" ] && [ -n "${{ secrets.CLOUDFLARE_ACCOUNT_ID }}" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::error::CLOUDFLARE_R2_TOKEN / CLOUDFLARE_ACCOUNT_ID non configurati: niente è stato pubblicato."
+          fi
+
+      # Fallisce se i segreti mancano, invece di riportare un successo che non c'è stato: un
+      # workflow verde che non ha pubblicato niente è peggio di uno rosso.
+      - name: Stop when not configured
+        if: steps.creds.outputs.ready != 'true' && github.event_name == 'push'
+        run: exit 1
+
+      - name: Publish the immutable version
+        if: steps.creds.outputs.ready == 'true' && !inputs.dry_run
+        working-directory: sdk/widget
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_R2_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          set -euo pipefail
+          # Un anno di cache e `immutable`: il browser non ricontrolla mai. È sicuro solo perché
+          # il percorso contiene la versione — questo file, a questo indirizzo, non cambierà.
+          immutable="public, max-age=31536000, immutable"
+          for file in wpai-widget.js wpai-widget.css; do
+            type="application/javascript"
+            [ "${file##*.}" = "css" ] && type="text/css"
+            npx wrangler r2 object put "${{ env.BUCKET }}/widget/$VERSION/$file" \
+              --file "dist/$file" --content-type "$type" --cache-control "$immutable" --remote
+          done
+          npx wrangler r2 object put "${{ env.BUCKET }}/widget/$VERSION/integrity.json" \
+            --file dist/integrity.json --content-type "application/json" \
+            --cache-control "$immutable" --remote
+
+      # L'alias mobile è una comodità, non il default: chi lo usa rinuncia all'SRI e non decide
+      # quando il codice cambia. Cache breve, così una correzione arriva in fretta senza che un
+      # errore resti inchiodato per un anno.
+      - name: Move the v1 alias
+        if: steps.creds.outputs.ready == 'true' && !inputs.dry_run && startsWith(github.ref, 'refs/tags/widget-v')
+        working-directory: sdk/widget
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_R2_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          mutable="public, max-age=300, stale-while-revalidate=86400"
+          for file in wpai-widget.js wpai-widget.css; do
+            type="application/javascript"
+            [ "${file##*.}" = "css" ] && type="text/css"
+            npx wrangler r2 object put "${{ env.BUCKET }}/widget/v1/$file" \
+              --file "dist/$file" --content-type "$type" --cache-control "$mutable" --remote
+          done
+
+      - name: What was published
+        if: steps.creds.outputs.ready == 'true' && !inputs.dry_run
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          echo "::notice::https://cdn.wpaissistant.it/widget/$VERSION/wpai-widget.js"
+          echo "::notice::alias mobile: https://cdn.wpaissistant.it/widget/v1/wpai-widget.js"
+
+      # Prova che il file è davvero servibile da un browser. È il controllo che distingue "il
+      # `put` non ha dato errore" da "il widget si carica": il dominio personalizzato del bucket
+      # è un pezzo di configurazione a parte, e senza di esso gli oggetti esistono ma non sono
+      # raggiungibili se non con richieste firmate.
+      - name: Verify it is publicly reachable
+        if: steps.creds.outputs.ready == 'true' && !inputs.dry_run
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          url="https://cdn.wpaissistant.it/widget/$VERSION/wpai-widget.js"
+          code="$(curl -s -o /tmp/published.js -w '%{http_code}' --max-time 30 "$url")"
+          if [ "$code" != "200" ]; then
+            echo "::error::$url risponde $code — il dominio personalizzato non è collegato al bucket"
+            exit 1
+          fi
+          local_sri="$(node -p "require('./sdk/widget/dist/integrity.json').files['wpai-widget.js']")"
+          remote_sri="sha384-$(openssl dgst -sha384 -binary /tmp/published.js | openssl base64 -A)"
+          if [ "$local_sri" != "$remote_sri" ]; then
+            echo "::error::il file pubblicato non corrisponde all'SRI calcolata"
+            exit 1
+          fi
+          echo "::notice::pubblicato e verificato: $url"
