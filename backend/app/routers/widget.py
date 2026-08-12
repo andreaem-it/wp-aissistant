@@ -643,7 +643,7 @@ def chat_stream_endpoint(
                         "products": [],
                     })
                     return
-                system = _build_system(context, conv.language)
+                system = _build_system(context, conv.language, client.name)
                 for kind, payload in llm_chat_stream(system, history, message):
                     if kind == "meta":
                         meta = payload
@@ -827,7 +827,7 @@ def chat_endpoint(
                 "products": [],
                 "message_id": reply_msg.id,
             }
-        system = _build_system(context, conv.language)
+        system = _build_system(context, conv.language, client.name)
         result = llm_chat(system, history, message)
     except LLMUnavailableError as exc:
         # model provider unreachable after retries — hand off instead of failing the request

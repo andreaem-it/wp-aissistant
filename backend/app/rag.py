@@ -224,10 +224,10 @@ def retrieve_products(session: Session, client_id: int, query: str, k: int = 3) 
 SCOPE_MAX_DISTANCE = float(os.getenv("SCOPE_MAX_DISTANCE", "0.62"))
 
 
-def build_system(context: list[str], language: str | None = None) -> str:
+def build_system(context: list[str], language: str | None = None, business: str | None = None) -> str:
     """The grounding instruction.
 
-    Written for a small model, which is what actually serves the chat. Three things learned the
+    Written for a small model, which is what actually serves the chat. Four things learned the
     hard way and worth keeping:
 
     - The prohibition comes **first and concretely**. "Answer only using the context" buried
@@ -239,10 +239,24 @@ def build_system(context: list[str], language: str | None = None) -> str:
       answer anyway.
     - Partial context is called out explicitly. "The context mentions X but not Y" is the exact
       situation in which invention happens, so it gets its own sentence.
+    - **The assistant is told what it is supporting.** Without a name the prompt says only "this
+      specific shop", and the model has to fill that slot itself whenever the subject of the
+      question *is* the business — "how do I install it?". It invents one: asked the same
+      question three times on our own site it answered about "dmap", a product that does not
+      exist. The rest of the answer was right, which makes it worse: a plausible wrong name is
+      harder to catch than a wrong price. For a shop selling shoes it rarely surfaces; for any
+      tenant whose product is the subject it surfaces immediately.
     """
-    return (
+    subject = (business or "").strip()
+    identity = (
+        f'You are the customer support assistant for "{subject}". Always call it by that exact '
+        f"name and never by any other.\n\n"
+        if subject else
         "You are a customer support assistant for this specific shop.\n\n"
-        "GROUNDING — this overrides everything else:\n"
+    )
+    return (
+        identity
+        + "GROUNDING — this overrides everything else:\n"
         "- Every fact you state about this shop (shipping methods, delivery times, payment "
         "methods, prices, discounts, stock, policies, page names, links) MUST appear verbatim "
         "in the context below.\n"
@@ -251,7 +265,7 @@ def build_system(context: list[str], language: str | None = None) -> str:
         "- If the context covers your answer only in part, say what it does cover and escalate "
         "for the rest. Do not complete the missing half yourself.\n"
         "- Never invent a price, a discount, a percentage, a delivery time, a carrier, a "
-        "payment provider, a page name or a URL.\n\n"
+        "payment provider, a page name, a URL, or a product or company name.\n\n"
         "Handle greetings and small talk yourself, normally. Do not escalate greetings or "
         "vague messages — ask the visitor to clarify instead.\n\n"
         "You cannot modify the WooCommerce cart, place orders, apply coupons, or calculate a "
