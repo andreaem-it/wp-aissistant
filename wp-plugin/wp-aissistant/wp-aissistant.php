@@ -26,10 +26,11 @@ if (!defined('WPAI_BACKEND_URL')) {
 // non può rompere tutti i clienti nello stesso istante — la versione la alza una release del
 // plugin, quindi il guasto resta per-sito e si annulla disinstallando.
 //
-// Vuoto disattiva il CDN e usa la copia dentro il pacchetto: è così finché il dominio non è
-// collegato al bucket, e resta la via d'uscita per chi non vuole richieste a terzi.
+// Vuoto disattiva il CDN e serve la copia dentro il pacchetto: è la via d'uscita per chi non
+// vuole richieste a terzi, o per chi ha una Content-Security-Policy che blocca il ripiego
+// inline. Si sovrascrive in wp-config.php prima che il plugin venga caricato.
 if (!defined('WPAI_WIDGET_CDN')) {
-    define('WPAI_WIDGET_CDN', '');
+    define('WPAI_WIDGET_CDN', 'https://cdn.wpaissistant.it');
 }
 /**
  * Versione e impronte SRI dell'artefatto spedito con questo pacchetto.

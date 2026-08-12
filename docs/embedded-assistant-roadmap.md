@@ -103,7 +103,7 @@ corpo, rifiuto di licenza che non arriva al visitatore, carrello con e senza ada
 > previsto: non è stato diviso, è stato spostato e reso configurabile. La parte che disegna resta
 > lunga, ma ora è verificabile — che era il vero motivo per cui il debito esisteva.
 
-## 3. Fase 2 — Distribuzione da CDN — **preparata, non ancora attiva**
+## 3. Fase 2 — Distribuzione da CDN — **attiva**
 
 Rilasciata con il blocco `widget-cdn`. **R2, non Pages**, e la ragione non è quella che
 sembrerebbe: Pages è già in uso per sito e pannello, ma `pages deploy` pubblica *il sito
@@ -131,15 +131,22 @@ Cosa è pronto:
   anche la via d'uscita per chi non vuole richieste a terzi o ha una CSP che blocca l'`onerror`
   inline.
 
-**Cosa manca, e non dipende dal codice:**
+**Pubblicato e verificato il 13 agosto 2026.** `widget/0.1.0/` risponde `200` con
+`cache-control: public, max-age=31536000, immutable`, e l'impronta del file servito coincide con
+l'SRI calcolata in build. Il plugin punta al CDN (`WPAI_WIDGET_CDN`) sulla versione fissa.
 
-1. `cdn.wpaissistant.it` **non è collegato al bucket**. Verificato: risolve su Cloudflare e
-   risponde `404` con l'HTML di un progetto Pages, non con l'errore XML di R2.
-2. Il segreto `CLOUDFLARE_R2_TOKEN` non esiste. Deliberatamente separato da quello di Pages: il
-   permesso di scrittura sul CDN non deve viaggiare nello stesso token che pubblica il sito.
+> **Una diagnosi sbagliata, per memoria.** Avevo concluso che il dominio non fosse collegato al
+> bucket perché rispondeva `404` con una pagina HTML e la favicon di Cloudflare, e l'avevo letta
+> come la 404 di un progetto Pages. È invece ciò che R2 restituisce per un oggetto mancante: le
+> due sono indistinguibili da fuori. L'unico controllo che decide è mettere un oggetto e
+> chiederlo — che è esattamente ciò che il workflow fa, ed è il motivo per cui il passo di
+> verifica esiste.
 
-Finché mancano, il workflow **fallisce invece di riportare un successo**: un job verde che non ha
-pubblicato niente è peggio di uno rosso.
+**L'ordine di rilascio conta.** Il plugin punta a una versione fissa: se quella versione non è
+sul CDN, ogni sito cade sul ripiego locale **in silenzio** e la distribuzione non serve a niente.
+Prima il tag `widget-v*`, poi la release del plugin. `build.sh` avvisa quando la versione che sta
+per impacchettare non è pubblicata — avvisa e non fallisce, perché costruire il plugin deve
+funzionare anche offline.
 
 ## 4. Perché dal CDN — e cosa il CDN non protegge
 

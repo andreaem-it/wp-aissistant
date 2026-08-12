@@ -61,6 +61,10 @@ https://cdn.wpaissistant.it/widget/0.1.0/wpai-widget.js   Cache-Control: immutab
 https://cdn.wpaissistant.it/widget/v1/wpai-widget.js      alias mobile, cache breve, senza SRI
 ```
 
+**Prima il widget, poi il plugin.** Il plugin punta a una versione fissa: se non è ancora sul
+CDN, ogni sito cade sul ripiego locale in silenzio. `wp-plugin/build.sh` avvisa quando la
+versione che sta impacchettando non risponde.
+
 **La versione fissa è il default, non l'opzione avanzata.** Da quando ogni sito cliente carica
 il nostro script, un rilascio sbagliato sull'alias mobile non rompe un sito: li rompe tutti
 insieme, e non c'è niente che il cliente possa fare. Con la versione fissa il guasto resta

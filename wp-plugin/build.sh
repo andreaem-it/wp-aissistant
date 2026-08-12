@@ -35,6 +35,22 @@ cp "$WIDGET_DIR/dist/wpai-widget.css" "$PLUGIN_DIR/assets/wpai-widget.css"
 node "$SCRIPT_DIR/generate-widget-build.mjs" \
   "$WIDGET_DIR/dist/integrity.json" "$PLUGIN_DIR/widget-build.php"
 
+# Il plugin punta a una versione **fissa** del CDN: se quella versione non è ancora pubblicata,
+# ogni sito cade sul ripiego locale e la distribuzione dal CDN non serve a niente — in silenzio.
+# Qui si avvisa e basta: costruire il plugin deve funzionare anche offline, quindi non è un
+# errore. L'ordine giusto di rilascio è: prima il tag `widget-v*`, poi la release del plugin.
+widget_version=$(node -p "require('$WIDGET_DIR/dist/integrity.json').version")
+cdn_url="https://cdn.wpaissistant.it/widget/$widget_version/wpai-widget.js"
+if command -v curl >/dev/null 2>&1; then
+  status=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$cdn_url" || echo "000")
+  if [ "$status" = "200" ]; then
+    echo "widget $widget_version pubblicato sul CDN"
+  else
+    echo "ATTENZIONE: il widget $widget_version non è sul CDN ($cdn_url risponde $status)."
+    echo "            I siti cadranno sulla copia locale. Pubblica prima il tag widget-v$widget_version."
+  fi
+fi
+
 mkdir -p "$DIST_DIR"
 ZIP="$DIST_DIR/wp-aissistant-$version.zip"
 rm -f "$ZIP"
