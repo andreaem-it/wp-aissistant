@@ -439,10 +439,36 @@ test("senza testi si usano i default, non stringhe vuote", async () => {
 
 // ---- L'indirizzo del backend ------------------------------------------------------------------
 
-test("l'artefatto pubblicato porta dentro l'indirizzo del backend", async () => {
+
+/**
+ * Il bundle costruito, costruendolo se non c'è.
+ *
+ * In CI `npm test` gira **prima** di `npm run build`, quindi un test che legge `dist/` non lo
+ * trova. La convenzione qui accanto è uscire in silenzio, ma un test che non verifica niente e
+ * riporta verde è il fallimento muto contro cui è scritta metà di questo repository: costruire
+ * costa duecento millisecondi e l'asserzione resta vera sempre.
+ */
+let bundleCache = null;
+async function builtBundle() {
+  if (bundleCache) return bundleCache;
+  const url = new URL("../dist/wpai-widget.js", import.meta.url);
+  try {
+    bundleCache = await readFile(url, "utf8");
+  } catch {
+    const { execFileSync } = await import("node:child_process");
+    execFileSync(process.execPath, ["build.mjs"], {
+      cwd: new URL("..", import.meta.url).pathname,
+      stdio: "ignore",
+    });
+    bundleCache = await readFile(url, "utf8");
+  }
+  return bundleCache;
+}
+
+test("l\'artefatto pubblicato porta dentro l\'indirizzo del backend", async () => {
   // Non è un'opzione di chi installa: uno snippet che lo porta in chiaro è un indirizzo congelato
   // nelle pagine dei clienti, e cambiarlo richiederebbe di chiederglielo uno per uno.
-  const bundle = await readFile(new URL("../dist/wpai-widget.js", import.meta.url), "utf8");
+  const bundle = await builtBundle();
 
   assert.ok(bundle.includes("https://backend.wpaissistant.it"), "l'indirizzo non è compilato");
   assert.ok(!bundle.includes("railway.app"), "l'artefatto punta ancora all'URL grezzo di Railway");
@@ -452,7 +478,7 @@ test("l'artefatto pubblicato porta dentro l'indirizzo del backend", async () => 
 test("nel bundle pubblicato un backendUrl nella configurazione viene ignorato", async () => {
   // La porta si chiude a build time (`DEV: false`), non con un controllo che qualcuno può
   // togliere: chi copia lo snippet non deve poter ripuntare il widget altrove.
-  const bundle = await readFile(new URL("../dist/wpai-widget.js", import.meta.url), "utf8");
+  const bundle = await builtBundle();
   // `!1` è il `false` minificato: la scelta è già stata fatta dalla build.
   assert.ok(/=\s*!1\s*;/.test(bundle) || bundle.includes("=!1,"),
             "l'interruttore di sviluppo non risulta spento nell'artefatto");
