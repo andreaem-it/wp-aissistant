@@ -22,9 +22,12 @@ sull'`Origin` della chiamata di chat, non il CDN sul download di un file pubblic
 ## Applicare
 
 ```sh
-npx wrangler r2 bucket cors set wp-aissistant-cdn --file cloudflare/cdn/cors.json --remote
-npx wrangler r2 bucket cors list wp-aissistant-cdn --remote   # verifica
+npx wrangler r2 bucket cors set wp-aissistant-cdn --file cloudflare/cdn/cors.json
+npx wrangler r2 bucket cors list wp-aissistant-cdn   # verifica
 ```
+
+> `--remote` qui non esiste: serve a `r2 object put`, che senza di esso scriverebbe sul
+> simulatore locale, ma la configurazione del bucket è per definizione remota.
 
 Poi la prova che conta, quella che un browser accetterebbe:
 
