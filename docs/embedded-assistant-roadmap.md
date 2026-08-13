@@ -216,6 +216,12 @@ di pubblicare, perché è lì che una divergenza diventa visibile ai clienti. St
 l'attenzione. Sono anche allineati `requires`/`tested`/`requires_php` con `readme.txt` — li avevo
 scritti a mano nel manifest e sbagliati al primo colpo.
 
+Il pannello scarica il plugin dallo stesso manifest, non da una variabile di build: quella
+sarebbe stata la **sesta** dichiarazione della versione, e l'unica che nessun test può legare
+alle altre perché vivrebbe nella configurazione di Cloudflare Pages. Così *Impostazioni →
+Installazione* offre esattamente il pacchetto che i siti riceveranno da soli, e se il manifest
+non risponde si torna al testo di prima invece di mostrare un errore a chi sta installando.
+
 > **Il problema di avvio, che non si può aggirare.** La 1.4.0 va installata **a mano**, una
 > volta: le versioni precedenti non sanno cercare aggiornamenti, quindi non possono trovare
 > quella che glielo insegna. Vale per ogni sito che ha già il plugin, e va detto ai clienti

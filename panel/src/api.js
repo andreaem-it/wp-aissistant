@@ -217,6 +217,10 @@ export const api = {
     return call("/ingest/document", { method: "POST", body: form });
   },
   teachKnowledge: (title, content) => call("/knowledge/teach", { method: "POST", body: { title, content } }),
+  // Il rilascio corrente del plugin WordPress: versione e indirizzo dello zip sul CDN. Pubblico
+  // e senza sessione — è lo stesso manifest che interrogano i siti dei clienti per aggiornarsi,
+  // quindi il pannello non può mostrarne uno diverso da quello che riceveranno.
+  pluginRelease: () => call("/plugin/update", { auth: false }),
   me: () => call("/me"),
   // Il token di contesto per l'assistente qui dentro: dice al *nostro* backend di chi si sta
   // parlando. Dura 5 minuti e non viaggia mai come parametro — vedi `app/panel_assistant.py`.

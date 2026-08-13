@@ -29,6 +29,10 @@ function stub({ origins = [{ id: 1, kind: "live", origin: "https://esempio.it", 
   vi.spyOn(api, "widgetConfig").mockResolvedValue(structuredClone(CONFIG));
   vi.spyOn(api, "me").mockResolvedValue({ api_key: "chiave-pubblica", client_name: "Acme" });
   vi.spyOn(api, "origins").mockResolvedValue({ origins, observed: [], slots: {} });
+  vi.spyOn(api, "pluginRelease").mockResolvedValue({
+    version: "1.4.0",
+    download_url: "https://cdn.wpaissistant.it/plugin/1.4.0/wp-aissistant.zip",
+  });
 }
 
 afterEach(() => {
@@ -55,6 +59,33 @@ describe("la schermata di installazione", () => {
 
     const field = await screen.findByLabelText("Chiave pubblica");
     expect(field.value).toBe("chiave-pubblica");
+  });
+
+  it("offre lo zip del rilascio corrente, non un indirizzo di build", async () => {
+    // L'alternativa era una variabile di build: sarebbe stata la sesta dichiarazione della
+    // versione del plugin, e l'unica che nessun test può legare alle altre perché vive nella
+    // configurazione di Cloudflare. Il manifest è lo stesso che i siti dei clienti interrogano
+    // per aggiornarsi, quindi il pannello non può offrire una versione diversa da quella che
+    // riceveranno da soli.
+    stub();
+    render(<Install />);
+
+    const link = await screen.findByRole("link", { name: /Scarica il plugin/ });
+    expect(link.getAttribute("href")).toBe("https://cdn.wpaissistant.it/plugin/1.4.0/wp-aissistant.zip");
+    expect(link.textContent).toContain("1.4.0");
+  });
+
+  it("se il manifest non arriva resta il testo di prima, non un errore", async () => {
+    // Chi sta installando non può fare niente con un avviso rosso, e il collegamento inviato
+    // via email funziona comunque.
+    stub();
+    vi.spyOn(api, "pluginRelease").mockRejectedValue(new Error("giù"));
+    render(<Install />);
+
+    // `findByText` fallisce da sé se il testo non c'è: qui basta che non sollevi.
+    await screen.findByText(/collegamento che ti abbiamo inviato/);
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.queryByRole("link", { name: /Scarica il plugin/ })).toBeNull();
   });
 
   it("avverte quando non c'è un dominio di produzione", async () => {

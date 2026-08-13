@@ -147,14 +147,53 @@ function ChoiceCard({ active, onSelect, Icon, title, description }) {
   );
 }
 
+/**
+ * Il plugin da scaricare, chiesto al canale di aggiornamento.
+ *
+ * L'indirizzo **non** è una variabile di build. Sarebbe stata la sesta dichiarazione della
+ * versione del plugin — dopo header, `WPAI_VERSION`, `Stable tag`, il manifest del backend e il
+ * tag git — e l'unica che nessun test può legare alle altre, perché vivrebbe nella
+ * configurazione di Cloudflare Pages. `GET /plugin/update` la sa già, è pubblico, ed è **lo
+ * stesso manifest** che interrogano i siti dei clienti per aggiornarsi: così il pannello non può
+ * offrire una versione diversa da quella che riceveranno da soli.
+ *
+ * Il fallimento è morbido di proposito: se il manifest non arriva si torna al testo di prima,
+ * invece di mostrare un errore a chi sta cercando di installare — il collegamento inviato via
+ * email funziona comunque, e un avviso rosso qui non gli darebbe niente da fare.
+ */
 function WordPressInstall({ apiKey }) {
+  const [release, setRelease] = useState(null);
+
+  useEffect(() => {
+    let vivo = true;
+    api.pluginRelease()
+      .then((data) => { if (vivo) setRelease(data); })
+      .catch(() => { /* si resta sul ripiego */ });
+    return () => { vivo = false; };
+  }, []);
+
+  const url = release?.download_url || PLUGIN_DOWNLOAD;
+
   return (
     <div className="wpai-card">
       <div className="wpai-card-title"><Boxes size={15} /> Plugin WordPress</div>
       <ol className="wpai-steps">
         <li>
-          {PLUGIN_DOWNLOAD
-            ? <a className="wpai-btn" href={PLUGIN_DOWNLOAD}><Download size={14} /> Scarica il plugin</a>
+          {url
+            ? (
+              <>
+                <a className="wpai-btn" href={url}>
+                  <Download size={14} /> Scarica il plugin
+                  {release?.version ? ` ${release.version}` : ""}
+                </a>
+                {release?.version && (
+                  <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "8px 0 0" }}>
+                    Da qui in avanti si aggiorna da solo: WordPress ti avvisa quando esce una
+                    versione nuova, come per qualsiasi altro plugin.
+                  </p>
+                )}
+              </>
+            )
             : <span>Scarica il plugin dal collegamento che ti abbiamo inviato.</span>}
         </li>
         <li>In WordPress: <em>Plugin → Aggiungi nuovo → Carica plugin</em>, poi attiva.</li>
