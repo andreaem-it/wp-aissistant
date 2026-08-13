@@ -61,6 +61,12 @@ https://cdn.wpaissistant.it/widget/0.1.0/wpai-widget.js   Cache-Control: immutab
 https://cdn.wpaissistant.it/widget/v1/wpai-widget.js      alias mobile, cache breve, senza SRI
 ```
 
+**Il bucket ha bisogno di una regola CORS.** Il tag porta `integrity`, quindi anche
+`crossorigin="anonymous"`, e quel fetch è in modalità CORS: senza `Access-Control-Allow-Origin`
+il browser scarta il file che ha appena scaricato. La regola è versionata in
+[`cloudflare/cdn/cors.json`](../../cloudflare/cdn/README.md), e il workflow di pubblicazione
+fallisce se l'intestazione manca.
+
 **Prima il widget, poi il plugin.** Il plugin punta a una versione fissa: se non è ancora sul
 CDN, ogni sito cade sul ripiego locale in silenzio. `wp-plugin/build.sh` avvisa quando la
 versione che sta impacchettando non risponde.
