@@ -148,6 +148,47 @@ Prima il tag `widget-v*`, poi la release del plugin. `build.sh` avvisa quando la
 per impacchettare non è pubblicata — avvisa e non fallisce, perché costruire il plugin deve
 funzionare anche offline.
 
+### Come si aggiorna il widget: due canali, due compromessi opposti
+
+Deciso con la 0.2.0, ed è una correzione di architettura. Prima lo snippet del configuratore
+portava dentro il **numero di versione**, con `integrity`. Sembrava prudente e non lo era: uno
+snippet incollato nella pagina di un cliente **non si può riscrivere**. Correggere un difetto
+avrebbe voluto dire chiedere a ognuno di ricopiare — cioè non poterlo fare, e scoprirlo al primo
+difetto serio invece che ora.
+
+**SRI e «possiamo correggere il tuo sito senza chiedertelo» non possono essere veri insieme.** Un
+impronta fissa e un file che si aggiorna sono la stessa cosa detta in due modi opposti; qualunque
+soluzione ingegnosa che sembra ottenere entrambe sta spostando il problema. La scelta va fatta, e
+si fa una volta per canale:
+
+| | Percorso | SRI | Chi aggiorna |
+|---|---|---|---|
+| **JavaScript** | `/widget/v1/` (stabile) | no | noi, pubblicando |
+| **Plugin WordPress** | `/widget/<versione>/` | sì | il rilascio del plugin, con copia locale di ripiego |
+
+Per un servizio ospitato il primo compromesso è quello giusto, ed è **il motivo per cui il CDN
+esiste** — §4 lo dice già: «il ciclo di aggiornamento è l'argomento più forte, ed è sufficiente da
+solo». Il plugin può permettersi l'altro perché ha il bundle nel pacchetto e un canale suo: lì la
+versione fissa non congela niente che non si sposti comunque.
+
+Due cose da sapere, che non stanno nel codice:
+
+- **Il bordo serve `v1` per quattro ore**, non i cinque minuti che il workflow chiede: una regola
+  di cache di Cloudflare sovrascrive l'intestazione dell'oggetto. Una correzione impiega fino a
+  quattro ore a raggiungere tutti i siti. Si accorcia dal pannello Cloudflare, che non è in questo
+  repository — ed è il motivo per cui sta scritto qui.
+- **Le versioni immutabili restano tutte.** L'alias è un puntatore in più, non un sostituto: chi
+  vuole pinnare può, e il plugin lo fa.
+
+**Il buco che resta: il plugin non ha un canale di aggiornamento.** Non esiste nessun filtro su
+`site_transient_update_plugins`, e la distribuzione è auto-ospitata (fuori da WordPress.org per
+scelta, §4). In pratica oggi un cliente che ha installato il plugin **non riceve aggiornamenti**:
+va avvisato e deve reinstallare a mano. Serve un update server — un endpoint che dichiari
+versione, changelog e URL dello zip, più il filtro nel plugin che lo interroga — ed è un blocco a
+sé, non una riga. Finché non c'è, ogni correzione al plugin raggiunge solo chi la installa
+apposta; quelle al widget invece arrivano da sole, perché il plugin carica dal CDN. È una ragione
+in più per tenere nel plugin il minimo possibile.
+
 ## 4. Perché dal CDN — e cosa il CDN non protegge
 
 La scelta di servire sempre il widget dal CDN è giusta, ma va adottata per i motivi veri,
@@ -601,6 +642,47 @@ cambiamento di codice vero, non per inseguire un numero.
 > Il controllo giusto non è «la risorsa risponde», è «un browser la accetta». Ogni volta che
 > questa distinzione è stata saltata in questa roadmap è costata un difetto: la prima con il 404
 > di R2 scambiato per Pages, la seconda qui.
+
+### Sei difetti da uno screenshot (0.2.0)
+
+Uno screenshot dell'anteprima con il pulsante d'invio vuoto. Sotto c'erano sei cose, tutte della
+stessa famiglia — **il plugin le forniva e il bundle no** — e nessuna che facesse rumore.
+
+1. **Le icone erano un font di terze parti caricato dalla pagina ospite.** Il widget disegnava
+   `<i class="fa-solid …">`; il plugin accodava Font Awesome da un CDN, quindi su WordPress si
+   vedevano. Ovunque altro, rettangoli vuoti. Un bundle che si dichiara «senza dipendenze» ne
+   aveva una, non dichiarata, su un dominio che non controlliamo — e visibile solo dove mancava.
+   Ora sono SVG nostri dentro il bundle: nessuna richiesta a terzi, nessuna CSP da spiegare,
+   nessun glifo altrui nel pacchetto. Il plugin ha smesso di accodarla sul front-end.
+2. **L'avatar era un'immagine rotta.** Senza `image`, `safeHttpUrl()` tornava `"#"` e il browser
+   chiedeva la pagina corrente come se fosse un'immagine. Ora è l'iniziale del nome — non un
+   volto predefinito, che suggerirebbe una persona che l'assistente dichiara di non essere.
+3. **I testi dello snippet venivano ignorati in silenzio.** Il configuratore genera
+   `texts: { title }`, il widget leggeva `cfg.title`. Il cliente cambiava il nome, copiava, e
+   vedeva il default. Nessun errore da nessuna parte, e valeva anche per **il nostro sito**: il
+   titolo era «WP AIssistant» nello snippet e «Assistenza» nella pagina. Ora si accettano
+   entrambe le forme, perché gli snippet già copiati non li possiamo riscrivere.
+4. **`backendUrl` era un'opzione del cliente.** Vedi la sezione sui canali: in chiaro nello
+   snippet era un indirizzo congelato nelle pagine altrui. Ora è compilato nell'artefatto, e la
+   porta si chiude a build time (`DEV: false`) invece che con un controllo removibile.
+5. **L'indirizzo era anche sbagliato.** Ovunque l'URL grezzo di Railway invece di
+   `backend.wpaissistant.it`, che esisteva e rispondeva: sito, pannello e snippet generato.
+6. **Avatar e link privacy non erano configurabili.** Validati, salvabili, serviti al widget — e
+   invisibili, perché `vocabulary()` non li dichiarava e il configuratore non può disegnare un
+   campo che non gli viene detto. Le etichette erano già scritte nel pannello: il segno che
+   dovevano esserci e che il buco non l'aveva notato nessuno.
+
+E uno trovato applicando il quarto, che non c'entrava con il widget: **per la CORS
+`www.esempio.it` non era `esempio.it`**, mentre per la licenza sì (`origins.host_of` toglie il
+`www.` perché i due devono costare uno slot solo). Una regola sola scritta in due modi. Chi
+registrava l'apex e riceveva visitatori su `www` si prendeva un `403` al **preflight** — prima
+che la richiesta toccasse il server, quindi senza una riga nei nostri log che parlasse di
+licenza, e con la chat morta su metà del traffico. Ce l'avevamo in produzione, e non dipendeva
+dal dominio nuovo: si riproduceva identico sull'URL di Railway.
+
+> Il filo che li tiene insieme: **una dipendenza fornita da un solo host rompe tutti gli altri in
+> silenzio**. Vale per il font di icone, per l'avatar predefinito nel pacchetto, per la forma dei
+> testi. Ogni volta il canale che usiamo di più nascondeva il difetto a quello che vendiamo.
 
 > Essere utenti del proprio prodotto ha trovato in venti minuti due difetti che mesi di test non
 > avevano trovato. Nessuno dei due era visibile dai test: il primo perché l'embedder finto non
