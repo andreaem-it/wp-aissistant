@@ -19,6 +19,12 @@ CDN non si prendeva niente.
 cliente. Non c'è niente da proteggere in una lista di domini — l'autorizzazione la fa il backend
 sull'`Origin` della chiamata di chat, non il CDN sul download di un file pubblico.
 
+## Il formato del file
+
+L'API R2 vuole un **oggetto con una chiave `rules`**, non un array di regole:
+`{"rules": [...]}`. Un array nudo viene rifiutato con un messaggio che rimanda alla
+documentazione dell'API, non alla forma attesa.
+
 ## Applicare
 
 ```sh
