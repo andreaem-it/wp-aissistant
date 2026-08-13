@@ -184,4 +184,16 @@ jobs:
             echo "::error::il file pubblicato non corrisponde all'SRI calcolata"
             exit 1
           fi
-          echo "::notice::pubblicato e verificato: $url"
+          # Un browser che carica uno script con `integrity` deve aggiungere
+          # `crossorigin="anonymous"`, e quel fetch è in modalità CORS: senza
+          # `Access-Control-Allow-Origin` sulla risposta il browser **scarta il file che ha
+          # appena scaricato**, e il widget non compare. Nulla fallisce lato server — il put è
+          # andato, l'URL risponde 200, l'impronta coincide — quindi senza questo controllo il
+          # workflow direbbe che è tutto a posto. `curl` non fa CORS: bisogna chiederlo.
+          acao="$(curl -s -I --max-time 30 -H "Origin: https://www.wpaissistant.it" "$url" \
+            | grep -i '^access-control-allow-origin' || true)"
+          if [ -z "$acao" ]; then
+            echo "::error::$url non manda Access-Control-Allow-Origin: un browser scarterebbe lo script (integrity + crossorigin). Configura le regole CORS del bucket R2."
+            exit 1
+          fi
+          echo "::notice::pubblicato e verificato (CORS incluso): $url"

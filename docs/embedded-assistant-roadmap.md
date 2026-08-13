@@ -542,6 +542,29 @@ non funziona, non funziona per nessuno.
    soggetti diversi, uno inventato. È un difetto che un negozio di scarpe non avrebbe mai fatto
    emergere, perché lì il soggetto della domanda non è mai l'attività.
 
+### Il difetto che solo un browser vero poteva trovare
+
+Il widget **non compariva** sul nostro sito, e nulla lo diceva: il `put` era andato, l'URL
+rispondeva `200`, l'impronta pubblicata coincideva con l'SRI, la CSP era corretta. Il file veniva
+scaricato e **scartato dal browser**.
+
+Un tag con `integrity` deve portare `crossorigin="anonymous"`, e quel fetch è in modalità CORS:
+senza `Access-Control-Allow-Origin` sulla risposta il browser rifiuta lo script che ha appena
+scaricato. R2 non manda intestazioni CORS finché non si configura una regola sul bucket.
+
+**Riguarda anche il plugin**, non solo il nostro sito: il filtro `script_loader_tag` aggiunge
+`integrity` e `crossorigin` allo stesso modo. Là il ripiego `onerror` interviene e il sito carica
+la copia dal pacchetto — quindi funziona, ma **in silenzio dal CDN non prende niente**, che è il
+fallimento silenzioso contro cui la roadmap mette in guardia da pagine.
+
+Il passo di verifica del workflow non poteva vederlo: `curl` non fa CORS, quindi «il file è
+raggiungibile» era vero e insufficiente. Ora il workflow chiede esplicitamente
+`Access-Control-Allow-Origin` e fallisce se manca.
+
+> Il controllo giusto non è «la risorsa risponde», è «un browser la accetta». Ogni volta che
+> questa distinzione è stata saltata in questa roadmap è costata un difetto: la prima con il 404
+> di R2 scambiato per Pages, la seconda qui.
+
 > Essere utenti del proprio prodotto ha trovato in venti minuti due difetti che mesi di test non
 > avevano trovato. Nessuno dei due era visibile dai test: il primo perché l'embedder finto non
 > discrimina, il secondo perché nessun test chiedeva all'assistente di parlare di sé.
