@@ -561,6 +561,13 @@ Il passo di verifica del workflow non poteva vederlo: `curl` non fa CORS, quindi
 raggiungibile» era vero e insufficiente. Ora il workflow chiede esplicitamente
 `Access-Control-Allow-Origin` e fallisce se manca.
 
+**E l'ordine conta più di quanto sembri.** La regola CORS l'abbiamo applicata *dopo* la prima
+pubblicazione, e non è bastato: con `immutable` e un anno di `max-age`, la risposta già salvata
+al bordo — senza intestazione — resta lì. La cache è per origine, quindi un sito nuovo riceve
+quella giusta mentre chi aveva già caricato il file continua a ricevere quella vecchia: proprio i
+primi ad averlo installato, cioè noi. L'unico rimedio è stato svuotare la cache a mano. Il
+workflow ora verifica la regola **prima** di pubblicare.
+
 > Il controllo giusto non è «la risorsa risponde», è «un browser la accetta». Ogni volta che
 > questa distinzione è stata saltata in questa roadmap è costata un difetto: la prima con il 404
 > di R2 scambiato per Pages, la seconda qui.

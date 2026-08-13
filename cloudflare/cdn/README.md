@@ -25,6 +25,22 @@ L'API R2 vuole un **oggetto con una chiave `rules`**, non un array di regole:
 `{"rules": [...]}`. Un array nudo viene rifiutato con un messaggio che rimanda alla
 documentazione dell'API, non alla forma attesa.
 
+## L'ordine conta
+
+**La regola CORS va applicata prima della prima pubblicazione.** Le risposte del CDN hanno
+`Cache-Control: immutable, max-age=31536000`: una salvata al bordo senza
+`Access-Control-Allow-Origin` ci resta **un anno**, e aggiungere la regola dopo non la corregge.
+La cache è per origine (`Vary: Origin`), quindi un sito che non aveva mai chiesto il file riceve
+la risposta giusta mentre chi l'aveva già chiesto continua a ricevere quella vecchia — cioè
+proprio i primi ad averlo installato.
+
+Ci è successo sul nostro sito. L'unico rimedio è stato svuotare la cache a mano:
+**wpaissistant.it → Caching → Configuration → Purge Custom URLs**, con l'URL del `.js` e del
+`.css` della versione interessata.
+
+Il workflow `publish-widget.yml` ora verifica la regola **prima** del `put`, così questa
+sequenza non si può ripetere.
+
 ## Applicare
 
 ```sh

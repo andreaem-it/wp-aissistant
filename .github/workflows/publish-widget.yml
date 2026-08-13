@@ -114,6 +114,32 @@ jobs:
           fi
           echo "::notice::token valido, bucket ${{ env.BUCKET }} raggiungibile"
 
+      # La regola CORS del bucket va verificata **prima** di pubblicare, non dopo.
+      #
+      # Con `Cache-Control: immutable, max-age=31536000` una risposta salvata al bordo senza
+      # `Access-Control-Allow-Origin` ci resta un anno: aggiungere la regola dopo non la corregge,
+      # perché la cache è per origine (`Vary: Origin`) e chi aveva già chiesto il file continua a
+      # ricevere quella vecchia. Ci è successo sul nostro sito, che è stato anche il primo a
+      # caricarlo — e l'unico rimedio è stato svuotare la cache a mano.
+      - name: The bucket allows cross-origin reads
+        if: steps.creds.outputs.ready == 'true' && !inputs.dry_run
+        working-directory: sdk/widget
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_R2_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if ! npx wrangler r2 bucket cors list "${{ env.BUCKET }}" > /tmp/cors.txt 2>&1; then
+            echo "::error::impossibile leggere le regole CORS del bucket."
+            sed -n '1,20p' /tmp/cors.txt
+            exit 1
+          fi
+          if ! grep -qi "get" /tmp/cors.txt; then
+            echo "::error::il bucket non ha una regola CORS che ammetta GET: un browser scarterebbe lo script (integrity + crossorigin). Applica cloudflare/cdn/cors.json prima di pubblicare."
+            sed -n '1,20p' /tmp/cors.txt
+            exit 1
+          fi
+          echo "::notice::regola CORS presente"
+
       - name: Publish the immutable version
         if: steps.creds.outputs.ready == 'true' && !inputs.dry_run
         working-directory: sdk/widget
