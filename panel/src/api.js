@@ -218,6 +218,9 @@ export const api = {
   },
   teachKnowledge: (title, content) => call("/knowledge/teach", { method: "POST", body: { title, content } }),
   me: () => call("/me"),
+  // Il token di contesto per l'assistente qui dentro: dice al *nostro* backend di chi si sta
+  // parlando. Dura 5 minuti e non viaggia mai come parametro — vedi `app/panel_assistant.py`.
+  assistantToken: () => call("/panel/assistant/token", { method: "POST" }),
   onboardingStatus: () => call("/onboarding/status"),
   setName: (name) => call("/me/name", { method: "POST", body: { name } }),
   typing: (id) => call(`/conversations/${id}/typing`, { method: "POST" }),

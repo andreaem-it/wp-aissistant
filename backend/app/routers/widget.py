@@ -31,8 +31,8 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import func
 from sqlmodel import Session, select
 
-from ..billing import service_suspended as _service_suspended
-from .. import cors, events, language, i18n, metrics, origins, push as push_service, tagging, webhooks
+from ..billing import platform_client_ids as _platform_client_ids, service_suspended as _service_suspended
+from .. import cors, events, language, i18n, metrics, origins, panel_assistant, push as push_service, tagging, webhooks
 from .. import email as email_service
 from ..conversations import (
     emit_visitor_message as _emit_visitor_message,
@@ -383,6 +383,46 @@ def _over_quota(session: Session, client_id: int) -> bool:
     return bool(limit) and _monthly_message_count(session, client_id) > limit
 
 
+def _panel_account_context(session: Session, token: str | None, answering_client_id: int) -> str | None:
+    """Il blocco «dati dell'account» quando la domanda arriva dal pannello di un cliente.
+
+    `None` in ogni caso incerto — token assente, firma che non regge, scaduto, tenant sparito —
+    e la conversazione prosegue come una qualsiasi: l'assistente risponde dalla documentazione,
+    solo in modo più generico. È la degradazione giusta, perché il token è un *arricchimento* del
+    contesto e non una credenziale d'accesso: non c'è niente da negare, solo qualcosa da non
+    aggiungere.
+
+    Il vincolo che non è ovvio: il contesto vale **solo se a rispondere siamo noi**. Un token è
+    legato al tenant di chi l'ha chiesto, quindi non può leggere i dati di un altro; ma senza
+    questo controllo un operatore potrebbe presentarlo al widget di un altro cliente e farsi
+    riversare i propri dati nella casella di quello. Nessuno ruba niente e proprio per questo
+    sfuggirebbe: la porta si chiude dicendo dove la funzione ha senso, cioè sul nostro tenant.
+    """
+    payload = panel_assistant.verify_token(token)
+    if not payload:
+        return None
+    if answering_client_id not in _platform_client_ids(session):
+        log(logger, logging.WARNING, "panel_assistant.wrong_tenant", client_id=answering_client_id)
+        return None
+    subject_id = payload["client_id"]
+    dati = panel_assistant.describe_client(session, subject_id)
+    if dati is None:
+        return None
+    # Una lettura dei dati di un cliente fatta da un sistema nostro deve restare ricostruibile:
+    # chi, per quale tenant, quali campi. Il *contenuto* no — riscriverlo nell'audit lo
+    # duplicherebbe fuori dalla tabella che lo possiede.
+    _audit(
+        session,
+        "panel_assistant",
+        payload["operator_id"],
+        "panel_assistant.context_read",
+        target=f"client:{subject_id}",
+        client_id=subject_id,
+        detail={"fields": sorted(dati)},
+    )
+    return panel_assistant.context_block(dati)
+
+
 def _prepare_chat_turn(
     session: Session,
     *,
@@ -505,6 +545,7 @@ def chat_stream_endpoint(
     site_url: str | None = Body(None),
     support_available: bool = Body(True),
     locale: str | None = Body(None),  # browser language, used only as a hint
+    x_panel_assistant_token: str | None = Header(None),
     client: Client = Depends(rate_limit_chat),
     session: Session = Depends(get_session),
 ):
@@ -643,7 +684,12 @@ def chat_stream_endpoint(
                         "products": [],
                     })
                     return
-                system = _build_system(context, conv.language, client.name)
+                system = _build_system(
+                    context,
+                    conv.language,
+                    client.name,
+                    account=_panel_account_context(session, x_panel_assistant_token, client.id),
+                )
                 for kind, payload in llm_chat_stream(system, history, message):
                     if kind == "meta":
                         meta = payload
@@ -730,6 +776,7 @@ def chat_endpoint(
     site_url: str | None = Body(None),
     support_available: bool = Body(True),
     locale: str | None = Body(None),  # browser language, used only as a hint
+    x_panel_assistant_token: str | None = Header(None),
     client: Client = Depends(rate_limit_chat),
     session: Session = Depends(get_session),
 ):
@@ -827,7 +874,12 @@ def chat_endpoint(
                 "products": [],
                 "message_id": reply_msg.id,
             }
-        system = _build_system(context, conv.language, client.name)
+        system = _build_system(
+            context,
+            conv.language,
+            client.name,
+            account=_panel_account_context(session, x_panel_assistant_token, client.id),
+        )
         result = llm_chat(system, history, message)
     except LLMUnavailableError as exc:
         # model provider unreachable after retries — hand off instead of failing the request

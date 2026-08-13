@@ -49,7 +49,11 @@ def headers(origin: str) -> dict:
         "Access-Control-Allow-Origin": origin,
         "Access-Control-Allow-Credentials": "true",
         "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
-        "Access-Control-Allow-Headers": "Authorization, Content-Type, X-Conversation-Token, ngrok-skip-browser-warning",
+        # `X-Panel-Assistant-Token` porta il contesto del tenant loggato quando l'assistente gira
+        # dentro il pannello: è un header e non un campo del body perché `/chat` e `/chat/stream`
+        # hanno corpi diversi, e perché un header non finisce nella trascrizione del messaggio.
+        # Ometterlo qui rende la funzione irraggiungibile dal browser con il server che sta bene.
+        "Access-Control-Allow-Headers": "Authorization, Content-Type, X-Conversation-Token, X-Panel-Assistant-Token, ngrok-skip-browser-warning",
         "Access-Control-Max-Age": "600",
         "Vary": "Origin",
     }

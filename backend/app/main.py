@@ -24,7 +24,7 @@ from . import billing
 from . import cors
 from .billing import default_plan_id as _default_plan_id
 from .routers import (
-    automations, channels, commercial, developers, accounts, admin, helpdesk_config, inbox, insights, knowledge, public_api, widget,
+    automations, channels, commercial, developers, accounts, admin, helpdesk_config, inbox, insights, knowledge, panel_assistant, public_api, widget,
 )
 from .util import (
     bounded_limit as _bounded_limit, iso as _iso,
@@ -309,6 +309,7 @@ app.include_router(inbox.router)
 app.include_router(widget.router)
 app.include_router(knowledge.router)
 app.include_router(accounts.router)
+app.include_router(panel_assistant.router)
 app.include_router(admin.router)
 
 

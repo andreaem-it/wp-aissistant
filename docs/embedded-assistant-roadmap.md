@@ -594,7 +594,7 @@ cambiamento di codice vero, non per inseguire un numero.
 > avevano trovato. Nessuno dei due era visibile dai test: il primo perché l'embedder finto non
 > discrimina, il secondo perché nessun test chiedeva all'assistente di parlare di sé.
 
-## 8. Fase 5 — L'assistente dentro il panel del cliente
+## 8. Fase 5 — L'assistente dentro il panel del cliente — **fatta**
 
 Qui c'è l'unico blocco architetturalmente nuovo. La knowledge base è **la nostra
 documentazione**; il contesto è **il tenant loggato**. Due tenant in gioco nella stessa
@@ -643,6 +643,54 @@ sistema nostro, e deve essere ricostruibile.
 **Rate limit.** Tutto il panel passa dal nostro unico `client.id`, ma `chat_limiter` usa la
 chiave `chat:{client_id}:{ip}`: gli utenti restano separati per IP. Con `chat_rate_limit` alto
 (fase 0) non c'è collo di bottiglia. Da verificare con un test, non per deduzione.
+
+### Com'è stata costruita, e le tre cose che non erano ovvie
+
+`app/panel_assistant.py` firma e verifica il token e costruisce il contesto;
+`POST /panel/assistant/token` lo emette dietro sessione operatore, **senza parametri** — un
+endpoint che accetta il tenant di cui parlare è un endpoint che lo concede. Il widget lo manda su
+`/chat` e `/chat/stream` nell'header `X-Panel-Assistant-Token`, e `rag.build_system` riceve il
+blocco come argomento separato dal contesto documentale.
+
+**1. Il widget doveva cambiare, e il perimetro del lock era sbagliato.** Il token va in un header,
+e gli header delle chiamate di chat li costruisce il widget: `sdk/widget` non poteva restarne
+fuori. La forma giusta non era un ramo `if (pannello)` ma **una capacità in più dell'adapter
+`host`** — `chatHeaders()` — cioè lo stesso posto in cui vive tutto ciò che dipende dalla
+piattaforma ospite. WordPress fornisce `identityToken()`, il pannello fornisce gli header, e il
+widget continua a non sapere dove sta girando.
+
+A differenza di `identityToken()` questi **non si tengono per la vita della pagina**: quel token
+dura 5 minuti e una conversazione dura di più. Una cache come quella lo farebbe scadere a metà
+chat, e il contesto sparirebbe senza che nulla lo dica — il fallimento silenzioso, di nuovo.
+
+**2. La regola di grounding andava allargata, non aggirata.** Il prompt vieta di enunciare
+qualunque fatto che non compaia nel contesto. I dati account non ci sono — sono verificati e
+letti dal database un attimo prima — quindi un blocco aggiunto e basta sarebbe stato ignorato o,
+peggio, obbedito a metà. `build_system` ora nomina esplicitamente la sezione `ACCOUNT DATA` nella
+regola, **solo quando c'è**: senza account il prompt resta identico a prima, byte per byte.
+
+**3. Il vincolo che nessuno chiedeva.** Un token è legato al tenant di chi l'ha chiesto, quindi
+non può leggere i dati di nessun altro — la parte ovvia funziona. Ma presentato al widget di *un
+altro cliente* riverserebbe i **propri** dati nella casella di quello: nessuno ruba niente, ed è
+esattamente per questo che sarebbe passato inosservato. Il contesto viene quindi onorato solo se
+a rispondere è un tenant di piattaforma (`billing.platform_client_ids`), cioè noi.
+
+**Degradazione.** Token assente, scaduto, firmato male, segreto non configurato: il contesto non
+si aggiunge e la conversazione prosegue, più generica. Non è una credenziale d'accesso — non c'è
+niente da negare, solo qualcosa da non aggiungere. Il segreto mancante spegne la funzione e lo
+dice (`503`), invece di emettere token che nessuno potrà verificare.
+
+**Configurazione.** `PANEL_ASSISTANT_SECRET` sul backend (diverso da `ADMIN_API_KEY`: un
+controllo di produzione fallisce se coincidono) e `VITE_ASSISTANT_API_KEY` nel panel. Vuoti,
+tutto resta com'era: nessun launcher, nessun endpoint utile, nessun errore in faccia a nessuno.
+
+**Coperto da test**: firma, manomissione del payload, scadenza, segreto assente, spazzatura in
+ingresso; il vincolo del tenant che risponde; l'audit della lettura; la whitelist verificata *per
+uguaglianza* — aggiungere un campo fa fallire un test, perché un campo nuovo nel prompt di un
+modello è una decisione — e la prova che nel blocco non finiscono contenuti di conversazioni,
+dati dei contatti o chiavi. Più la chiave del rate limit, che la roadmap chiedeva di verificare
+«con un test, non per deduzione»: è una stringa costruita altrove e può cambiare senza che nulla
+se ne accorga.
 
 ## 9. Fase 6 — Pubblicazione e documentazione
 

@@ -42,6 +42,19 @@ def production_warnings(env: Mapping[str, str]) -> list[str]:
     metrics_token = env.get("METRICS_TOKEN", "").strip()
     if metrics_token and len(metrics_token) < 32:
         warnings.append("METRICS_TOKEN must be at least 32 characters when enabled")
+
+    # Facoltativo — assente, l'assistente dentro il pannello è spento e basta. Se c'è deve essere
+    # un segreto vero e **diverso** da ADMIN_API_KEY: uno firma l'identità di un tenant, l'altro
+    # autorizza le operazioni di piattaforma, e riusare lo stesso valore significa che ruotarne
+    # uno rompe l'altro proprio nel momento in cui si sta rispondendo a un incidente.
+    panel_secret = env.get("PANEL_ASSISTANT_SECRET", "").strip()
+    if panel_secret:
+        if len(panel_secret) < 32 or panel_secret.lower() in PLACEHOLDER_SECRETS:
+            warnings.append(
+                "PANEL_ASSISTANT_SECRET must be a non-placeholder secret of at least 32 characters"
+            )
+        if admin_key and panel_secret == admin_key:
+            warnings.append("PANEL_ASSISTANT_SECRET must differ from ADMIN_API_KEY")
     stripe_key = env.get("STRIPE_SECRET_KEY", "").strip()
     if stripe_key and not env.get("STRIPE_WEBHOOK_SECRET", "").strip():
         warnings.append("STRIPE_WEBHOOK_SECRET is required when Stripe billing is enabled")

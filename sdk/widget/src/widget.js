@@ -15,6 +15,7 @@
  * | `siteUrl` | la callback della ricerca ordini; l'header Origin non basta, un'installazione in sottocartella darebbe una URL sbagliata |
  * | `identityToken()` | prova d'identità del visitatore, per i dati completi dell'ordine invece del solo stato |
  * | `addToCart(product, button)` | aggiunta al carrello e ciò che ne segue sulla piattaforma |
+ * | `chatHeaders()` | header in più sulle chiamate di chat: il pannello ci manda il token di contesto del tenant loggato |
  */
 import * as I18N from "./i18n.js";
 import * as RULES from "./rules.js";
@@ -80,6 +81,22 @@ export function mount(config) {
         .catch(() => null);
     }
     return userTokenPromise;
+  }
+
+  // Header in più sulle sole chiamate di chat. Serve al pannello, che manda il token con cui il
+  // backend sa *di chi* si sta parlando — vedi `app/panel_assistant.py`.
+  //
+  // A differenza di `identityToken()` questo **non si tiene per la vita della pagina**: quel
+  // token dura 5 minuti e una conversazione dura di più, quindi una cache come quella lo farebbe
+  // scadere a metà chat e il contesto sparirebbe senza che nulla lo dica. Si chiede a ogni
+  // messaggio e a rinnovarlo pensa l'host, che è l'unico a sapere come.
+  async function chatHeaders() {
+    if (!host.chatHeaders) return {};
+    try {
+      return (await host.chatHeaders()) || {};
+    } catch (e) {
+      return {}; // il contesto è un di più: se manca si risponde lo stesso, in modo più generico
+    }
   }
 
   // ---- Licenza legata al dominio ----
@@ -251,6 +268,10 @@ export function mount(config) {
     input.type = "email";
     input.required = true;
     input.placeholder = "tua@email.it";
+    // Chi ospita il widget a volte sa già chi sta scrivendo — nel pannello è un operatore
+    // loggato. Compilarlo, non toglierlo: il campo resta modificabile perché la risposta
+    // potrebbe doverla ricevere un collega, e un campo bloccato lo impedirebbe.
+    if (cfg.contactEmail) input.value = String(cfg.contactEmail);
     const btn = document.createElement("button");
     btn.type = "submit";
     btn.textContent = t("contact.submit");
@@ -766,6 +787,7 @@ export function mount(config) {
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${cfg.apiKey}`,
+          ...(await chatHeaders()),
         },
         body: JSON.stringify({
           visitor_id: visitorId(),
@@ -826,7 +848,11 @@ export function mount(config) {
     try {
       res = await fetch(`${cfg.backendUrl}/chat/stream`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${cfg.apiKey}` },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${cfg.apiKey}`,
+          ...(await chatHeaders()),
+        },
         body: JSON.stringify({
           visitor_id: visitorId(),
           message,

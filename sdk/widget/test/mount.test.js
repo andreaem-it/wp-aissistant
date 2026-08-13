@@ -247,6 +247,86 @@ test("smontare ferma il polling, non solo il DOM", async () => {
   assert.equal(w.calls.length, before, "il widget ha continuato a chiamare dopo destroy()");
 });
 
+test("l'adapter può aggiungere header alle chiamate di chat", async () => {
+  // Il pannello ci manda il token con cui il backend sa *di chi* si sta parlando. È una capacità
+  // dell'host come le altre: il widget non sa cosa sia, lo inoltra e basta.
+  const w = await mountWidget({
+    config: { host: { siteUrl: "https://esempio.it", chatHeaders: () => ({ "X-Prova": "abc" }) } },
+  });
+  try {
+    await send(w, "ciao");
+    const chat = w.calls.find((c) => c.url.includes("/chat"));
+    assert.equal(chat.options.headers["X-Prova"], "abc");
+    // e non deve aver perso quelli che servivano già
+    assert.equal(chat.options.headers.Authorization, "Bearer chiave-pubblica");
+  } finally {
+    w.teardown();
+  }
+});
+
+test("gli header dell'adapter si richiedono a ogni messaggio", async () => {
+  // Non si tengono per la vita della pagina come `identityToken()`: il token del pannello dura
+  // 5 minuti e una conversazione dura di più, quindi una cache lo farebbe scadere a metà chat
+  // e il contesto sparirebbe senza che nulla lo dica.
+  let chiamate = 0;
+  const w = await mountWidget({
+    config: {
+      host: {
+        siteUrl: "https://esempio.it",
+        chatHeaders: () => { chiamate += 1; return { "X-Prova": String(chiamate) }; },
+      },
+    },
+  });
+  try {
+    await send(w, "uno");
+    await send(w, "due");
+    // Il valore chiesto per il secondo messaggio è diverso da quello del primo: è la prova che
+    // non è stato riusato. Il conteggio grezzo direbbe poco — ogni messaggio prova prima lo
+    // streaming e poi ripiega su /chat, quindi le chiamate sono più dei messaggi.
+    const inviati = w.calls
+      .filter((c) => c.url.includes("/chat"))
+      .map((c) => c.options.headers["X-Prova"]);
+    assert.ok(chiamate >= 2, "l'adapter non è stato richiamato per il secondo messaggio");
+    assert.ok(inviati.length >= 2);
+    assert.notEqual(inviati[0], inviati[inviati.length - 1], "l'header è stato riusato");
+  } finally {
+    w.teardown();
+  }
+});
+
+test("un adapter che fallisce non impedisce di scrivere", async () => {
+  // Il contesto è un di più, non una credenziale: se non arriva si risponde lo stesso, in modo
+  // più generico. Un'eccezione qui bloccherebbe la chat per un'informazione accessoria.
+  const w = await mountWidget({
+    config: {
+      host: {
+        siteUrl: "https://esempio.it",
+        chatHeaders: () => { throw new Error("niente token"); },
+      },
+    },
+  });
+  try {
+    await send(w, "ciao");
+    const chat = w.calls.find((c) => c.url.includes("/chat"));
+    assert.ok(chat, "il messaggio non è partito");
+    assert.equal(chat.options.headers.Authorization, "Bearer chiave-pubblica");
+  } finally {
+    w.teardown();
+  }
+});
+
+test("senza adapter le chiamate di chat restano come prima", async () => {
+  const w = await mountWidget();
+  try {
+    await send(w, "ciao");
+    const chat = w.calls.find((c) => c.url.includes("/chat"));
+    assert.deepEqual(Object.keys(chat.options.headers).sort(),
+                     ["Authorization", "Content-Type"]);
+  } finally {
+    w.teardown();
+  }
+});
+
 test("il codice del widget non nomina più WordPress", async () => {
   const source = await readFile(new URL("../src/widget.js", import.meta.url), "utf8");
   // Solo il codice: un commento può citare WooCommerce per spiegare cosa fa l'adapter, ed è

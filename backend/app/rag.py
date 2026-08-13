@@ -224,7 +224,12 @@ def retrieve_products(session: Session, client_id: int, query: str, k: int = 3) 
 SCOPE_MAX_DISTANCE = float(os.getenv("SCOPE_MAX_DISTANCE", "0.62"))
 
 
-def build_system(context: list[str], language: str | None = None, business: str | None = None) -> str:
+def build_system(
+    context: list[str],
+    language: str | None = None,
+    business: str | None = None,
+    account: str | None = None,
+) -> str:
     """The grounding instruction.
 
     Written for a small model, which is what actually serves the chat. Four things learned the
@@ -246,6 +251,13 @@ def build_system(context: list[str], language: str | None = None, business: str 
       exist. The rest of the answer was right, which makes it worse: a plausible wrong name is
       harder to catch than a wrong price. For a shop selling shoes it rarely surfaces; for any
       tenant whose product is the subject it surfaces immediately.
+
+    `account` is the one exception to "everything must be in the context", and it exists for the
+    assistant inside the customer's own panel: there the person asking *has* an account with us,
+    and the answer to "why doesn't the widget show up on my site?" is usually already in their
+    own data. It is passed separately, and the grounding rule is widened to name it explicitly —
+    a block of facts the prompt forbids stating would either be ignored or, worse, obeyed
+    selectively. It is never filled from anything the browser sent: see `app/panel_assistant.py`.
     """
     subject = (business or "").strip()
     identity = (
@@ -254,12 +266,17 @@ def build_system(context: list[str], language: str | None = None, business: str 
         if subject else
         "You are a customer support assistant for this specific shop.\n\n"
     )
+    sources = (
+        "in the context below, or in the ACCOUNT DATA section"
+        if account else
+        "in the context below"
+    )
     return (
         identity
         + "GROUNDING — this overrides everything else:\n"
         "- Every fact you state about this shop (shipping methods, delivery times, payment "
         "methods, prices, discounts, stock, policies, page names, links) MUST appear verbatim "
-        "in the context below.\n"
+        f"{sources}.\n"
         "- You have NO knowledge of this shop beyond that context. What is true of shops in "
         "general is not evidence about this one.\n"
         "- If the context covers your answer only in part, say what it does cover and escalate "
@@ -272,7 +289,8 @@ def build_system(context: list[str], language: str | None = None, business: str 
         "new cart total. Never claim that you performed one of these actions. When a visitor "
         "asks to add a product to the cart, tell them to use the \"Aggiungi al carrello\" "
         "button on the product card; only the site can confirm that the operation succeeded."
-        "\n\nContext:\n" + "\n---\n".join(context)
+        + (f"\n\n{account}" if account else "")
+        + "\n\nContext:\n" + "\n---\n".join(context)
         + i18n.prompt_language_instruction(language)
     )
 

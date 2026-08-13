@@ -11,6 +11,7 @@ import Settings from "./Settings.jsx";
 import Developers from "./Developers.jsx";
 import Automations from "./Automations.jsx";
 import ThemeToggle from "./ThemeToggle.jsx";
+import Assistant from "./Assistant.jsx";
 import Leads from "./Leads.jsx";
 import { VerifyEmail, ResetPassword, ForgotPassword } from "./Auth.jsx";
 
@@ -223,6 +224,10 @@ export default function App() {
       <main className="wpai-main">
         <Active />
       </main>
+      {/* Fuori da <main> e fuori dalle schede: l'assistenza deve restare raggiungibile ovunque
+          si trovi l'utente, e soprattutto senza perdere la conversazione quando cambia pagina —
+          che è precisamente quando serve, perché la risposta di solito dice dove andare. */}
+      <Assistant email={email} />
     </div>
   );
 }
