@@ -1,6 +1,6 @@
 {
   "name": "@wp-aissistant/widget",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Widget di chat di WP AIssistant: bundle framework-agnostic configurabile con coppie propriet\u00e0/valore.",
   "license": "MIT",
   "author": "WP AIssistant",
