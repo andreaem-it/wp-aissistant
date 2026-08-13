@@ -4,15 +4,19 @@
  * Due modi di partire, e il secondo è quello che useranno quasi tutti:
  *
  * ```html
- * <script>window.WPAissistantConfig = { apiKey: "…", backendUrl: "…", site: "https://esempio.it" };</script>
+ * <script>window.WPAissistantConfig = { apiKey: "…", site: "https://esempio.it" };</script>
  * <script async src="…/wpai-widget.js"></script>
  * ```
  *
  * oppure, quando la configurazione arriva più tardi (un pannello che monta l'anteprima):
  *
  * ```js
- * window.WPAissistant.init({ apiKey: "…", backendUrl: "…", site: "https://esempio.it" });
+ * window.WPAissistant.init({ apiKey: "…", site: "https://esempio.it" });
  * ```
+ *
+ * `backendUrl` **non è più un'opzione**: l'indirizzo del backend è compilato nell'artefatto
+ * (`src/backend.js`). Uno snippet che lo porta in chiaro è un indirizzo congelato nelle pagine
+ * dei clienti, che per cambiarlo richiederebbe di chiederglielo uno per uno.
  *
  * `site` è **obbligatorio**: la licenza è legata al dominio e il backend rifiuta una chiamata
  * da un sito non registrato. Dichiararlo qui serve a fallire subito e in chiaro — "manca il
@@ -36,10 +40,6 @@ export function init(config) {
 
   if (!cfg.apiKey) {
     warn("manca apiKey: copia la chiave dal pannello, in Impostazioni → Siti e licenza.");
-    return null;
-  }
-  if (!cfg.backendUrl) {
-    warn("manca backendUrl.");
     return null;
   }
   if (!cfg.site) {

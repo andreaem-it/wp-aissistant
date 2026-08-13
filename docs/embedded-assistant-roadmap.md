@@ -574,11 +574,23 @@ pubblicato la `0.1.1`: un percorso mai chiesto prima non ha niente al bordo e na
 intestazioni giuste, passando dallo stesso workflow che ora controlla la regola CORS prima di
 scrivere. Il rimedio è quindi ripetibile e lascia una traccia in `git`, che una purge non lascia.
 
-Un dettaglio che smentisce l'assunto con cui era partita: **l'impronta SRI è cambiata**
-(`sha384-qyZrh2…` → `sha384-DNkTbA…`) benché il codice sia identico, perché la build incastona il
-numero di versione nel bundle. «Stesso codice, stessa impronta» è falso ogni volta che la
-versione finisce dentro l'artefatto — e un `integrity` copiato dalla versione precedente fa
-scartare lo script dal browser, cioè riproduce esattamente il difetto di questa sezione.
+> **Correzione, e vale più della cosa che correggo.** Avevo scritto qui che l'impronta SRI era
+> cambiata (`sha384-qyZrh2…` → `sha384-DNkTbA…`) «benché il codice fosse identico, perché la build
+> incastona il numero di versione nel bundle». È **falso**: il numero di versione non entra
+> nell'artefatto — finisce solo in `integrity.json` — e una verifica di trenta secondi
+> (`grep` della versione dentro `dist/wpai-widget.js`) lo dice.
+>
+> La causa vera è banale: fra la pubblicazione della 0.1.0 e il tag della 0.1.1 il commit
+> `249c400` ha toccato `i18n.js` e `widget.js`. **Il codice era cambiato davvero**, e l'assunto
+> sbagliato era quello del lock — «cambia solo il numero di versione» — non il comportamento
+> della build.
+>
+> Come sia successo è la parte utile. Avevo un sintomo (l'impronta è diversa) e una spiegazione
+> plausibile a portata di mano, e l'ho scritta senza controllarla, con la stessa sicurezza del
+> resto del documento. È lo stesso errore della 404 di R2 scambiata per Pages, due sezioni più
+> su: una diagnosi che spiega il sintomo non è una diagnosi verificata. Qui è costato solo un
+> paragrafo sbagliato in un documento — ma un paragrafo sbagliato in *questo* documento è
+> precisamente il modo in cui una lezione falsa sopravvive alla persona che l'ha scritta.
 
 **Pubblicata e verificata il 13 agosto 2026.** `widget/0.1.1/` risponde `200` con
 `access-control-allow-origin` presente *anche* per `https://www.wpaissistant.it`, e l'impronta di

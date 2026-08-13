@@ -340,3 +340,120 @@ test("il codice del widget non nomina più WordPress", async () => {
     assert.ok(!code.includes(token), `il widget nomina ancora "${token}"`);
   }
 });
+
+// ---- Le icone, l'avatar e i testi -------------------------------------------------------------
+//
+// Tre difetti trovati insieme guardando uno screenshot dell'anteprima, tutti della stessa
+// famiglia: l'installazione JavaScript non dava lo stesso widget di quella con il plugin, e
+// nessuno dei tre diceva niente.
+
+test("le icone sono dentro il bundle, non in un font della pagina ospite", async () => {
+  // Erano `<i class="fa-solid …">`: il plugin accodava Font Awesome da un CDN di terzi e sembrava
+  // tutto a posto, mentre chi installava il JavaScript vedeva un pulsante d'invio vuoto.
+  const w = await mountWidget();
+  try {
+    const root = w.document.getElementById("wpai-root");
+    assert.equal(root.querySelectorAll("i.fa-solid, i.fa-regular").length, 0,
+                 "il widget dipende ancora da un font di icone esterno");
+    assert.ok(w.document.querySelector("#wpai-toggle svg.wpai-icon"), "il launcher non ha icona");
+    assert.ok(w.document.querySelector("#wpai-form button svg.wpai-icon"), "l'invio non ha icona");
+    assert.ok(w.document.querySelector("#wpai-close svg.wpai-icon"), "la chiusura non ha icona");
+  } finally {
+    w.teardown();
+  }
+});
+
+test("ogni icona del vocabolario del launcher esiste davvero", async () => {
+  // Il vocabolario offre quattro icone: se una non fosse disegnata, il cliente la sceglierebbe
+  // dal configuratore e otterrebbe un launcher vuoto — di nuovo senza nessun errore.
+  const { names } = await import("../src/icons.js");
+  const { APPEARANCE } = await import("../src/schema.js");
+  for (const scelta of APPEARANCE.launcherIcon.values) {
+    assert.ok(names().includes(scelta), `manca l'icona "${scelta}"`);
+  }
+});
+
+test("senza immagine l'avatar è l'iniziale, non un file rotto", async () => {
+  // `safeHttpUrl()` tornava "#" e il browser disegnava l'icona di immagine mancante: il plugin
+  // non lo mostrava perché ne accoda uno predefinito dal pacchetto, il bundle sì.
+  const w = await mountWidget({ config: { title: "Acme" } });
+  try {
+    assert.equal(w.document.querySelector("#wpai-header img"), null);
+    const iniziale = w.document.querySelector(".wpai-avatar-initials");
+    assert.ok(iniziale, "manca il ripiego dell'avatar");
+    assert.equal(iniziale.textContent, "A");
+  } finally {
+    w.teardown();
+  }
+});
+
+test("con un'immagine valida l'avatar è quella", async () => {
+  const w = await mountWidget({ config: { image: "https://esempio.it/logo.png" } });
+  try {
+    const img = w.document.querySelector("#wpai-header img");
+    assert.ok(img);
+    assert.equal(img.src, "https://esempio.it/logo.png");
+  } finally {
+    w.teardown();
+  }
+});
+
+test("i testi annidati dello snippet non vengono più ignorati", async () => {
+  // Il configuratore genera `texts: { title: … }`, il widget leggeva `cfg.title`: il cliente
+  // cambiava il nome, copiava lo snippet e continuava a vedere il default. Nessun errore da
+  // nessuna parte — vale anche per lo snippet del nostro sito.
+  const w = await mountWidget({
+    config: {
+      title: undefined, subtitle: undefined,
+      texts: { title: "Acme", subtitle: "Sempre attivi" },
+    },
+  });
+  try {
+    assert.equal(w.document.querySelector(".wpai-header-copy strong").textContent, "Acme");
+    assert.equal(w.document.querySelector(".wpai-header-copy small").textContent, "Sempre attivi");
+  } finally {
+    w.teardown();
+  }
+});
+
+test("un testo in cima vince su quello annidato", async () => {
+  // È la forma che un host costruisce a runtime sapendo qualcosa in più: il plugin legge le
+  // impostazioni del sito, il pannello sa chi è l'operatore loggato.
+  const w = await mountWidget({ config: { title: "In cima", texts: { title: "Annidato" } } });
+  try {
+    assert.equal(w.document.querySelector(".wpai-header-copy strong").textContent, "In cima");
+  } finally {
+    w.teardown();
+  }
+});
+
+test("senza testi si usano i default, non stringhe vuote", async () => {
+  const w = await mountWidget({ config: { title: undefined, subtitle: undefined } });
+  try {
+    assert.equal(w.document.querySelector(".wpai-header-copy strong").textContent, "Assistenza");
+    assert.ok(w.document.querySelector(".wpai-header-copy small").textContent.length > 0);
+  } finally {
+    w.teardown();
+  }
+});
+
+// ---- L'indirizzo del backend ------------------------------------------------------------------
+
+test("l'artefatto pubblicato porta dentro l'indirizzo del backend", async () => {
+  // Non è un'opzione di chi installa: uno snippet che lo porta in chiaro è un indirizzo congelato
+  // nelle pagine dei clienti, e cambiarlo richiederebbe di chiederglielo uno per uno.
+  const bundle = await readFile(new URL("../dist/wpai-widget.js", import.meta.url), "utf8");
+
+  assert.ok(bundle.includes("https://backend.wpaissistant.it"), "l'indirizzo non è compilato");
+  assert.ok(!bundle.includes("railway.app"), "l'artefatto punta ancora all'URL grezzo di Railway");
+  assert.ok(!bundle.includes("__WPAI_"), "una define della build non è stata sostituita");
+});
+
+test("nel bundle pubblicato un backendUrl nella configurazione viene ignorato", async () => {
+  // La porta si chiude a build time (`DEV: false`), non con un controllo che qualcuno può
+  // togliere: chi copia lo snippet non deve poter ripuntare il widget altrove.
+  const bundle = await readFile(new URL("../dist/wpai-widget.js", import.meta.url), "utf8");
+  // `!1` è il `false` minificato: la scelta è già stata fatta dalla build.
+  assert.ok(/=\s*!1\s*;/.test(bundle) || bundle.includes("=!1,"),
+            "l'interruttore di sviluppo non risulta spento nell'artefatto");
+});

@@ -122,6 +122,10 @@ jobs:
       # ricevere quella vecchia. Ci è successo sul nostro sito, che è stato anche il primo a
       # caricarlo — e ne siamo usciti pubblicando una versione nuova su un percorso mai chiesto
       # prima, non svuotando la cache a mano: il rimedio passa da qui e resta in `git`.
+      #
+      # Da allora il percorso che i clienti incollano è l'alias mobile `/widget/v1/`, non una
+      # versione: uno snippet che invecchia nelle pagine altrui non si può correggere. Le versioni
+      # immutabili restano, e le usa il plugin, che ha una copia locale e un canale suo.
       - name: The bucket allows cross-origin reads
         if: steps.creds.outputs.ready == 'true' && !inputs.dry_run
         working-directory: sdk/widget

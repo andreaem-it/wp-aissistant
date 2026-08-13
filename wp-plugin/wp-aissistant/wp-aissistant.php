@@ -525,7 +525,16 @@ add_filter('style_loader_tag', function ($tag, $handle) {
 
 add_action('wp_enqueue_scripts', function () {
     if (!wpai_opt('api_key')) return;
-    wp_enqueue_style('wpai-fontawesome', WPAI_FONTAWESOME_URL, [], null);
+    // Font Awesome non serve più al front-end: le icone del widget stanno dentro il bundle.
+    //
+    // Accodarla qui nascondeva un difetto invece di risolverlo. Il widget disegnava
+    // `<i class="fa-solid …">` e su WordPress funzionava perché il plugin portava il font;
+    // ovunque altro — cioè in ogni installazione JavaScript — restavano rettangoli vuoti, e da
+    // qui non si poteva vedere. Una dipendenza fornita da un solo host è una dipendenza che
+    // rompe tutti gli altri in silenzio.
+    //
+    // Ne guadagna anche il sito del cliente: una richiesta in meno, verso un dominio di terzi,
+    // su ogni pagina.
     wp_enqueue_style('wpai-chat', wpai_widget_asset_url('wpai-widget.css'), [], WPAI_VERSION);
 
     wp_enqueue_script('wpai-host', plugins_url('assets/wp-host.js', __FILE__), [], WPAI_VERSION, true);
@@ -610,7 +619,10 @@ add_filter('style_loader_tag', function ($tag, $handle) {
  */
 function wpai_widget_config() {
     return [
-        'backendUrl' => rtrim(WPAI_BACKEND_URL, '/'),
+        // `backendUrl` non c'è più: l'indirizzo è compilato nell'artefatto
+        // (`sdk/widget/src/backend.js`), sia in quello del CDN sia nella copia di ripiego che
+        // `build.sh` mette nel pacchetto. Passarlo qui sarebbe un valore ignorato che sembra
+        // una configurazione. `WPAI_BACKEND_URL` resta e serve: la usano le chiamate PHP.
         'apiKey' => wpai_opt('api_key'),
         // La licenza è legata al dominio: senza questo valore il widget non parte, e lo dice in
         // console invece di lasciare il visitatore davanti a una chat che non risponde.

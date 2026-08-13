@@ -16,6 +16,25 @@ const { version } = JSON.parse(await readFile(new URL("./package.json", import.m
 
 await mkdir(new URL("./dist/", import.meta.url), { recursive: true });
 
+// L'indirizzo del backend è **compilato dentro**, non configurato da chi installa: uno snippet
+// che lo porta in chiaro è un indirizzo congelato in migliaia di pagine, e per cambiarlo
+// bisognerebbe chiedere a ogni cliente di ricopiare. `WPAI_BACKEND_URL` serve alle nostre build
+// di sviluppo; l'artefatto pubblicato prende il valore di `src/backend.js`.
+//
+// `DEV: false` chiude la porta a runtime: nel bundle pubblicato un `backendUrl` nella
+// configurazione viene ignorato. È un interruttore di build proprio perché non deve essere
+// un'opzione — e con esbuild che elimina il codice morto, la scelta sparisce dall'artefatto
+// invece di restarci come ramo disattivato.
+const { BACKEND_URL } = await import("./src/backend.js");
+const backendUrl = (process.env.WPAI_BACKEND_URL || "").trim().replace(/\/$/, "") || BACKEND_URL;
+// Entrambe sempre definite, anche quando il valore è già quello predefinito: altrimenti
+// l'artefatto resterebbe con un `typeof __WPAI_BACKEND_URL__` penzolante, che funziona per un
+// dettaglio di JavaScript e non perché qualcuno l'abbia deciso.
+const define = {
+  "__WPAI_DEV__": "false",
+  "__WPAI_BACKEND_URL__": JSON.stringify(backendUrl),
+};
+
 const result = await build({
   entryPoints: ["src/index.js"],
   bundle: true,
@@ -26,6 +45,7 @@ const result = await build({
   outfile: "dist/wpai-widget.js",
   legalComments: "none",
   metafile: true,
+  define,
 });
 
 await copyFile("src/styles.css", "dist/wpai-widget.css");

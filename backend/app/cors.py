@@ -32,9 +32,36 @@ def rebuild_allowed_origins(session: Session) -> None:
         select(ClientOrigin).where(ClientOrigin.kind.in_(("live", "staging")))
     ).all():
         if row.origin:
-            origins.add(row.origin)
+            origins.update(_with_www_variant(row.origin))
     global _ALLOWED_ORIGINS
     _ALLOWED_ORIGINS = origins
+
+
+def _with_www_variant(origin: str) -> set[str]:
+    """L'Origin registrato e la sua forma con o senza `www.`.
+
+    Il controllo della licenza considera già `esempio.it` e `www.esempio.it` **lo stesso sito**:
+    `origins.host_of()` toglie il `www.` proprio perché devono costare uno slot solo. Qui invece
+    si confrontava la stringa esatta, e le due metà della stessa regola non erano d'accordo.
+
+    L'effetto era invisibile da server e fatale da browser: un cliente registra `esempio.it`, un
+    visitatore arriva su `www.esempio.it`, e il preflight della chat riceve `403`. Nessun errore
+    nei nostri log che dica «licenza» — il rifiuto arriva dal livello CORS, prima — e il cliente
+    vede solo una chat che non risponde su metà del suo traffico. Ce l'avevamo sul nostro sito.
+
+    Solo `www.`, non un sottodominio qualunque: `www` è convenzione universale per «lo stesso
+    sito», `app.esempio.it` no, e trattarli allo stesso modo regalerebbe domini a chi ne ha
+    pagato uno.
+    """
+    raw = (origin or "").strip()
+    if not raw:
+        return set()
+    scheme, _, rest = raw.partition("://")
+    if not rest:
+        return {raw}
+    if rest.startswith("www."):
+        return {raw, f"{scheme}://{rest[4:]}"}
+    return {raw, f"{scheme}://www.{rest}"}
 
 
 def is_allowed(origin: str | None) -> bool:

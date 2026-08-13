@@ -20,6 +20,52 @@
 import * as I18N from "./i18n.js";
 import * as RULES from "./rules.js";
 import * as schema from "./schema.js";
+import { icon as iconElement, iconMarkup } from "./icons.js";
+import { backendUrl as resolveBackendUrl } from "./backend.js";
+
+/** I testi, quando nessuno li ha scritti. Chi disegna non deve avere un secondo default. */
+export const TEXT_DEFAULTS = {
+  title: "Assistenza",
+  subtitle: "Di solito risponde subito",
+  welcome: "Ciao! Come posso aiutarti oggi?",
+  aiDisclosure: "Stai parlando con un assistente virtuale basato su intelligenza artificiale.",
+  launcherLabel: "",
+  inputPlaceholder: "",
+};
+
+/**
+ * I testi, da qualunque forma arrivino.
+ *
+ * Due forme esistono già ed erano incompatibili. Il plugin WordPress passa i testi **in cima**
+ * (`title`, `subtitle`, …); il configuratore del pannello genera uno snippet con un blocco
+ * annidato (`texts: { title, … }`), che è anche la forma in cui il backend li conserva. Il widget
+ * leggeva solo la prima, quindi **ogni testo scritto nel configuratore veniva ignorato in
+ * silenzio**: il cliente cambiava il nome, copiava lo snippet e continuava a vedere il default.
+ * Nessun errore da nessuna parte — il difetto peggiore che questo prodotto continua a produrre.
+ *
+ * Si accettano entrambe invece di sceglierne una: gli snippet già copiati sono nelle pagine dei
+ * clienti e non possiamo farli riscrivere. La forma in cima vince, perché è quella che un host
+ * costruisce a runtime sapendo qualcosa in più.
+ */
+export function resolveTexts(config) {
+  const cfg = config || {};
+  const nested = cfg.texts && typeof cfg.texts === "object" ? cfg.texts : {};
+  const out = {};
+  for (const name of Object.keys(TEXT_DEFAULTS)) {
+    const top = cfg[name];
+    const inner = nested[name];
+    const chosen = top !== undefined && top !== "" ? top
+      : inner !== undefined && inner !== "" ? inner
+      : TEXT_DEFAULTS[name];
+    out[name] = String(chosen);
+  }
+  // `image` e `privacyUrl` non sono testi ma seguono le stesse due forme, e sbagliarne la lettura
+  // dà lo stesso fallimento muto: un avatar che non compare senza che nulla lo dica.
+  for (const name of ["image", "privacyUrl"]) {
+    out[name] = String(cfg[name] || nested[name] || "");
+  }
+  return out;
+}
 
 /**
  * Monta il widget nella pagina.
@@ -31,6 +77,9 @@ export function mount(config) {
   const cfg = config || {};
   const host = cfg.host || {};
   const look = schema.appearance(cfg.appearance || cfg);
+  const copy = resolveTexts(cfg);
+  // L'indirizzo del backend è compilato nell'artefatto: vedi `src/backend.js`.
+  const BACKEND = resolveBackendUrl(cfg);
   // Anteprima: si disegna tutto, non si chiama niente. Serve al configuratore del pannello, e
   // senza di essa ogni sguardo alla schermata aprirebbe una conversazione vera nell'inbox del
   // cliente e la conterebbe nelle sue statistiche.
@@ -142,6 +191,40 @@ export function mount(config) {
     return /^https?:\/\//i.test(url || "") ? url : "#";
   }
 
+  /**
+   * L'avatar dell'intestazione: l'immagine configurata, oppure l'iniziale del nome.
+   *
+   * Prima era sempre un `<img>`, con `safeHttpUrl()` che senza immagine tornava `"#"` — cioè il
+   * browser chiedeva la pagina corrente come se fosse un'immagine e disegnava l'icona di file
+   * rotto. Il plugin non lo mostrava perché ne accoda uno predefinito dal pacchetto; chi installa
+   * il JavaScript vedeva un'immagine spezzata sopra la chat.
+   *
+   * Il ripiego è l'iniziale del nome e non un avatar disegnato da noi: un volto generico
+   * suggerisce una persona che non c'è, e questo assistente dichiara in ogni conversazione di
+   * non esserlo.
+   */
+  function avatarElement() {
+    const source = copy.image ? safeHttpUrl(copy.image) : "";
+    if (source && source !== "#") {
+      const img = document.createElement("img");
+      img.src = source;
+      img.alt = "";
+      // Un indirizzo valido ma irraggiungibile darebbe lo stesso file rotto di prima: se non
+      // carica, si scende sull'iniziale invece di lasciare il buco.
+      img.addEventListener("error", () => img.replaceWith(initialsElement()));
+      return img;
+    }
+    return initialsElement();
+  }
+
+  function initialsElement() {
+    const el = document.createElement("span");
+    el.className = "wpai-avatar-initials";
+    el.setAttribute("aria-hidden", "true");
+    el.textContent = (copy.title || "?").trim().charAt(0).toUpperCase() || "?";
+    return el;
+  }
+
   function addProducts(container, products) {
     if (!products || !products.length) return;
     const wrap = document.createElement("div");
@@ -220,7 +303,7 @@ export function mount(config) {
 
   async function sendFeedback(conversationId, messageId, value, wrap) {
     try {
-      await fetch(`${cfg.backendUrl}/chat/feedback`, {
+      await fetch(`${BACKEND}/chat/feedback`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${cfg.apiKey}` },
         body: JSON.stringify({
@@ -240,11 +323,11 @@ export function mount(config) {
     if (!messageId) return;
     const wrap = document.createElement("div");
     wrap.className = "wpai-feedback";
-    for (const [value, icon, aria] of [["up", "fa-thumbs-up", t("feedback.up")], ["down", "fa-thumbs-down", t("feedback.down")]]) {
+    for (const [value, glyph, aria] of [["up", "thumbs-up", t("feedback.up")], ["down", "thumbs-down", t("feedback.down")]]) {
       const btn = document.createElement("button");
       btn.type = "button";
       btn.className = "wpai-fb-btn wpai-fb-" + value;
-      btn.innerHTML = `<i class="fa-solid ${icon}"></i>`;
+      btn.innerHTML = iconMarkup(glyph);
       btn.setAttribute("aria-label", aria);
       btn.addEventListener("click", () => sendFeedback(conversationId, messageId, value, wrap));
       wrap.appendChild(btn);
@@ -280,7 +363,7 @@ export function mount(config) {
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
       try {
-        await fetch(`${cfg.backendUrl}/chat/contact`, {
+        await fetch(`${BACKEND}/chat/contact`, {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${cfg.apiKey}` },
           body: JSON.stringify({
@@ -291,7 +374,7 @@ export function mount(config) {
           }),
         });
         localStorage.setItem(CONTACT_KEY, String(conversationId));
-        wrap.innerHTML = '<i class="fa-solid fa-check"></i> ' + t("contact.done");
+        wrap.innerHTML = iconMarkup("check") + " " + t("contact.done");
         wrap.className = "wpai-contact done";
       } catch (e2) {
         // best-effort: don't block the chat if the contact save fails
@@ -334,7 +417,7 @@ export function mount(config) {
     const send = async () => {
       if (!chosen) return;
       try {
-        const res = await fetch(`${cfg.backendUrl}/chat/rating`, {
+        const res = await fetch(`${BACKEND}/chat/rating`, {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${cfg.apiKey}` },
           body: JSON.stringify({
@@ -345,7 +428,7 @@ export function mount(config) {
           }),
         });
         if (!res.ok) throw new Error("rating failed");
-        wrap.innerHTML = '<i class="fa-solid fa-check"></i> ' + t("rating.thanks");
+        wrap.innerHTML = iconMarkup("check") + " " + t("rating.thanks");
         wrap.className = "wpai-rating done";
       } catch (e) {
         // niente conferme ottimistiche: se non è stata registrata, dillo
@@ -357,12 +440,12 @@ export function mount(config) {
       const btn = document.createElement("button");
       btn.type = "button";
       btn.className = "wpai-star";
-      btn.innerHTML = '<i class="fa-regular fa-star"></i>';
+      btn.innerHTML = iconMarkup("star-outline");
       btn.setAttribute("aria-label", t("rating.stars", { n: value }));
       btn.addEventListener("click", () => {
         chosen = value;
         [...stars.children].forEach((el, index) => {
-          el.innerHTML = index < value ? '<i class="fa-solid fa-star"></i>' : '<i class="fa-regular fa-star"></i>';
+          el.innerHTML = iconMarkup(index < value ? "star" : "star-outline");
           el.setAttribute("aria-pressed", index < value ? "true" : "false");
         });
         form.hidden = false;
@@ -396,7 +479,7 @@ export function mount(config) {
     if (!conversationId || leadFormShown(conversationId)) return;
     let form;
     try {
-      const res = await fetch(`${cfg.backendUrl}/widget/lead-form?trigger=escalation`, {
+      const res = await fetch(`${BACKEND}/widget/lead-form?trigger=escalation`, {
         headers: { Authorization: `Bearer ${cfg.apiKey}` },
       });
       if (!res.ok) return;
@@ -473,7 +556,7 @@ export function mount(config) {
       const data = {};
       for (const [key, control] of Object.entries(inputs)) data[key] = control.value;
       try {
-        const res = await fetch(`${cfg.backendUrl}/widget/leads`, {
+        const res = await fetch(`${BACKEND}/widget/leads`, {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${cfg.apiKey}` },
           body: JSON.stringify({
@@ -485,7 +568,7 @@ export function mount(config) {
           }),
         });
         if (!res.ok) throw new Error("invio non riuscito");
-        wrap.innerHTML = '<i class="fa-solid fa-check"></i> ' + t("lead.done");
+        wrap.innerHTML = iconMarkup("check") + " " + t("lead.done");
         wrap.className = "wpai-contact done";
       } catch (e2) {
         // niente conferme ottimistiche: se non è stato registrato, dillo e lascia riprovare
@@ -563,7 +646,7 @@ export function mount(config) {
 
   async function proactiveEvent(ruleId, kind, variant) {
     try {
-      await fetch(`${cfg.backendUrl}/widget/proactive/${ruleId}/event`, {
+      await fetch(`${BACKEND}/widget/proactive/${ruleId}/event`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${cfg.apiKey}` },
         body: JSON.stringify({ kind, variant }),
@@ -617,7 +700,7 @@ export function mount(config) {
     close.type = "button";
     close.className = "wpai-proactive-close";
     close.setAttribute("aria-label", t("proactive.close"));
-    close.innerHTML = '<i class="fa-solid fa-xmark" aria-hidden="true"></i>';
+    close.innerHTML = iconMarkup("xmark");
     close.addEventListener("click", () => bubble.remove());
 
     actions.appendChild(reply);
@@ -634,7 +717,7 @@ export function mount(config) {
 
   function startProactive(root, isOpen, openChat, messages, hasConversation) {
     if (localStorage.getItem(PROACTIVE_OPTOUT_KEY) === "1") return;
-    fetch(`${cfg.backendUrl}/widget/proactive`, {
+    fetch(`${BACKEND}/widget/proactive`, {
       headers: { Authorization: `Bearer ${cfg.apiKey}` },
     })
       .then((res) => (res.ok ? res.json() : { rules: [] }))
@@ -707,9 +790,7 @@ export function mount(config) {
     rememberTicketOffer(conversationId, reason);
     const wrap = document.createElement("div");
     wrap.className = "wpai-ticket-offer";
-    const icon = document.createElement("i");
-    icon.className = "fa-regular fa-clock";
-    icon.setAttribute("aria-hidden", "true");
+    const icon = iconElement("clock");
     const copy = document.createElement("div");
     const title = document.createElement("strong");
     title.textContent = "Per questa richiesta serve un operatore";
@@ -724,7 +805,7 @@ export function mount(config) {
       button.disabled = true;
       button.textContent = "Apertura…";
       try {
-        const res = await fetch(`${cfg.backendUrl}/chat/ticket`, {
+        const res = await fetch(`${BACKEND}/chat/ticket`, {
           method: "POST",
           headers: {"Content-Type": "application/json", Authorization: `Bearer ${cfg.apiKey}`},
           body: JSON.stringify({
@@ -758,7 +839,7 @@ export function mount(config) {
         el = document.createElement("div");
         el.id = "wpai-typing";
         el.className = "wpai-msg assistant wpai-typing";
-        el.setAttribute("aria-label", `${cfg.title} sta scrivendo`);
+        el.setAttribute("aria-label", `${copy.title} sta scrivendo`);
         for (let i = 0; i < 3; i++) el.appendChild(document.createElement("span"));
         container.appendChild(el);
         container.scrollTop = container.scrollHeight;
@@ -782,7 +863,7 @@ export function mount(config) {
     if (!isEscalated(conversationId)) setTyping(messages, true);
     let res;
     try {
-      res = await fetch(`${cfg.backendUrl}/chat`, {
+      res = await fetch(`${BACKEND}/chat`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -846,7 +927,7 @@ export function mount(config) {
     if (!isEscalated(conversationId)) setTyping(messages, true);
     let res;
     try {
-      res = await fetch(`${cfg.backendUrl}/chat/stream`, {
+      res = await fetch(`${BACKEND}/chat/stream`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -966,7 +1047,7 @@ export function mount(config) {
     pollTimer = setInterval(async () => {
       try {
         const res = await fetch(
-          `${cfg.backendUrl}/conversations/${conversationId}/messages?after_id=${lastMessageId}`,
+          `${BACKEND}/conversations/${conversationId}/messages?after_id=${lastMessageId}`,
           {
             headers: {
               Authorization: `Bearer ${cfg.apiKey}`,
@@ -995,7 +1076,7 @@ export function mount(config) {
 
     try {
       const res = await fetch(
-        `${cfg.backendUrl}/conversations/${conversationId}/messages?after_id=0`,
+        `${BACKEND}/conversations/${conversationId}/messages?after_id=0`,
         {
           headers: {
             Authorization: `Bearer ${cfg.apiKey}`,
@@ -1049,11 +1130,9 @@ export function mount(config) {
     toggle.setAttribute("aria-expanded", "false");
     toggle.setAttribute("aria-controls", "wpai-window");
     const toggleLabel = document.createElement("span");
-    toggleLabel.textContent = cfg.launcherLabel || "";
-    const toggleIcon = document.createElement("i");
-    toggleIcon.className = "fa-solid fa-" + look.launcherIcon;
-    toggleIcon.setAttribute("aria-hidden", "true");
-    if (cfg.launcherLabel) {
+    toggleLabel.textContent = copy.launcherLabel;
+    const toggleIcon = iconElement(look.launcherIcon);
+    if (copy.launcherLabel) {
       toggle.classList.add("has-label");
       toggle.appendChild(toggleLabel);
     }
@@ -1064,28 +1143,24 @@ export function mount(config) {
     win.id = "wpai-window";
     win.setAttribute("role", "dialog");
     win.setAttribute("aria-modal", "false");
-    win.setAttribute("aria-label", "Chat con " + cfg.title);
+    win.setAttribute("aria-label", "Chat con " + copy.title);
 
     const header = document.createElement("div");
     header.id = "wpai-header";
-    const avatar = document.createElement("img");
-    avatar.src = safeHttpUrl(cfg.image);
-    avatar.alt = "";
+    const avatar = avatarElement();
     const headerCopy = document.createElement("div");
     headerCopy.className = "wpai-header-copy";
     const heading = document.createElement("strong");
-    heading.textContent = cfg.title;
+    heading.textContent = copy.title;
     const subtitle = document.createElement("small");
-    subtitle.textContent = cfg.subtitle;
+    subtitle.textContent = copy.subtitle;
     headerCopy.appendChild(heading);
     if (look.showStatus) headerCopy.appendChild(subtitle);
     const close = document.createElement("button");
     close.id = "wpai-close";
     close.type = "button";
     close.setAttribute("aria-label", "Chiudi la chat");
-    const closeIcon = document.createElement("i");
-    closeIcon.className = "fa-solid fa-xmark";
-    closeIcon.setAttribute("aria-hidden", "true");
+    const closeIcon = iconElement("xmark");
     close.appendChild(closeIcon);
     if (look.showAvatar) header.appendChild(avatar);
     header.appendChild(headerCopy);
@@ -1097,12 +1172,12 @@ export function mount(config) {
     const disclosure = document.createElement("div");
     disclosure.className = "wpai-disclosure";
     disclosure.appendChild(document.createTextNode(
-      cfg.aiDisclosure || "Stai parlando con un assistente virtuale basato su intelligenza artificiale."
+      copy.aiDisclosure
     ));
-    if (cfg.privacyUrl) {
+    if (copy.privacyUrl) {
       disclosure.appendChild(document.createTextNode(" Proseguendo accetti la nostra "));
       const privacyLink = document.createElement("a");
-      privacyLink.href = safeHttpUrl(cfg.privacyUrl);
+      privacyLink.href = safeHttpUrl(copy.privacyUrl);
       privacyLink.target = "_blank";
       privacyLink.rel = "noopener";
       privacyLink.textContent = "privacy policy";
@@ -1116,15 +1191,13 @@ export function mount(config) {
     const input = document.createElement("input");
     input.id = "wpai-input";
     input.type = "text";
-    input.placeholder = cfg.inputPlaceholder || t("chat.placeholder");
+    input.placeholder = copy.inputPlaceholder || t("chat.placeholder");
     input.autocomplete = "off";
     input.setAttribute("aria-label", "Messaggio");
     const send = document.createElement("button");
     send.type = "submit";
     send.setAttribute("aria-label", "Invia messaggio");
-    const sendIcon = document.createElement("i");
-    sendIcon.className = "fa-solid fa-arrow-up";
-    sendIcon.setAttribute("aria-hidden", "true");
+    const sendIcon = iconElement("arrow-up");
     send.appendChild(sendIcon);
     form.appendChild(input);
     form.appendChild(send);
@@ -1138,7 +1211,7 @@ export function mount(config) {
       root.classList.toggle("wpai-is-open", open);
       toggle.setAttribute("aria-expanded", String(open));
       toggle.setAttribute("aria-label", open ? t("chat.close") : t("chat.open"));
-      toggleIcon.className = open ? "fa-solid fa-xmark" : "fa-solid fa-comment-dots";
+      toggleIcon.innerHTML = iconMarkup(open ? "xmark" : look.launcherIcon);
       localStorage.setItem(OPEN_KEY, open ? "1" : "0");
       if (open) window.setTimeout(() => input.focus(), 180);
     }
@@ -1155,7 +1228,7 @@ export function mount(config) {
     let hasHistory = false;
     if (preview) {
       // Uno scambio d'esempio, così si vede come stanno insieme i colori delle due bolle.
-      if (cfg.welcome) addMessage(messages, "assistant", cfg.welcome);
+      if (copy.welcome) addMessage(messages, "assistant", copy.welcome);
       addMessage(messages, "user", t("preview.question"));
       addMessage(messages, "assistant", t("preview.answer"));
       input.placeholder = t("preview.placeholder");
@@ -1166,7 +1239,7 @@ export function mount(config) {
     }
     restoreConversation(messages).then((restored) => {
       hasHistory = restored;
-      if (!restored && cfg.welcome) addMessage(messages, "assistant", cfg.welcome);
+      if (!restored && copy.welcome) addMessage(messages, "assistant", copy.welcome);
       startProactive(
         root,
         () => win.classList.contains("open"),

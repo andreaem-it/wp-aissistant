@@ -50,3 +50,72 @@ def test_preflight_still_refuses_an_unknown_origin(client, monkeypatch):
     assert refused.status_code == 403
     assert "access-control-allow-origin" not in refused.headers
     assert accepted.status_code == 204
+
+
+def test_www_and_apex_are_the_same_site(client, tenant, monkeypatch):
+    """Una regola sola, scritta in due modi, non era d'accordo con sé stessa.
+
+    Il controllo della licenza normalizza già `www.` (`origins.host_of`), perché `esempio.it` e
+    `www.esempio.it` sono lo stesso sito e devono costare uno slot solo. L'allowlist CORS invece
+    confrontava la stringa esatta: chi registrava l'apex e riceveva visitatori su `www` si
+    prendeva un `403` al **preflight**, cioè prima che la richiesta arrivasse al server.
+
+    Il sintomo è il peggiore possibile: nessuna riga nei nostri log che parli di licenza — il
+    rifiuto viene da un livello più in alto — e un cliente che vede la chat non partire su metà
+    del proprio traffico. Ce l'avevamo in produzione sul nostro stesso sito.
+    """
+    from sqlmodel import Session
+    from app import db
+
+    with Session(db.engine) as session:
+        session.add(db.ClientOrigin(
+            client_id=tenant["cid"], origin="https://esempio.it", host="esempio.it",
+            kind="live", source="panel",
+        ))
+        session.commit()
+        cors.rebuild_allowed_origins(session)
+    monkeypatch.setattr(cors, "CORS_ALLOW_ALL", False)
+
+    for origin in ("https://esempio.it", "https://www.esempio.it"):
+        response = client.options("/chat", headers={**PREFLIGHT, "Origin": origin})
+        assert response.status_code == 204, origin
+        assert response.headers["access-control-allow-origin"] == origin
+
+
+def test_a_registered_www_also_admits_its_apex(client, tenant, monkeypatch):
+    """Vale nei due versi: chi registra la forma con `www` non deve perdere l'apex."""
+    from sqlmodel import Session
+    from app import db
+
+    with Session(db.engine) as session:
+        session.add(db.ClientOrigin(
+            client_id=tenant["cid"], origin="https://www.esempio.it", host="esempio.it",
+            kind="live", source="panel",
+        ))
+        session.commit()
+        cors.rebuild_allowed_origins(session)
+    monkeypatch.setattr(cors, "CORS_ALLOW_ALL", False)
+
+    response = client.options("/chat", headers={**PREFLIGHT, "Origin": "https://esempio.it"})
+
+    assert response.status_code == 204
+
+
+def test_only_www_is_treated_as_the_same_site(client, tenant, monkeypatch):
+    """`www` è convenzione universale per «lo stesso sito»; un sottodominio qualunque no.
+    Trattarli allo stesso modo regalerebbe domini a chi ne ha pagato uno."""
+    from sqlmodel import Session
+    from app import db
+
+    with Session(db.engine) as session:
+        session.add(db.ClientOrigin(
+            client_id=tenant["cid"], origin="https://esempio.it", host="esempio.it",
+            kind="live", source="panel",
+        ))
+        session.commit()
+        cors.rebuild_allowed_origins(session)
+    monkeypatch.setattr(cors, "CORS_ALLOW_ALL", False)
+
+    response = client.options("/chat", headers={**PREFLIGHT, "Origin": "https://app.esempio.it"})
+
+    assert response.status_code == 403

@@ -146,4 +146,9 @@ def vocabulary() -> dict:
         "flags": FLAGS,
         "defaultColor": DEFAULT_COLOR,
         "textLimits": TEXTS,
+        # Mancavano, e il configuratore non poteva disegnare i campi che non gli venivano
+        # dichiarati: avatar e link privacy erano validati dal backend, salvabili, serviti al
+        # widget — e invisibili al cliente. Le etichette erano già scritte nel pannello, il che
+        # dice che dovevano esserci e che nessuno se n'è accorto.
+        "urls": {name: MAX_URL_CHARS for name in URLS},
     }

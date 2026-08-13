@@ -137,6 +137,30 @@ def test_the_vocabulary_travels_with_the_configuration(client, tenant):
     assert vocabulary["textLimits"]["title"] > 0
 
 
+def test_the_vocabulary_declares_the_url_fields_too(client, tenant):
+    """Mancavano, e il configuratore non può disegnare un campo che non gli viene dichiarato.
+
+    Avatar e link privacy erano validati, salvabili e serviti al widget — e invisibili al
+    cliente, che quindi non poteva metterli. Il pannello aveva già le etichette pronte per
+    entrambi: il segno che dovevano esserci e che il buco non l'aveva notato nessuno.
+    """
+    vocabulary = client.get("/account/widget-config", headers=tenant["op"]).json()["vocabulary"]
+
+    assert set(vocabulary["urls"]) == set(widget_config.URLS)
+    assert all(limit > 0 for limit in vocabulary["urls"].values())
+
+
+def test_an_avatar_survives_a_round_trip(client, tenant):
+    """Il campo esiste da prima; quello che mancava era il modo di riempirlo. Un test che lo
+    scrive e lo rilegge dice che le due metà si parlano davvero."""
+    payload = {"appearance": {}, "texts": {"image": "https://esempio.it/logo.png"}}
+    saved = client.put("/account/widget-config", headers=tenant["op"], json=payload)
+
+    assert saved.status_code == 200
+    letto = client.get("/account/widget-config", headers=tenant["op"]).json()
+    assert letto["config"]["texts"]["image"] == "https://esempio.it/logo.png"
+
+
 def test_a_corrupt_row_falls_back_to_the_defaults(client, tenant):
     """Una riga illeggibile non deve rendere inutilizzabile la schermata: si riparte da ciò che
     il widget userebbe comunque."""

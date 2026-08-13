@@ -27,8 +27,22 @@
 #wpai-toggle:hover { transform: translateY(-3px) scale(1.02); filter: brightness(1.04); box-shadow: 0 18px 40px color-mix(in srgb, var(--wpai-accent) 42%, transparent); }
 #wpai-toggle:active { transform: scale(.96); }
 #wpai-toggle:focus-visible, #wpai-window button:focus-visible, .wpai-contact-form input:focus-visible { outline: 3px solid color-mix(in srgb, var(--wpai-accent) 32%, transparent); outline-offset: 3px; }
-#wpai-toggle i { font-size: 21px; transition: transform .25s; }
-#wpai-root.wpai-is-open #wpai-toggle i { transform: rotate(12deg) scale(.9); }
+#wpai-toggle .wpai-icon-slot { display: inline-flex; transition: transform .25s; }
+#wpai-toggle .wpai-icon { width: 24px; height: 24px; }
+#wpai-root.wpai-is-open #wpai-toggle .wpai-icon-slot { transform: rotate(12deg) scale(.9); }
+/* ---- Icone ----
+   Erano un font di terze parti caricato dalla pagina ospite: dove non c'era — cioè in ogni
+   installazione JavaScript — restavano rettangoli vuoti. Ora sono SVG dentro il bundle e
+   prendono colore e dimensione da chi le contiene, come faceva il font. */
+.wpai-icon { width: 1em; height: 1em; display: block; flex: 0 0 auto; vertical-align: -.125em; }
+.wpai-icon-slot { display: inline-flex; align-items: center; justify-content: center; }
+#wpai-form button .wpai-icon { width: 20px; height: 20px; }
+#wpai-close .wpai-icon { width: 18px; height: 18px; }
+.wpai-fb-btn .wpai-icon, .wpai-star .wpai-icon { width: 17px; height: 17px; }
+.wpai-ticket-offer .wpai-icon { width: 18px; height: 18px; }
+/* Nelle conferme l'icona sta in linea con il testo, quindi segue la dimensione del carattere. */
+.wpai-contact.done .wpai-icon, .wpai-rating .wpai-icon-inline { display: inline-block; }
+
 #wpai-root.wpai-motion-playful #wpai-toggle::before { animation: wpai-pulse 2.8s ease-out 1s infinite; }
 #wpai-root.wpai-launcher-square #wpai-toggle { border-radius:16px; }
 #wpai-root.wpai-launcher-pill #wpai-toggle { min-width:68px; height:50px; }
@@ -67,7 +81,9 @@
   display: flex; align-items: center; gap: 11px; min-height: 48px; padding: 16px 17px;
   border-bottom: 1px solid var(--wpai-border); background: color-mix(in srgb, var(--wpai-surface) 92%, var(--wpai-accent) 8%);
 }
-#wpai-header img { width: 40px; height: 40px; border-radius: 13px; object-fit: cover; background: var(--wpai-surface-soft); }
+#wpai-header img, .wpai-avatar-initials { width: 40px; height: 40px; flex: 0 0 auto; border-radius: 13px; object-fit: cover; background: var(--wpai-surface-soft); }
+/* Il ripiego quando non c'è un'immagine: l'iniziale del nome, non un volto generico. */
+.wpai-avatar-initials { display: inline-flex; align-items: center; justify-content: center; color: var(--wpai-accent); font-size: 17px; font-weight: 700; background: color-mix(in srgb, var(--wpai-accent) 14%, var(--wpai-surface-soft)); }
 .wpai-header-copy { min-width: 0; flex: 1; }
 .wpai-header-copy strong { display: block; overflow: hidden; color: var(--wpai-text); font-size: 14px; line-height: 1.3; text-overflow: ellipsis; white-space: nowrap; }
 .wpai-header-copy small { display: flex; align-items: center; gap: 6px; margin-top: 2px; color: var(--wpai-muted); font-size: 11.5px; }
@@ -106,11 +122,11 @@
 #wpai-form:focus-within { border-color: color-mix(in srgb, var(--wpai-accent) 55%, transparent); box-shadow: 0 0 0 4px color-mix(in srgb, var(--wpai-accent) 10%, transparent); }
 #wpai-input { flex: 1; min-width: 0; padding: 6px 0; border: 0; outline: 0 !important; box-shadow: none !important; color: var(--wpai-text); background: transparent; font: 14px/1.4 inherit; }
 #wpai-input::placeholder { color: var(--wpai-muted); }
-#wpai-form button { width: 38px; height: 38px; flex: 0 0 auto; border: 0; border-radius: 12px; color: var(--wpai-accent-contrast); background: var(--wpai-accent); cursor: pointer; transition: transform .2s; }
+#wpai-form button { display: flex; align-items: center; justify-content: center; width: 38px; height: 38px; flex: 0 0 auto; border: 0; border-radius: 12px; color: var(--wpai-accent-contrast); background: var(--wpai-accent); cursor: pointer; transition: transform .2s; }
 #wpai-form button:hover { transform: translateY(-1px); }
 
 .wpai-feedback { display: flex; gap: 3px; margin: -5px 0 12px 4px; }
-.wpai-fb-btn { padding: 5px 7px; border: 0; border-radius: 8px; color: var(--wpai-muted); background: transparent; cursor: pointer; opacity: .72; transition: color .15s, background .15s, transform .15s; }
+.wpai-fb-btn { display: inline-flex; align-items: center; padding: 5px 7px; border: 0; border-radius: 8px; color: var(--wpai-muted); background: transparent; cursor: pointer; opacity: .72; transition: color .15s, background .15s, transform .15s; }
 .wpai-fb-btn:hover { color: var(--wpai-accent); background: var(--wpai-surface-soft); transform: translateY(-1px); opacity: 1; }
 .wpai-feedback[data-voted] .wpai-fb-btn { color: var(--wpai-accent); pointer-events: none; opacity: 1; }
 .wpai-feedback[data-voted="up"] .wpai-fb-down, .wpai-feedback[data-voted="down"] .wpai-fb-up { display: none; }
@@ -122,7 +138,7 @@
 .wpai-contact.done { color: #16803c; font-size: 12.5px; }
 .wpai-rating { margin: 4px 0 12px; padding: 12px; border: 1px solid var(--wpai-border); border-radius: 14px; background: var(--wpai-surface-soft); }
 .wpai-rating-stars { display: flex; gap: 4px; margin-bottom: 8px; }
-.wpai-star { padding: 4px 5px; border: 0; border-radius: 8px; color: var(--wpai-accent); background: transparent; font-size: 16px; line-height: 1; cursor: pointer; }
+.wpai-star { display: inline-flex; align-items: center; padding: 4px 5px; border: 0; border-radius: 8px; color: var(--wpai-accent); background: transparent; font-size: 16px; line-height: 1; cursor: pointer; }
 .wpai-star:hover { background: color-mix(in srgb, var(--wpai-accent) 12%, transparent); }
 .wpai-rating.done { color: #16803c; font-size: 12.5px; }
 
@@ -168,7 +184,7 @@
 }
 @media (max-width: 480px) { .wpai-proactive { max-width: calc(100vw - 48px); } }
 .wpai-ticket-offer { display:grid; grid-template-columns:30px 1fr; gap:10px; margin:4px 0 12px; padding:12px; border:1px solid color-mix(in srgb,var(--wpai-accent) 24%,var(--wpai-border)); border-radius:15px; background:color-mix(in srgb,var(--wpai-accent) 7%,var(--wpai-surface)); animation:wpai-message-in .3s both; }
-.wpai-ticket-offer>i { display:grid; place-items:center; width:30px; height:30px; border-radius:9px; color:var(--wpai-accent); background:color-mix(in srgb,var(--wpai-accent) 12%,transparent); }
+.wpai-ticket-offer>.wpai-icon-slot { display:grid; place-items:center; width:30px; height:30px; border-radius:9px; color:var(--wpai-accent); background:color-mix(in srgb,var(--wpai-accent) 12%,transparent); }
 .wpai-ticket-offer strong,.wpai-ticket-offer span { display:block; }.wpai-ticket-offer strong { margin-bottom:3px; font-size:12.5px; }.wpai-ticket-offer span { color:var(--wpai-muted); font-size:11.5px; line-height:1.45; }
 .wpai-ticket-offer button { grid-column:2; justify-self:start; padding:8px 11px; border:0; border-radius:9px; color:var(--wpai-accent-contrast); background:var(--wpai-accent); font-size:11.5px; font-weight:700; cursor:pointer; }.wpai-ticket-offer button:disabled { cursor:wait; opacity:.65; }
 
