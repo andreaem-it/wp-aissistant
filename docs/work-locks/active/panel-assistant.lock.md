@@ -23,7 +23,14 @@ Perimetro previsto:
 - `backend/app/production_config.py` (il segreto di firma fra i controlli di produzione)
 - `backend/tests/test_panel_assistant.py` (nuovo)
 - `panel/src/Assistant.jsx` (nuovo), `panel/src/App.jsx`, `panel/src/api.js`
+- `sdk/widget/src/widget.js` (una capacità `host` in più, vedi sotto)
 - `docs/embedded-assistant-roadmap.md`
 
-Fuori perimetro: il widget in `sdk/widget` (il pannello lo importa dal workspace, non lo cambia),
-il plugin WordPress, la fatturazione, il sito.
+Fuori perimetro: il plugin WordPress, la fatturazione, il sito.
+
+**Correzione del perimetro (16:30).** `sdk/widget` doveva restarne fuori — il pannello lo importa
+dal workspace e basta — ma il token di contesto va su `/chat` in un **header**, e gli header delle
+chiamate di chat li costruisce il widget. Serve quindi una capacità in più nell'adapter `host`,
+che è esattamente il posto previsto per ciò che dipende dalla piattaforma ospite: WordPress
+fornisce `identityToken()`, il pannello fornirà gli header. Nessuna riscrittura, nessun ramo `if
+(pannello)` dentro il widget.
