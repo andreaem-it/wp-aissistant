@@ -3,3 +3,13 @@
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
   X-Frame-Options: SAMEORIGIN
+  # Content-Security-Policy: dichiara da dove il sito può caricare roba.
+  #
+  # `script-src` ammette il nostro CDN (il widget) e `unsafe-inline`, che serve ai due script
+  # inline già presenti nella pagina e alla configurazione del widget. Toglierlo richiederebbe
+  # spostare quegli script in file separati: si può fare, ma è un lavoro a sé — dichiararlo qui
+  # è meglio che scrivere una CSP che sembra stretta e non lo è.
+  #
+  # `connect-src` ammette il backend: senza, il browser bloccherebbe le chiamate della chat e il
+  # widget sembrerebbe rotto senza dire perché.
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.wpaissistant.it; style-src 'self' 'unsafe-inline' https://cdn.wpaissistant.it https://cdnjs.cloudflare.com https://fonts.googleapis.com; font-src 'self' https://cdnjs.cloudflare.com https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' https://wp-aissistant-production.up.railway.app; frame-ancestors 'self'; base-uri 'self'; form-action 'self'

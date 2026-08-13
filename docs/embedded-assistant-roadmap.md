@@ -515,20 +515,36 @@ supporto. Non va fatto in questo blocco, ma va deciso qui: ogni settimana in cui
 coesistono senza una regola produce clienti che hanno configurato quello sbagliato e un
 supporto che non sa quale dei due sta guardando.
 
-## 7. Fase 4 — Il widget sul nostro sito
+## 7. Fase 4 — Il widget sul nostro sito — **fatta**
 
-Piccola, e ci rende utenti del nostro prodotto.
+Il widget è sul sito marketing con la stessa integrazione JavaScript che offriamo ai clienti:
+stesso artefatto dal CDN, stessa chiave pubblica, stesso snippet che genera il pannello. Se qui
+non funziona, non funziona per nessuno.
 
-1. `website/index.html` carica lo snippet CDN con la chiave del nostro tenant.
-2. `website/_headers` oggi non ha CSP: se ne aggiungiamo una (andrebbe fatto comunque) deve
-   ammettere il CDN e il backend. Il file va toccato **insieme** allo snippet, non dopo.
-3. Ingest della nostra knowledge base sul nostro tenant: pagine del sito, prezzi, FAQ e i
-   documenti d'uso — **non** il repository. Un README interno finito nel retrieval risponde a un
-   potenziale cliente con dettagli d'implementazione.
-4. L'escalation dal sito arriva nella **nostra** inbox: gli operatori siamo noi. È il primo uso
-   reale del help desk dall'altra parte del banco.
-5. Privacy: il widget raccoglie messaggi di visitatori. Informativa aggiornata e **nessun claim
-   di residenza UE**, come stabilito dall'audit del 9 agosto.
+- **CSP** in `website/_headers`, scritta ammettendo ciò che il sito carica davvero — Font
+  Awesome da cdnjs, i font da Google, il CDN e il backend. Una CSP che li dimentica rompe la
+  pagina di vendita invece di proteggerla. `unsafe-inline` resta per i due script già presenti:
+  toglierlo richiede spostarli in file separati, ed è un lavoro a sé — dichiararlo è meglio che
+  scrivere una CSP che sembra stretta e non lo è.
+- **Knowledge base popolata** con il testo del sito e un documento su prezzi, licenza e
+  installazione costruito dai piani **realmente in vendita** (`/public/plans`), non dalla copia
+  di marketing. Senza contenuti l'assistente avrebbe risposto «non lo so» a tutto, su un sito che
+  vende un assistente.
+
+**Due cose che solo l'uso vero ha fatto emergere.**
+
+1. **I prezzi si erano persi nell'estrazione.** Il testo scritto dal sito diceva `19` e `/mese`
+   su righe separate, senza il simbolo di valuta: il modello avrebbe dovuto indovinare gli euro,
+   che è esattamente ciò che il prodotto esiste per non fare. Risolto ingerendo i piani veri —
+   che è comunque la fonte giusta, perché è ciò che il cliente paga davvero.
+2. **L'assistente non sapeva come si chiamasse ciò di cui parlava.** Vedi il blocco
+   `assistant-knows-its-subject`: alla domanda «come si installa?» ha risposto tre volte con tre
+   soggetti diversi, uno inventato. È un difetto che un negozio di scarpe non avrebbe mai fatto
+   emergere, perché lì il soggetto della domanda non è mai l'attività.
+
+> Essere utenti del proprio prodotto ha trovato in venti minuti due difetti che mesi di test non
+> avevano trovato. Nessuno dei due era visibile dai test: il primo perché l'embedder finto non
+> discrimina, il secondo perché nessun test chiedeva all'assistente di parlare di sé.
 
 ## 8. Fase 5 — L'assistente dentro il panel del cliente
 

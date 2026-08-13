@@ -417,5 +417,31 @@
       document.querySelectorAll(".reveal").forEach((el) => io.observe(el));
     }
   </script>
+
+  <!--
+    Il nostro assistente, sul nostro sito.
+    Stessa integrazione JavaScript che offriamo ai clienti: stesso artefatto dal CDN, stessa
+    chiave pubblica, stesso snippet che il pannello genera in Impostazioni → Installazione.
+    Se qui non funziona, non funziona per nessuno.
+  -->
+  <link rel="stylesheet" href="https://cdn.wpaissistant.it/widget/0.1.0/wpai-widget.css">
+  <script>
+    window.WPAissistantConfig = {
+      apiKey: "2w-85l3Q46uXyuXtes1-zgmcs181dznHEOVaXb3KGlk",
+      backendUrl: "https://wp-aissistant-production.up.railway.app",
+      site: "https://wpaissistant.it",
+      appearance: {
+        color: "#635bff",
+      },
+      texts: {
+        title: "WP AIssistant",
+        subtitle: "Rispondiamo in pochi minuti",
+        welcome: "Ciao! Posso raccontarti cosa fa WP AIssistant, quanto costa e come si installa. Cosa ti serve sapere?",
+      },
+    };
+  </script>
+  <script async src="https://cdn.wpaissistant.it/widget/0.1.0/wpai-widget.js"
+          integrity="sha384-qyZrh252vY6IF9Ln5haTGQ276SwBcmtv13Gbf/ytB/w+IMEa36GIcTMIm5JtdCij"
+          crossorigin="anonymous"></script>
 </body>
 </html>
