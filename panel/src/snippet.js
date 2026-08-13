@@ -13,6 +13,22 @@
  * - **`site` c'è sempre, anche se coincide con il dominio registrato.** La licenza è legata al
  *   dominio: senza quel valore il widget non parte e lo dice in console. Ometterlo perché
  *   "tanto si capisce dall'Origin" sposterebbe un errore chiaro in un fallimento muto.
+ *
+ * **Cosa NON entra più, e perché è la correzione più importante di questo file.**
+ *
+ * `backendUrl` era un'opzione in chiaro nella pagina di ogni cliente, e il percorso dello script
+ * portava il **numero di versione**. Insieme facevano una cosa sola: congelavano nel sito del
+ * cliente due decisioni che sono nostre. Per spostare il backend, o per correggere un difetto nel
+ * widget, avremmo dovuto chiedere a ogni cliente di ricopiare lo snippet — cioè non avremmo
+ * potuto farlo, e il primo difetto serio ce l'avrebbe insegnato con i suoi tempi.
+ *
+ * Ora l'indirizzo del backend è compilato nell'artefatto e lo script sta su un percorso
+ * **stabile** (`/widget/v1/`), che pubblichiamo noi. Il costo è dichiarato: su un percorso che
+ * cambia non si può mettere `integrity`, perché un'impronta fissa e un file che si aggiorna sono
+ * la stessa cosa detta in due modi opposti. Fra «il cliente verifica il byte» e «possiamo
+ * correggere un difetto sul sito del cliente senza chiederglielo», per un servizio ospitato vince
+ * la seconda: è il motivo per cui il CDN esiste. Il plugin, che ha una copia locale e un canale
+ * di aggiornamento suo, resta sulla versione pinnata con SRI.
  */
 
 const INDENT = "    ";
@@ -60,7 +76,7 @@ function block(name, values) {
  * funzione dovrebbe conoscere i default per conto suo, che sarebbe la terza dichiarazione della
  * stessa cosa.
  */
-export function buildSnippet({ apiKey, backendUrl, site, cdnUrl, version, appearance, texts, defaults }) {
+export function buildSnippet({ apiKey, site, cdnUrl, channel, appearance, texts, defaults }) {
   const appearanceDefaults = {};
   for (const [name, spec] of Object.entries(defaults?.appearance || {})) {
     appearanceDefaults[name] = spec.default;
@@ -70,7 +86,6 @@ export function buildSnippet({ apiKey, backendUrl, site, cdnUrl, version, appear
 
   const lines = [
     `${INDENT}apiKey: ${literal(apiKey)},`,
-    `${INDENT}backendUrl: ${literal(backendUrl)},`,
     `${INDENT}site: ${literal(site)},`,
   ];
   const look = block("appearance", changed(appearance, appearanceDefaults));
@@ -78,8 +93,10 @@ export function buildSnippet({ apiKey, backendUrl, site, cdnUrl, version, appear
   const copy = block("texts", changed(texts, {}));
   if (copy) lines.push(copy);
 
-  const src = `${String(cdnUrl || "").replace(/\/$/, "")}/widget/${version}/wpai-widget.js`;
-  const css = `${String(cdnUrl || "").replace(/\/$/, "")}/widget/${version}/wpai-widget.css`;
+  const base = String(cdnUrl || "").replace(/\/$/, "");
+  const track = String(channel || "v1");
+  const src = `${base}/widget/${track}/wpai-widget.js`;
+  const css = `${base}/widget/${track}/wpai-widget.css`;
 
   return [
     `<link rel="stylesheet" href="${css}">`,

@@ -167,9 +167,19 @@ jobs:
             --file dist/integrity.json --content-type "application/json" \
             --cache-control "$immutable" --remote
 
-      # L'alias mobile è una comodità, non il default: chi lo usa rinuncia all'SRI e non decide
-      # quando il codice cambia. Cache breve, così una correzione arriva in fretta senza che un
-      # errore resti inchiodato per un anno.
+      # L'alias mobile **è** il default per l'integrazione JavaScript, da quando lo snippet che i
+      # clienti incollano punta a `/widget/v1/`. Uno snippet con dentro un numero di versione
+      # invecchia nelle pagine altrui: per correggere un difetto bisognerebbe chiedere a ognuno
+      # di ricopiarlo, cioè non poterlo fare. Il costo è dichiarato — su un percorso che cambia
+      # non si può mettere `integrity` — e resta il plugin, che pinna una versione con SRI perché
+      # ha una copia locale e un canale di aggiornamento suo.
+      #
+      # ATTENZIONE alla cache: qui si chiede `max-age=300`, ma il bordo risponde `max-age=14400`
+      # (verificato pubblicando la 0.2.0), perché una regola di cache di Cloudflare sovrascrive
+      # l'intestazione dell'oggetto. In pratica una correzione impiega **fino a quattro ore** a
+      # raggiungere tutti i siti. È tollerabile e va saputo; per accorciarla bisogna cambiare la
+      # regola nel pannello Cloudflare, che non è in questo repository — ed è il motivo per cui
+      # sta scritto qui invece che da nessuna parte.
       - name: Move the v1 alias
         if: steps.creds.outputs.ready == 'true' && !inputs.dry_run && startsWith(github.ref, 'refs/tags/widget-v')
         working-directory: sdk/widget
@@ -204,9 +214,20 @@ jobs:
           VERSION: ${{ steps.meta.outputs.version }}
         run: |
           url="https://cdn.wpaissistant.it/widget/$VERSION/wpai-widget.js"
-          code="$(curl -s -o /tmp/published.js -w '%{http_code}' --max-time 30 "$url")"
+          # Un oggetto appena scritto può non essere ancora visibile al bordo: il `put` è andato,
+          # e la richiesta subito dopo prende comunque `404`. È successo pubblicando la 0.2.0 —
+          # workflow rosso su un artefatto che era corretto e che un minuto dopo rispondeva.
+          # Si riprova, invece di chiamare «dominio scollegato» quella che è una corsa: la
+          # diagnosi sbagliata di una 404 di R2 ci è già costata una volta, due sezioni fa.
+          code=000
+          for attempt in 1 2 3 4 5 6; do
+            code="$(curl -s -o /tmp/published.js -w '%{http_code}' --max-time 30 "$url")"
+            [ "$code" = "200" ] && break
+            echo "::notice::tentativo $attempt: $url risponde $code, riprovo fra 10s"
+            sleep 10
+          done
           if [ "$code" != "200" ]; then
-            echo "::error::$url risponde $code — il dominio personalizzato non è collegato al bucket"
+            echo "::error::$url risponde $code dopo un minuto di tentativi — il dominio personalizzato non è collegato al bucket"
             exit 1
           fi
           local_sri="$(node -p "require('./sdk/widget/dist/integrity.json').files['wpai-widget.js']")"
@@ -228,3 +249,20 @@ jobs:
             exit 1
           fi
           echo "::notice::pubblicato e verificato (CORS incluso): $url"
+
+      # L'alias è ciò che i siti dei clienti caricano davvero: verificarlo non è un di più.
+      # Il percorso versionato può essere perfetto mentre `v1` punta ancora al bundle vecchio,
+      # e nessuno se ne accorgerebbe — è lo stesso fallimento muto di sempre, un livello più in là.
+      - name: The stable alias serves this release
+        if: steps.creds.outputs.ready == 'true' && !inputs.dry_run && startsWith(github.ref, 'refs/tags/widget-v')
+        run: |
+          url="https://cdn.wpaissistant.it/widget/v1/wpai-widget.js"
+          # Cache-buster: senza, si legge la copia al bordo e si verificherebbe il file di ieri.
+          curl -s -o /tmp/alias.js --max-time 30 "$url?verify=${{ github.run_id }}"
+          published="$(openssl dgst -sha384 -binary /tmp/published.js | openssl base64 -A)"
+          alias_digest="$(openssl dgst -sha384 -binary /tmp/alias.js | openssl base64 -A)"
+          if [ "$published" != "$alias_digest" ]; then
+            echo "::error::$url non serve questa versione: l'alias non è stato spostato."
+            exit 1
+          fi
+          echo "::notice::alias v1 allineato a questa versione (il bordo può servire la precedente fino a 4 ore)"

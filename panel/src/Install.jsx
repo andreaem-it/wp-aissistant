@@ -10,7 +10,10 @@ import { buildSnippet, siteFor } from "./snippet.js";
 
 const BACKEND = import.meta.env.VITE_API_BASE || "http://localhost:8000";
 const CDN = import.meta.env.VITE_WIDGET_CDN || "https://cdn.wpaissistant.it";
-const WIDGET_VERSION = import.meta.env.VITE_WIDGET_VERSION || "0.1.0";
+// Il percorso **stabile** sul CDN, non un numero di versione: lo snippet che il cliente incolla
+// non deve invecchiare. Aggiorniamo il file dietro questo percorso e ogni sito lo prende, che è
+// l'unico motivo per cui distribuire da un CDN vale la pena.
+const WIDGET_CHANNEL = import.meta.env.VITE_WIDGET_CHANNEL || "v1";
 const PLUGIN_DOWNLOAD = import.meta.env.VITE_PLUGIN_DOWNLOAD || "";
 
 /**
@@ -172,10 +175,9 @@ function WordPressInstall({ apiKey }) {
 function JavaScriptInstall({ apiKey, site, vocabulary, draft, setDraft, save, saving, feedback }) {
   const snippet = buildSnippet({
     apiKey,
-    backendUrl: BACKEND,
     site,
     cdnUrl: CDN,
-    version: WIDGET_VERSION,
+    channel: WIDGET_CHANNEL,
     appearance: draft?.appearance,
     texts: draft?.texts,
     defaults: vocabulary,
@@ -243,7 +245,28 @@ function JavaScriptInstall({ apiKey, site, vocabulary, draft, setDraft, save, sa
               />
             </label>
           ))}
+          {/* Avatar e link privacy stanno nella stessa scheda perché il cliente li pensa
+              insieme al resto — «come si presenta l'assistente» — ma sono indirizzi e non
+              testi: tipo `url`, così il browser valida da sé prima di arrivare al backend.
+              Erano già salvabili e già serviti al widget: mancava solo il campo. */}
+          {Object.entries(vocabulary.urls || {}).map(([name, limit]) => (
+            <label key={name} style={{ display: "grid", gap: 4, fontSize: 12.5 }}>
+              {LABELS[name] || name}
+              <input
+                type="url"
+                inputMode="url"
+                maxLength={limit}
+                placeholder="https://…"
+                value={draft.texts[name] || ""}
+                onChange={(e) => setText(name, e.target.value)}
+              />
+            </label>
+          ))}
         </div>
+        <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "10px 0 0" }}>
+          Senza avatar l'assistente mostra l'iniziale del nome. Non mettiamo un volto
+          predefinito: suggerirebbe una persona che non c'è.
+        </p>
         <div style={{ display: "flex", gap: 8, marginTop: 12, alignItems: "center" }}>
           <button className="wpai-btn" type="button" onClick={save} disabled={saving}>
             {saving ? "Salvataggio…" : "Salva"}

@@ -12,10 +12,8 @@ const defaults = {
 
 const base = {
   apiKey: "chiave",
-  backendUrl: "https://backend.esempio",
   site: "https://esempio.it",
   cdnUrl: "https://cdn.wpaissistant.it",
-  version: "0.1.0",
   defaults,
 };
 
@@ -62,22 +60,33 @@ describe("cosa finisce nello snippet", () => {
 });
 
 describe("lo snippet", () => {
-  it("porta sempre chiave, backend e dominio", () => {
+  it("porta chiave e dominio, e nient'altro che identifichi noi", () => {
     const snippet = buildSnippet(base);
 
     expect(snippet).toContain('apiKey: "chiave"');
-    expect(snippet).toContain('backendUrl: "https://backend.esempio"');
     expect(snippet).toContain('site: "https://esempio.it"');
   });
 
-  it("punta alla versione fissa del CDN, non a un alias", () => {
-    // La versione fissa è il default: un rilascio sbagliato su un alias mobile romperebbe tutti
-    // i siti insieme, e il cliente non potrebbe farci niente.
+  it("non porta l'indirizzo del backend", () => {
+    // Era un'opzione in chiaro nella pagina di ogni cliente: chi la copiava poteva ripuntare il
+    // widget altrove, e noi non potevamo più spostare il backend senza chiedere a tutti di
+    // ricopiare. Ora è compilato nell'artefatto.
+    const snippet = buildSnippet({ ...base, backendUrl: "https://backend.esempio" });
+
+    expect(snippet).not.toContain("backendUrl");
+    expect(snippet).not.toContain("backend.esempio");
+  });
+
+  it("punta a un percorso stabile, non a un numero di versione", () => {
+    // Lo snippet incollato nel sito del cliente non deve invecchiare: se portasse la versione,
+    // correggere un difetto vorrebbe dire chiedere a ognuno di ricopiarlo — cioè non poterlo
+    // fare. Il costo, dichiarato: su un percorso che cambia non si può mettere `integrity`.
     const snippet = buildSnippet(base);
 
-    expect(snippet).toContain("https://cdn.wpaissistant.it/widget/0.1.0/wpai-widget.js");
-    expect(snippet).toContain("https://cdn.wpaissistant.it/widget/0.1.0/wpai-widget.css");
-    expect(snippet).not.toContain("/widget/v1/");
+    expect(snippet).toContain("https://cdn.wpaissistant.it/widget/v1/wpai-widget.js");
+    expect(snippet).toContain("https://cdn.wpaissistant.it/widget/v1/wpai-widget.css");
+    expect(snippet).not.toMatch(/widget\/\d+\.\d+\.\d+\//);
+    expect(snippet).not.toContain("integrity=");
   });
 
   it("non elenca ventiquattro valori identici ai default", () => {
@@ -103,7 +112,7 @@ describe("lo snippet", () => {
   it("non si rompe se il CDN ha la barra finale", () => {
     const snippet = buildSnippet({ ...base, cdnUrl: "https://cdn.wpaissistant.it/" });
 
-    expect(snippet).toContain("https://cdn.wpaissistant.it/widget/0.1.0/wpai-widget.js");
+    expect(snippet).toContain("https://cdn.wpaissistant.it/widget/v1/wpai-widget.js");
     expect(snippet).not.toContain("it//widget");
   });
 });
