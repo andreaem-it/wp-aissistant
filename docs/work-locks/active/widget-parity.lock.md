@@ -33,9 +33,17 @@ Trovati partendo da uno screenshot dell'anteprima:
    dominio vero, `backend.wpaissistant.it` — che esiste e risponde. Ce l'hanno nello snippet
    generato, nel nostro sito e in `panel/.env.production`.
 
+7. **`www.` e apex non sono lo stesso sito per la CORS** (trovato applicando il punto 6). Il
+   controllo della licenza normalizza `www.` — `origins.host_of()` — mentre l'allowlist CORS
+   confronta la stringa esatta dell'Origin. Una regola sola scritta in due modi: chi registra
+   `https://esempio.it` e ha visitatori su `https://www.esempio.it` riceve `403` al preflight e
+   la chat non parte. Vale **oggi in produzione sul nostro stesso sito**, e non c'entra con il
+   dominio nuovo: si verifica identico sull'URL di Railway.
+
 Perimetro previsto:
 - `sdk/widget/src/` (icone inline, avatar, testi, indirizzo del backend), `build.mjs` e i test
 - `backend/app/widget_config.py` (il vocabolario espone i campi URL) e i suoi test
+- `backend/app/cors.py` (`www.` e apex sono lo stesso sito, come già per la licenza) e i test
 - `panel/src/Install.jsx`, `panel/src/snippet.js`, `panel/.env.production` e i loro test
 - `wp-plugin/wp-aissistant/wp-aissistant.php` (il front-end non ha più bisogno di Font Awesome)
 - `website/index.html` (lo snippet nella forma giusta)
