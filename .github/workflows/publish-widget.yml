@@ -120,7 +120,8 @@ jobs:
       # `Access-Control-Allow-Origin` ci resta un anno: aggiungere la regola dopo non la corregge,
       # perché la cache è per origine (`Vary: Origin`) e chi aveva già chiesto il file continua a
       # ricevere quella vecchia. Ci è successo sul nostro sito, che è stato anche il primo a
-      # caricarlo — e l'unico rimedio è stato svuotare la cache a mano.
+      # caricarlo — e ne siamo usciti pubblicando una versione nuova su un percorso mai chiesto
+      # prima, non svuotando la cache a mano: il rimedio passa da qui e resta in `git`.
       - name: The bucket allows cross-origin reads
         if: steps.creds.outputs.ready == 'true' && !inputs.dry_run
         working-directory: sdk/widget

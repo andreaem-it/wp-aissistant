@@ -565,8 +565,26 @@ raggiungibile» era vero e insufficiente. Ora il workflow chiede esplicitamente
 pubblicazione, e non è bastato: con `immutable` e un anno di `max-age`, la risposta già salvata
 al bordo — senza intestazione — resta lì. La cache è per origine, quindi un sito nuovo riceve
 quella giusta mentre chi aveva già caricato il file continua a ricevere quella vecchia: proprio i
-primi ad averlo installato, cioè noi. L'unico rimedio è stato svuotare la cache a mano. Il
-workflow ora verifica la regola **prima** di pubblicare.
+primi ad averlo installato, cioè noi. Il workflow ora verifica la regola **prima** di pubblicare.
+
+**Come ne siamo usciti: una versione nuova, non una cache svuotata.** La `0.1.0` resta valida per
+chiunque non l'avesse ancora chiesta — la sua intestazione CORS c'è, ed è ciò che i clienti
+ricevono — ma per noi era irrecuperabile. Invece di andare a mano su una dashboard abbiamo
+pubblicato la `0.1.1`: un percorso mai chiesto prima non ha niente al bordo e nasce con le
+intestazioni giuste, passando dallo stesso workflow che ora controlla la regola CORS prima di
+scrivere. Il rimedio è quindi ripetibile e lascia una traccia in `git`, che una purge non lascia.
+
+Un dettaglio che smentisce l'assunto con cui era partita: **l'impronta SRI è cambiata**
+(`sha384-qyZrh2…` → `sha384-DNkTbA…`) benché il codice sia identico, perché la build incastona il
+numero di versione nel bundle. «Stesso codice, stessa impronta» è falso ogni volta che la
+versione finisce dentro l'artefatto — e un `integrity` copiato dalla versione precedente fa
+scartare lo script dal browser, cioè riproduce esattamente il difetto di questa sezione.
+
+**Pubblicata e verificata il 13 agosto 2026.** `widget/0.1.1/` risponde `200` con
+`access-control-allow-origin` presente *anche* per `https://www.wpaissistant.it`, e l'impronta di
+entrambi i file serviti coincide con l'SRI di build. Il sito è su `0.1.1`; il pannello e il
+plugin restano su `0.1.0`, che per loro funziona — si spostano alla prossima versione con un
+cambiamento di codice vero, non per inseguire un numero.
 
 > Il controllo giusto non è «la risorsa risponde», è «un browser la accetta». Ogni volta che
 > questa distinzione è stata saltata in questa roadmap è costata un difetto: la prima con il 404
