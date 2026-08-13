@@ -1,0 +1,14 @@
+{
+  "_comment": "Il rilascio corrente del plugin WordPress. La versione deve coincidere con l'header 'Version:' e con WPAI_VERSION in wp-plugin/wp-aissistant/wp-aissistant.php: un test lo verifica (test_plugin_updates.py). Sta sotto backend/ perché l'immagine Docker copia solo questa cartella.",
+  "version": "1.4.0",
+  "requires": "5.8",
+  "tested": "6.5",
+  "requires_php": "7.4",
+  "released_at": "2026-08-14",
+  "homepage": "https://wpaissistant.it",
+  "changelog": [
+    "1.4.0 — Il plugin si aggiorna da solo. Icone del widget dentro il bundle, niente più Font Awesome da un CDN di terzi.",
+    "1.3.2 — La sincronizzazione di un prodotto aspetta entrambi i suoi invii.",
+    "1.3.1 — Registrazione del sito alla prima connessione, senza passaggi manuali."
+  ]
+}

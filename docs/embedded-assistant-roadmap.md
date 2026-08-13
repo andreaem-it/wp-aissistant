@@ -180,14 +180,49 @@ Due cose da sapere, che non stanno nel codice:
 - **Le versioni immutabili restano tutte.** L'alias è un puntatore in più, non un sostituto: chi
   vuole pinnare può, e il plugin lo fa.
 
-**Il buco che resta: il plugin non ha un canale di aggiornamento.** Non esiste nessun filtro su
-`site_transient_update_plugins`, e la distribuzione è auto-ospitata (fuori da WordPress.org per
-scelta, §4). In pratica oggi un cliente che ha installato il plugin **non riceve aggiornamenti**:
-va avvisato e deve reinstallare a mano. Serve un update server — un endpoint che dichiari
-versione, changelog e URL dello zip, più il filtro nel plugin che lo interroga — ed è un blocco a
-sé, non una riga. Finché non c'è, ogni correzione al plugin raggiunge solo chi la installa
-apposta; quelle al widget invece arrivano da sole, perché il plugin carica dal CDN. È una ragione
-in più per tenere nel plugin il minimo possibile.
+### L'update server del plugin — **fatto** (1.4.0)
+
+Il buco era completo: nessun filtro su `site_transient_update_plugins`, distribuzione
+auto-ospitata (fuori da WordPress.org per scelta, §4), quindi un plugin che **non chiedeva mai**
+aggiornamenti e quindi non ne riceveva. Una correzione raggiungeva solo chi reinstallava a mano,
+cioè nessuno — ed era invisibile da qui, perché tutto funzionava: il pacchetto si costruiva, il
+CDN rispondeva, i clienti restavano fermi per mesi.
+
+Tre pezzi, lo stesso schema del widget:
+
+| Pezzo | Dove | Cosa fa |
+|---|---|---|
+| Lo zip | `cdn.wpaissistant.it/plugin/<versione>/wp-aissistant.zip` | immutabile, pubblicato su tag `plugin-v*` |
+| Il manifest | `GET /plugin/update` | versione, indirizzo, requisiti, changelog |
+| Il controllo | il plugin | `pre_set_site_transient_update_plugins` + `plugins_api` |
+
+**Il manifest è pubblico, ed è una decisione.** Chiuderlo dietro la `api_key` significherebbe che
+un sito con la chiave scaduta, sbagliata o non ancora configurata smette di ricevere correzioni
+di sicurezza — l'opposto di ciò che serve. La licenza si applica alle risposte della chat, dove
+il controllo è server-side ed è già stretto (§5); non al diritto di avere l'ultima versione del
+codice. Un plugin *nulled* non ha bisogno del nostro zip: ha bisogno di una chiave che funzioni.
+
+**Il dominio dello zip è fissato nel plugin, non negoziato nella risposta.** WordPress *esegue*
+il codice che scarica da `package`: un manifest che punta altrove non sarebbe un aggiornamento ma
+esecuzione di codice arbitrario sul sito del cliente. Con il controllo su
+`https://cdn.wpaissistant.it/`, il peggio che può fare un backend compromesso o un proxy che
+riscrive la risposta è impedire l'aggiornamento.
+
+**La versione è dichiarata in cinque posti e ne basta uno sbagliato.** Header del plugin,
+`WPAI_VERSION`, `Stable tag` del readme, il manifest del backend, il tag git. `build.sh` già
+confrontava i primi due; ora un test lega il manifest agli altri e il workflow ricontrolla prima
+di pubblicare, perché è lì che una divergenza diventa visibile ai clienti. Stessa regola di
+`schema.json` e `schema.js`: una lista in più linguaggi si tiene con un test, non con
+l'attenzione. Sono anche allineati `requires`/`tested`/`requires_php` con `readme.txt` — li avevo
+scritti a mano nel manifest e sbagliati al primo colpo.
+
+> **Il problema di avvio, che non si può aggirare.** La 1.4.0 va installata **a mano**, una
+> volta: le versioni precedenti non sanno cercare aggiornamenti, quindi non possono trovare
+> quella che glielo insegna. Vale per ogni sito che ha già il plugin, e va detto ai clienti
+> invece di aspettare che se ne accorgano. Dalla 1.4.0 in poi si aggiorna da sé.
+
+Resta vero che le correzioni al *widget* arrivano comunque da sole, perché il plugin lo carica
+dal CDN: è ancora una ragione per tenere nel plugin il minimo possibile.
 
 ## 4. Perché dal CDN — e cosa il CDN non protegge
 

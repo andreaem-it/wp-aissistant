@@ -2,6 +2,22 @@
 
 Tutte le modifiche rilevanti del plugin WP AIssistant.
 
+## [1.4.0] - 2026-08-14
+
+- **Il plugin si aggiorna da solo.** Finora non esisteva nessun canale: distribuito fuori da
+  WordPress.org, un plugin riceve aggiornamenti solo se è lui a chiederli, e questo non li
+  chiedeva. Una correzione raggiungeva soltanto chi reinstallava a mano. Ora il plugin interroga
+  `GET /plugin/update`, mostra l'avviso nella lista dei plugin e installa dal nostro CDN.
+  L'indirizzo dello zip deve stare sotto `cdn.wpaissistant.it`: WordPress **esegue** il codice
+  che scarica, quindi il dominio è fissato nel plugin e non negoziato nella risposta.
+- Le icone del widget non arrivano più da Font Awesome: sono dentro il bundle. Il plugin smette
+  di accodare un foglio di stile da un CDN di terzi su ogni pagina del sito.
+- Il plugin parla con `backend.wpaissistant.it` invece che con l'indirizzo grezzo di Railway.
+
+> Questa versione va installata **a mano**, una volta: le versioni precedenti non sanno cercare
+> aggiornamenti, quindi non possono trovare quella che glielo insegna. Dalla 1.4.0 in poi si
+> aggiorna da sé.
+
 ## [1.3.2] - 2026-08-08
 
 - La sincronizzazione di un prodotto aspetta entrambi i suoi invii. Un prodotto ne produce due,

@@ -1,0 +1,170 @@
+name: Publish plugin (Cloudflare R2)
+
+# Pubblica lo zip del plugin WordPress su R2, a un percorso **versionato e immutabile**.
+#
+# È l'altra metà del canale di aggiornamento: il backend dice *quale* versione esiste e *dove*
+# sta, questo workflow fa in modo che ci sia davvero. Senza, `GET /plugin/update` annuncerebbe
+# un pacchetto che non c'è — e ogni sito proverebbe ad aggiornare, fallendo, per sempre.
+#
+# Si attiva su tag `plugin-v*`, non a ogni push: pubblicare una release è una decisione.
+#
+# **L'ordine di rilascio è vincolante**: prima il tag `widget-v*`, poi questo. Il plugin pinna
+# una versione del widget con SRI, e se quella non è sul CDN ogni sito cade sulla copia locale
+# in silenzio. Qui il controllo è un errore e non un avviso, perché in una release non c'è
+# nessuna ragione di andare avanti sapendolo.
+
+on:
+  push:
+    tags:
+      - "plugin-v*"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Costruisci e mostra cosa verrebbe pubblicato, senza caricare"
+        type: boolean
+        default: true
+
+env:
+  BUCKET: wp-aissistant-cdn
+
+jobs:
+  publish:
+    name: Build and publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: sdk/widget/package-lock.json
+
+      # `build.sh` costruisce il widget da `sdk/widget` e lo copia nel pacchetto: il plugin non
+      # possiede più il widget, lo impacchetta.
+      - name: Install the widget toolchain
+        working-directory: sdk/widget
+        run: npm ci
+
+      - name: Build the plugin zip
+        run: ./wp-plugin/build.sh
+
+      - name: Read version
+        id: meta
+        run: |
+          version="$(grep -m1 -oE "define\('WPAI_VERSION', '[^']+'\)" wp-plugin/wp-aissistant/wp-aissistant.php | grep -oE "[0-9][0-9A-Za-z.-]*")"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "::notice::plugin $version"
+
+      # Il tag deve dire la stessa versione del pacchetto, come per il widget: pubblicare
+      # `plugin-v1.4.0` con dentro l'1.3.2 significa che da quel momento la versione immutabile
+      # mente, e nessuno se ne accorge finché un cliente non aggiorna e non cambia niente.
+      - name: Tag matches the plugin version
+        if: startsWith(github.ref, 'refs/tags/plugin-v')
+        run: |
+          tag="${GITHUB_REF_NAME#plugin-v}"
+          if [ "$tag" != "${{ steps.meta.outputs.version }}" ]; then
+            echo "::error::il tag dice $tag, il plugin ${{ steps.meta.outputs.version }}"
+            exit 1
+          fi
+
+      # Il manifest che il backend serve è la terza dichiarazione della stessa versione. Un test
+      # la lega alle altre due, ma quel test gira nella suite del backend: qui si ricontrolla,
+      # perché è **questo** il momento in cui una divergenza diventa visibile ai clienti.
+      - name: The backend manifest announces this version
+        run: |
+          declared="$(python3 -c "import json;print(json.load(open('backend/app/plugin_release.json'))['version'])")"
+          if [ "$declared" != "${{ steps.meta.outputs.version }}" ]; then
+            echo "::error::backend/app/plugin_release.json dice $declared, il plugin ${{ steps.meta.outputs.version }}: aggiornalo prima di pubblicare, o il canale di aggiornamento punterà a un pacchetto inesistente."
+            exit 1
+          fi
+
+      # L'ordine di rilascio, applicato invece che raccomandato.
+      - name: The packaged widget version is on the CDN
+        run: |
+          widget="$(node -p "require('./sdk/widget/dist/integrity.json').version")"
+          url="https://cdn.wpaissistant.it/widget/$widget/wpai-widget.js"
+          code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "$url")"
+          if [ "$code" != "200" ]; then
+            echo "::error::il widget $widget non è pubblicato ($url risponde $code). Pubblica prima il tag widget-v$widget: altrimenti ogni sito cade sulla copia locale, in silenzio."
+            exit 1
+          fi
+          echo "::notice::widget $widget pubblicato"
+
+      - name: Check the credentials are configured
+        id: creds
+        run: |
+          if [ -n "${{ secrets.CLOUDFLARE_R2_TOKEN }}" ] && [ -n "${{ secrets.CLOUDFLARE_ACCOUNT_ID }}" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::error::CLOUDFLARE_R2_TOKEN / CLOUDFLARE_ACCOUNT_ID non configurati: niente è stato pubblicato."
+          fi
+
+      - name: Stop when not configured
+        if: steps.creds.outputs.ready != 'true' && github.event_name == 'push'
+        run: exit 1
+
+      - name: Publish the immutable version
+        if: steps.creds.outputs.ready == 'true' && !inputs.dry_run
+        working-directory: sdk/widget
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_R2_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          set -euo pipefail
+          # Un anno e `immutable`, come per il widget: è sicuro solo perché il percorso contiene
+          # la versione. Il nome del file **non** la porta, perché WordPress scompatta l'archivio
+          # e usa il nome della cartella dentro, non quello dello zip.
+          npx wrangler r2 object put "${{ env.BUCKET }}/plugin/$VERSION/wp-aissistant.zip" \
+            --file "../../wp-plugin/dist/wp-aissistant-$VERSION.zip" \
+            --content-type "application/zip" \
+            --cache-control "public, max-age=31536000, immutable" --remote
+
+      # Prova che il pacchetto è scaricabile davvero, e che è **uno zip**: un `put` andato a buon
+      # fine su un file sbagliato produrrebbe aggiornamenti che falliscono a metà installazione,
+      # sui siti dei clienti, senza che noi lo sappiamo.
+      - name: Verify it is publicly downloadable
+        if: steps.creds.outputs.ready == 'true' && !inputs.dry_run
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          url="https://cdn.wpaissistant.it/plugin/$VERSION/wp-aissistant.zip"
+          code=000
+          for attempt in 1 2 3 4 5 6; do
+            code="$(curl -s -o /tmp/plugin.zip -w '%{http_code}' --max-time 60 "$url")"
+            [ "$code" = "200" ] && break
+            echo "::notice::tentativo $attempt: $url risponde $code, riprovo fra 10s"
+            sleep 10
+          done
+          if [ "$code" != "200" ]; then
+            echo "::error::$url risponde $code dopo un minuto di tentativi"
+            exit 1
+          fi
+          if ! unzip -tq /tmp/plugin.zip; then
+            echo "::error::il file pubblicato non è uno zip valido"
+            exit 1
+          fi
+          # La cartella dentro l'archivio è ciò che WordPress installa: se non si chiamasse
+          # `wp-aissistant/`, l'aggiornamento creerebbe un secondo plugin accanto al primo.
+          if ! unzip -Z1 /tmp/plugin.zip | head -1 | grep -q '^wp-aissistant/'; then
+            echo "::error::l'archivio non contiene la cartella wp-aissistant/"
+            exit 1
+          fi
+          echo "::notice::pubblicato e verificato: $url"
+
+      # Il canale di aggiornamento è vivo solo se il backend annuncia questa versione. Il backend
+      # si aggiorna con il suo deploy, quindi qui può ancora rispondere quella precedente: è un
+      # avviso, non un errore — ma va detto, perché è la differenza fra «pubblicato» e «i clienti
+      # lo ricevono».
+      - name: Does the update channel already announce it
+        if: steps.creds.outputs.ready == 'true' && !inputs.dry_run
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          announced="$(curl -s --max-time 30 https://backend.wpaissistant.it/plugin/update | python3 -c "import json,sys;print(json.load(sys.stdin).get('version',''))" || echo "")"
+          if [ "$announced" != "$VERSION" ]; then
+            echo "::warning::il backend annuncia ancora «$announced»: i siti vedranno l'aggiornamento quando il backend sarà rilasciato."
+          else
+            echo "::notice::il canale di aggiornamento annuncia $VERSION"
+          fi

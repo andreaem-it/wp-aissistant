@@ -2,19 +2,19 @@
 /**
  * Plugin Name: WP AIssistant
  * Description: Floating AI chat widget backed by a RAG backend, with automatic site content sync.
- * Version: 1.3.2
+ * Version: 1.4.0
  */
 
 if (!defined('ABSPATH')) exit;
 
 define('WPAI_OPTION', 'wpai_settings');
-define('WPAI_VERSION', '1.3.2'); // keep in sync with the "Version:" header above
+define('WPAI_VERSION', '1.4.0'); // keep in sync with the "Version:" header above
 
 // The backend is a single hosted service (not something each site owner runs), so its URL
 // isn't a setting — it's hardcoded here. Override only for local/staging testing by defining
 // WPAI_BACKEND_URL in wp-config.php before this plugin loads.
 if (!defined('WPAI_BACKEND_URL')) {
-    define('WPAI_BACKEND_URL', 'https://wp-aissistant-production.up.railway.app');
+    define('WPAI_BACKEND_URL', 'https://backend.wpaissistant.it');
 }
 
 // Real icons instead of emoji, in the widget and in our wp-admin pages. Loaded from the
@@ -1080,3 +1080,138 @@ add_action('wp_ajax_wpai_user_token', function () {
     $sig = hash_hmac('sha256', $payload, wpai_token_secret());
     wp_send_json_success(['token' => $payload . '.' . $sig]);
 });
+
+// ---- Aggiornamenti ---------------------------------------------------------------------------
+//
+// Il plugin è distribuito da noi, non da WordPress.org. Un plugin auto-ospitato **non riceve
+// aggiornamenti** a meno che non sia lui a chiederli: finora non li chiedeva, quindi una
+// correzione raggiungeva solo chi reinstallava a mano — cioè nessuno, e senza saperlo. È lo
+// stesso fallimento muto che questo prodotto continua a produrre, solo su scala di mesi.
+//
+// Tre agganci, e servono tutti:
+//   - `pre_set_site_transient_update_plugins` mette l'aggiornamento dove WordPress lo cerca;
+//   - `plugins_api` riempie la scheda «Visualizza dettagli», che senza mostrerebbe un errore;
+//   - `upgrader_source_selection` garantisce che la cartella scompattata si chiami come quella
+//     installata, altrimenti WordPress installa un secondo plugin accanto al primo.
+
+define('WPAI_UPDATE_TRANSIENT', 'wpai_update_manifest');
+define('WPAI_UPDATE_TTL', 6 * HOUR_IN_SECONDS);
+
+/**
+ * Il manifest del rilascio corrente, o null.
+ *
+ * Tenuto in un transient perché WordPress interroga gli aggiornamenti **a ogni caricamento**
+ * della pagina dei plugin: senza cache, ogni amministratore che guarda la lista genererebbe una
+ * richiesta al nostro backend, moltiplicata per ogni sito.
+ *
+ * Un errore di rete non è un errore: si restituisce null e WordPress si comporta come se non ci
+ * fossero aggiornamenti. Un avviso rosso nella bacheca perché il nostro backend era irraggiungibile
+ * per trenta secondi sarebbe rumore che l'amministratore non può usare.
+ */
+function wpai_update_manifest($force = false) {
+    if (!$force) {
+        $cached = get_transient(WPAI_UPDATE_TRANSIENT);
+        // Il fallimento è in cache come `['version' => '']`, che è un array **vero**: senza
+        // questo controllo il chiamante lo prenderebbe per un manifest valido e registrerebbe
+        // un aggiornamento con versione vuota. Il tipo dice «ho una risposta», il contenuto dice
+        // «non ne ho»; a decidere dev'essere il contenuto.
+        if (is_array($cached)) return empty($cached['version']) ? null : $cached;
+    }
+    $response = wp_remote_get(rtrim(WPAI_BACKEND_URL, '/') . '/plugin/update', [
+        'timeout' => 8,
+        'headers' => ['Accept' => 'application/json'],
+    ]);
+    if (is_wp_error($response) || wp_remote_retrieve_response_code($response) !== 200) {
+        // Cache breve anche sul fallimento: senza, un backend giù farebbe ritentare ogni
+        // singolo caricamento di pagina, cioè il carico peggiore proprio nel momento peggiore.
+        set_transient(WPAI_UPDATE_TRANSIENT, ['version' => ''], 15 * MINUTE_IN_SECONDS);
+        return null;
+    }
+    $manifest = json_decode(wp_remote_retrieve_body($response), true);
+    if (!is_array($manifest) || empty($manifest['version']) || empty($manifest['download_url'])) {
+        set_transient(WPAI_UPDATE_TRANSIENT, ['version' => ''], 15 * MINUTE_IN_SECONDS);
+        return null;
+    }
+    // Lo zip arriva da un indirizzo che ci dice il nostro backend, e WordPress ci **eseguirà**
+    // il codice dentro. Un manifest che punta altrove non è un aggiornamento, è un'esecuzione
+    // di codice arbitrario: il dominio è fissato qui, non negoziato nella risposta.
+    if (strpos($manifest['download_url'], 'https://cdn.wpaissistant.it/') !== 0) {
+        set_transient(WPAI_UPDATE_TRANSIENT, ['version' => ''], 15 * MINUTE_IN_SECONDS);
+        return null;
+    }
+    set_transient(WPAI_UPDATE_TRANSIENT, $manifest, WPAI_UPDATE_TTL);
+    return $manifest;
+}
+
+add_filter('pre_set_site_transient_update_plugins', function ($transient) {
+    if (!is_object($transient)) return $transient;
+    $manifest = wpai_update_manifest();
+    if (!$manifest) return $transient;
+
+    $basename = plugin_basename(__FILE__);
+    if (!version_compare($manifest['version'], WPAI_VERSION, '>')) {
+        // Nessun aggiornamento: va detto esplicitamente, altrimenti WordPress continua a
+        // mostrare come disponibile quello di un giro precedente rimasto nel transient.
+        unset($transient->response[$basename]);
+        $transient->no_update[$basename] = wpai_update_payload($manifest, $basename);
+        return $transient;
+    }
+    $transient->response[$basename] = wpai_update_payload($manifest, $basename);
+    return $transient;
+});
+
+function wpai_update_payload($manifest, $basename) {
+    return (object) [
+        'id' => $basename,
+        'slug' => isset($manifest['slug']) ? $manifest['slug'] : 'wp-aissistant',
+        'plugin' => $basename,
+        'new_version' => $manifest['version'],
+        'url' => isset($manifest['homepage']) ? $manifest['homepage'] : '',
+        'package' => $manifest['download_url'],
+        'requires' => isset($manifest['requires']) ? $manifest['requires'] : '',
+        'requires_php' => isset($manifest['requires_php']) ? $manifest['requires_php'] : '',
+        'tested' => isset($manifest['tested']) ? $manifest['tested'] : '',
+    ];
+}
+
+// La scheda «Visualizza dettagli». Senza questo filtro WordPress la chiede a WordPress.org, che
+// non conosce questo plugin, e l'amministratore riceve un errore proprio mentre cerca di capire
+// cosa sta per installare.
+add_filter('plugins_api', function ($result, $action, $args) {
+    if ($action !== 'plugin_information') return $result;
+    if (empty($args->slug) || $args->slug !== 'wp-aissistant') return $result;
+    $manifest = wpai_update_manifest();
+    if (!$manifest) return $result;
+
+    return (object) [
+        'name' => isset($manifest['name']) ? $manifest['name'] : 'WP AIssistant',
+        'slug' => 'wp-aissistant',
+        'version' => $manifest['version'],
+        'requires' => isset($manifest['requires']) ? $manifest['requires'] : '',
+        'requires_php' => isset($manifest['requires_php']) ? $manifest['requires_php'] : '',
+        'tested' => isset($manifest['tested']) ? $manifest['tested'] : '',
+        'last_updated' => isset($manifest['last_updated']) ? $manifest['last_updated'] : '',
+        'homepage' => isset($manifest['homepage']) ? $manifest['homepage'] : '',
+        'download_link' => $manifest['download_url'],
+        'sections' => isset($manifest['sections']) ? (array) $manifest['sections'] : [],
+    ];
+}, 10, 3);
+
+// Lo zip contiene già la cartella `wp-aissistant/`, ma un archivio costruito diversamente
+// installerebbe un **secondo** plugin accanto a questo invece di sostituirlo: due copie attive,
+// due widget nella pagina, e un amministratore che non capisce perché. Si rinomina la cartella
+// scompattata a quella che stiamo aggiornando.
+add_filter('upgrader_source_selection', function ($source, $remote_source, $upgrader, $extra = []) {
+    if (empty($extra['plugin']) || $extra['plugin'] !== plugin_basename(__FILE__)) return $source;
+    global $wp_filesystem;
+    $wanted = trailingslashit($remote_source) . 'wp-aissistant';
+    if ($source === trailingslashit($wanted) || !$wp_filesystem) return $source;
+    if ($wp_filesystem->move($source, $wanted)) return trailingslashit($wanted);
+    return $source;
+}, 10, 4);
+
+// Dopo un aggiornamento il manifest in cache descrive la versione **precedente**: buttarlo evita
+// che WordPress continui a proporre per sei ore un aggiornamento appena installato.
+add_action('upgrader_process_complete', function ($upgrader, $options) {
+    if (isset($options['type']) && $options['type'] === 'plugin') delete_transient(WPAI_UPDATE_TRANSIENT);
+}, 10, 2);
