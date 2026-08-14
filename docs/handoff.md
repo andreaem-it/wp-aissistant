@@ -19,9 +19,13 @@ multi-tenant, venduto in SaaS. Quattro componenti (dettaglio in [`../README.md`]
 | Plugin WordPress | `wp-plugin/` | PHP + JS/CSS vanilla, **nessun bundler** |
 | Sito marketing | `website/` | HTML/CSS statico |
 
-**Produzione live:** backend su Railway (`https://wp-aissistant-production.up.railway.app`),
-database Postgres/pgvector su Neon, AI via Cloudflare Workers AI (`bge-m3` per gli embedding,
-llama per la chat), panel e sito su Cloudflare Pages. CI/CD su GitHub Actions.
+**Produzione live:** backend su Railway, servito da `https://backend.wpaissistant.it` —
+l'indirizzo grezzo `wp-aissistant-production.up.railway.app` risponde ancora ma non va usato
+in nessuna configurazione: era finito nel sito, nel pannello, nel plugin e negli snippet dei
+clienti, cioè in quattro posti da correggere invece di uno. Database Postgres/pgvector su Neon,
+AI via Cloudflare Workers AI (`bge-m3` per gli embedding, llama per la chat), panel e sito su
+Cloudflare Pages, CDN degli artefatti (widget e zip del plugin) su R2 dietro
+`cdn.wpaissistant.it`. CI/CD su GitHub Actions.
 
 ## 2. Stato al momento dell'handoff
 

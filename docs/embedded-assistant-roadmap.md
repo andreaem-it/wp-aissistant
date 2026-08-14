@@ -827,12 +827,32 @@ dati dei contatti o chiavi. Più la chiave del rate limit, che la roadmap chiede
 «con un test, non per deduzione»: è una stringa costruita altrove e può cambiare senza che nulla
 se ne accorga.
 
-## 9. Fase 6 — Pubblicazione e documentazione
+## 9. Fase 6 — Pubblicazione e documentazione — **documentazione fatta, npm bloccato**
 
-- `@wp-aissistant/browser` su npm: pronto da tempo, bloccato solo su scope npm e `NPM_TOKEN`
-  (procedura in `browser-sdk.md`).
-- `@wp-aissistant/widget` come secondo pacchetto, stesso artefatto del CDN.
-- `docs/embedded-widget.md` con opzioni, eventi, adapter host e nota SRI.
+- **[`docs/embedded-widget.md`](embedded-widget.md) scritta**: snippet, licenza legata al
+  dominio, modello di aggiornamento con il compromesso sull'SRI dichiarato, adapter host, CSP e
+  una sezione «se non compare» ordinata per quanto spesso è la causa.
+
+  Due cose che sono venute fuori scrivendola, e che sono il motivo per cui documentare presto
+  conviene. La prima: `sdk/widget/README.md` **diceva cose false** — mostrava `backendUrl` nello
+  snippet e raccomandava la versione fissa come default, cioè esattamente le due decisioni
+  rovesciate il giorno prima. Un README sbagliato è peggio di uno assente, perché chi lo segue
+  ottiene un widget che non parte e nessun indizio su cosa ha sbagliato. La seconda: la roadmap
+  chiedeva di documentare gli «eventi», e **non esistono**. Il widget non emette `CustomEvent`
+  propri; l'unico in giro è `wpai_cart_updated` dell'adapter WordPress, che quindi non è un
+  contratto del widget. Documentarlo come se fosse un'API avrebbe creato una dipendenza su
+  qualcosa che non abbiamo promesso — la guida dice cosa c'è e invita a chiedere.
+
+- **npm: bloccato, non dimenticato.** `publish-sdk.yml` è pronto e aspetta due cose che
+  richiedono l'account proprietario: l'organizzazione `@wp-aissistant` su npm e il secret
+  `NPM_TOKEN` (procedura in [`browser-sdk.md`](browser-sdk.md)). Vale per
+  `@wp-aissistant/browser` e a maggior ragione per `@wp-aissistant/widget`, che sarebbe il
+  secondo pacchetto con lo stesso artefatto del CDN.
+
+  Vale la pena dire che **non è sulla strada critica**: chi installa il widget lo prende dal CDN
+  con due righe, e chi usa un bundler può già puntare al workspace. npm è distribuzione e
+  reperibilità, non una dipendenza di nessuna funzione.
+
 - `README.md` e `competitor-feature-backlog.md` aggiornati **nello stesso commit** della feature
   (regola 7).
 
