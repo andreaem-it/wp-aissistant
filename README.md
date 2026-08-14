@@ -615,6 +615,17 @@ notifiche **in silenzio**, con l'interruttore che diceva «attive».
 Resta un passaggio manuale: gli operatori devono riattivare le notifiche sul proprio dispositivo.
 Vanno avvisati, perché nessuno si accorge da solo di una notifica che non arriva.
 
+**Rotazione eseguita il 15 agosto 2026.** La coppia precedente è stata esposta in una
+trascrizione di lavoro elencando le variabili del servizio: `VAPID_PRIVATE_KEY` è un valore PEM
+multilinea, e un filtro che doveva mostrare i soli nomi ne ha stampato il corpo. La coppia nuova
+è stata generata e verificata **prima** di scriverla — `py_vapid` la carica e firma, e la
+pubblica deriva dalla privata — e le due variabili sono state impostate insieme, perché
+separate lascerebbero una finestra in cui non corrispondono e nessuna notifica partirebbe.
+
+Chi rifà questa operazione: elencare le variabili con un filtro riga per riga **non funziona** su
+valori multilinea. Serve un parser che legga le chiavi del JSON (`railway variables --json` +
+`json.load`), non `sed` sull'output.
+
 ## API principali (backend)
 
 Auth via header `Authorization: Bearer <token>`. La colonna *Auth* indica quale credenziale:

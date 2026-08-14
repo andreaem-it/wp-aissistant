@@ -27,6 +27,12 @@ AI via Cloudflare Workers AI (`bge-m3` per gli embedding, llama per la chat), pa
 Cloudflare Pages, CDN degli artefatti (widget e zip del plugin) su R2 dietro
 `cdn.wpaissistant.it`. CI/CD su GitHub Actions.
 
+**Chiavi VAPID ruotate il 15 agosto 2026** (motivo e procedura in
+[README](../README.md#rotazione-delle-chiavi-vapid)): gli operatori devono **riattivare le
+notifiche push** sul proprio dispositivo. Le sottoscrizioni vecchie vengono eliminate da sole al
+primo tentativo di consegna, ma nessuno si accorge di una notifica che non arriva — vanno
+avvisati.
+
 ## 2. Stato al momento dell'handoff
 
 **P1 è sostanzialmente chiuso; P0 operativo e compliance sono ancora aperti.** Del **P2 è
