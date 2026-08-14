@@ -819,6 +819,12 @@ dice (`503`), invece di emettere token che nessuno potrà verificare.
 controllo di produzione fallisce se coincidono) e `VITE_ASSISTANT_API_KEY` nel panel. Vuoti,
 tutto resta com'era: nessun launcher, nessun endpoint utile, nessun errore in faccia a nessuno.
 
+Entrambe impostate in produzione il **14 agosto 2026**. Il segreto è di 64 caratteri,
+verificato diverso da `ADMIN_API_KEY` prima di scriverlo, e la configurazione live passa
+`production_warnings()` senza avvisi — il che conta doppio qui, perché con
+`STRICT_PRODUCTION_CONFIG=true` un segreto debole avrebbe impedito l'avvio del backend anziché
+degradare in silenzio.
+
 **Coperto da test**: firma, manomissione del payload, scadenza, segreto assente, spazzatura in
 ingresso; il vincolo del tenant che risponde; l'audit della lettura; la whitelist verificata *per
 uguaglianza* — aggiungere un campo fa fallire un test, perché un campo nuovo nel prompt di un
