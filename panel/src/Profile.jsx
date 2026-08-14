@@ -361,6 +361,29 @@ function base64Key(value) {
   return Uint8Array.from([...raw].map((char) => char.charCodeAt(0)));
 }
 
+/**
+ * Questa sottoscrizione è stata creata con la chiave che il server usa **adesso**?
+ *
+ * Serve perché le chiavi VAPID si ruotano, e una sottoscrizione creata con la chiave precedente
+ * non riceverà mai più niente. Riusarla è il difetto peggiore che questa schermata potesse
+ * avere: l'operatore preme «attiva», l'interruttore dice «attive» perché una sottoscrizione
+ * esiste davvero, e le notifiche semplicemente non arrivano più. Nessun errore da nessuna parte,
+ * e chi aspetta una notifica che non arriva non ha modo di accorgersene.
+ *
+ * `options.applicationServerKey` è un ArrayBuffer con la chiave usata al momento della
+ * sottoscrizione: si confronta byte a byte con quella corrente. Se il browser non lo espone —
+ * campo opzionale — si risponde `true`, cioè si tiene ciò che c'è: preferibile a disiscrivere
+ * a ogni visita chi ha una sottoscrizione perfettamente valida.
+ */
+export function subscriptionMatchesKey(subscription, publicKey) {
+  const existing = subscription?.options?.applicationServerKey;
+  if (!existing || !publicKey) return true;
+  const wanted = base64Key(publicKey);
+  const actual = new Uint8Array(existing);
+  if (actual.length !== wanted.length) return false;
+  return actual.every((byte, index) => byte === wanted[index]);
+}
+
 function PushCard() {
   const [config, setConfig] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -376,7 +399,13 @@ function PushCard() {
     try {
       if (await Notification.requestPermission() !== "granted") { setMessage("Permesso notifiche non concesso."); return; }
       const registration = await navigator.serviceWorker.ready;
-      const current = await registration.pushManager.getSubscription();
+      let current = await registration.pushManager.getSubscription();
+      // Una sottoscrizione creata con una chiave precedente è morta: va disiscritta e rifatta,
+      // altrimenti la si tiene e non arriva più niente senza che nulla lo dica.
+      if (current && !subscriptionMatchesKey(current, config.public_key)) {
+        await current.unsubscribe().catch(() => {});
+        current = null;
+      }
       const subscription = current || await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: base64Key(config.public_key) });
       await api.savePushSubscription({ ...subscription.toJSON(), preferences: config.preferences });
       setConfig((value) => ({ ...value, subscriptions: 1 }));

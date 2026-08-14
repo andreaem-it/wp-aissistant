@@ -83,3 +83,64 @@ def test_subscription_validates_https_and_keys(client, tenant):
         "/push/subscriptions", headers=tenant["op"],
         json={"endpoint": SUBSCRIPTION["endpoint"], "keys": {}},
     ).status_code == 400
+
+
+def _fail_with(status):
+    """Un `webpush` che fallisce come farebbe il servizio push, con la sua risposta HTTP."""
+    class _Response:
+        status_code = status
+
+    def _send(**kwargs):
+        raise push.WebPushException("rifiutata", response=_Response())
+
+    return _send
+
+
+def test_a_subscription_made_with_an_older_key_is_dropped(client, tenant, monkeypatch):
+    """Le chiavi VAPID si ruotano, e da quel momento le sottoscrizioni create con la precedente
+    non riceveranno mai più niente: il servizio push risponde `403`, non `410`.
+
+    Prima si potava solo su `404/410`, quindi quelle righe restavano in base **per sempre** e
+    ogni notifica spendeva una richiesta per fallire. Nessuno se ne accorgeva: una notifica non
+    consegnata non ha nessuno che la reclami.
+    """
+    client.post("/push/subscriptions", headers=tenant["op"], json=SUBSCRIPTION)
+    monkeypatch.setattr(push, "VAPID_PUBLIC_KEY", "public-vapid")
+    monkeypatch.setattr(push, "VAPID_PRIVATE_KEY", "private-vapid")
+    monkeypatch.setattr(push, "webpush", _fail_with(403))
+
+    with Session(db.engine) as session:
+        assert push.send(session, tenant["cid"], "mention", title="x", body="y") == 0
+
+    with Session(db.engine) as session:
+        assert session.exec(select(db.PushSubscription)).all() == []
+
+
+def test_a_gone_subscription_is_still_dropped(client, tenant, monkeypatch):
+    """Il comportamento di prima non deve essersi perso strada facendo."""
+    client.post("/push/subscriptions", headers=tenant["op"], json=SUBSCRIPTION)
+    monkeypatch.setattr(push, "VAPID_PUBLIC_KEY", "public-vapid")
+    monkeypatch.setattr(push, "VAPID_PRIVATE_KEY", "private-vapid")
+    monkeypatch.setattr(push, "webpush", _fail_with(410))
+
+    with Session(db.engine) as session:
+        assert push.send(session, tenant["cid"], "mention", title="x", body="y") == 0
+
+    with Session(db.engine) as session:
+        assert session.exec(select(db.PushSubscription)).all() == []
+
+
+def test_a_temporary_failure_keeps_the_subscription(client, tenant, monkeypatch):
+    """Un `500` del servizio push è un problema loro, non nostro: buttare la sottoscrizione
+    trasformerebbe un guasto passeggero in un operatore che smette di ricevere notifiche finché
+    non se ne accorge e le riattiva a mano."""
+    client.post("/push/subscriptions", headers=tenant["op"], json=SUBSCRIPTION)
+    monkeypatch.setattr(push, "VAPID_PUBLIC_KEY", "public-vapid")
+    monkeypatch.setattr(push, "VAPID_PRIVATE_KEY", "private-vapid")
+    monkeypatch.setattr(push, "webpush", _fail_with(500))
+
+    with Session(db.engine) as session:
+        assert push.send(session, tenant["cid"], "mention", title="x", body="y") == 0
+
+    with Session(db.engine) as session:
+        assert len(session.exec(select(db.PushSubscription)).all()) == 1

@@ -554,7 +554,7 @@ Per collegare CRM e automazioni ci sono due strade complementari, documentate in
 | `ATTACHMENT_STORAGE_TIMEOUT` | `15` | Timeout upload/download/cancellazione in secondi |
 | `ATTACHMENT_MAX_BYTES` | `10485760` | Dimensione massima di un allegato operatore (10 MB di default) |
 | `VAPID_PUBLIC_KEY` | *(non impostato)* | Chiave pubblica URL-safe per sottoscrivere i browser alle notifiche push |
-| `VAPID_PRIVATE_KEY` | *(non impostato)* | Chiave privata VAPID, conservata soltanto nel backend |
+| `VAPID_PRIVATE_KEY` | *(non impostato)* | Chiave privata VAPID, conservata soltanto nel backend. Ruotarla invalida le sottoscrizioni esistenti: vedi [rotazione](#rotazione-delle-chiavi-vapid) |
 | `VAPID_SUBJECT` | `mailto:support@wpaissistant.it` | Contatto del mittente Web Push (`mailto:` o URL HTTPS) |
 | `SMTP_TLS` | `true` | `true` = STARTTLS, `ssl` = SMTPS, `false` = nessuna cifratura |
 | `PANEL_PUBLIC_URL` | *(= primo `PANEL_ORIGINS`)* | URL pubblico del panel, usato per costruire i link nelle email (`/?verify=`, `/?reset=`) |
@@ -591,6 +591,29 @@ obbligatorio prima del passaggio live sono in [`docs/eu-ai-migration.md`](docs/e
 (1024-dim → `EMBED_DIM=1024`) + `CLOUDFLARE_API_KEY`/`CLOUDFLARE_ACCOUNT_ID`. Cambiare modello di
 embedding richiede la migrazione `0004` e un re-embed dei contenuti via `POST /admin/reembed`
 (la ricerca ignora i chunk non ancora ri-embeddati nel frattempo).
+
+### Rotazione delle chiavi VAPID
+
+Ruotare `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY` **invalida ogni sottoscrizione push esistente**:
+una sottoscrizione è legata alla chiave pubblica con cui è stata creata, e da quel momento il
+servizio push rifiuta le consegne con `403`. Non è reversibile rimettendo la chiave vecchia se
+nel frattempo i client si sono ri-sottoscritti.
+
+Cosa succede, con il codice attuale:
+
+1. Le sottoscrizioni vecchie vengono **eliminate al primo tentativo di consegna** (`403`/`401`),
+   con un log `push.credentials_rejected` a livello ERROR. Se compare per tutte insieme non è un
+   dispositivo: è la configurazione.
+2. Alla prima visita del pannello, l'operatore che riattiva le notifiche ottiene una
+   sottoscrizione nuova — il pannello confronta la chiave con cui era stata creata e si
+   disiscrive da sola se non corrisponde.
+
+Fino ad agosto 2026 nessuna delle due cose accadeva: il backend potava solo su `404/410` e il
+pannello riusava qualunque sottoscrizione trovasse. Una rotazione lasciava gli operatori senza
+notifiche **in silenzio**, con l'interruttore che diceva «attive».
+
+Resta un passaggio manuale: gli operatori devono riattivare le notifiche sul proprio dispositivo.
+Vanno avvisati, perché nessuno si accorge da solo di una notifica che non arriva.
 
 ## API principali (backend)
 

@@ -73,8 +73,27 @@ def send(
         except WebPushException as exc:
             status = exc.response.status_code if exc.response is not None else 0
             if status in (404, 410):
+                # La sottoscrizione non esiste più dal lato del servizio push: il browser è stato
+                # disinstallato, la cache pulita, il permesso revocato.
                 stale.append(subscription)
-            log(logger, logging.WARNING, "push.delivery_failed", client_id=client_id, status=status)
+                log(logger, logging.WARNING, "push.delivery_failed", client_id=client_id, status=status)
+            elif status in (401, 403):
+                # Le nostre credenziali VAPID non valgono per questa sottoscrizione: è stata
+                # creata con una chiave pubblica diversa da quella che stiamo usando adesso, cioè
+                # **prima di una rotazione**. Nessuna ripetizione la farà funzionare.
+                #
+                # Prima si potava solo su 404/410, quindi righe come queste restavano in base per
+                # sempre e ogni notifica spendeva una richiesta per fallire — e nessuno se ne
+                # accorgeva, perché una notifica non consegnata non ha nessuno che la reclami.
+                #
+                # Eliminarla è sicuro perché non è distruttivo: il pannello ricrea la
+                # sottoscrizione da solo alla prima visita, ora che sa riconoscere una chiave
+                # cambiata. Il livello è ERROR e non WARNING di proposito: se compare per tutte le
+                # sottoscrizioni insieme non è un dispositivo, è la nostra configurazione.
+                stale.append(subscription)
+                log(logger, logging.ERROR, "push.credentials_rejected", client_id=client_id, status=status)
+            else:
+                log(logger, logging.WARNING, "push.delivery_failed", client_id=client_id, status=status)
         except Exception as exc:  # noqa: BLE001 - notifications never break the main action
             log(logger, logging.WARNING, "push.delivery_failed", client_id=client_id, error=type(exc).__name__)
     for subscription in stale:
